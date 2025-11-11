@@ -162,6 +162,7 @@ pub fn load_awq<P: AsRef<Path>>(model_dir: P, mut options: LoadOptions) -> Resul
         config,
         name_mapper: smart_mapper,
         raw_tensors,
+        quantized_tensors: None,
         metadata: crate::metadata::ModelMetadata::new(),
         tensor_info: HashMap::new(),
         quantization_info: None,

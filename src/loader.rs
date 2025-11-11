@@ -9,6 +9,7 @@ use crate::progress::{ProgressEvent, ProgressFn, ProgressTimer};
 use crate::smart_mapping::{NameMappingOracle, SmartTensorNameMapper};
 use crate::validation::{validate_dtype_for_device, validate_memory_requirements};
 
+use candle_core::quantized::QTensor;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use std::collections::HashMap;
@@ -25,6 +26,8 @@ pub struct LoadOptions {
     pub use_mmap: bool,
     /// Validate CUDA availability (required for some quantization formats)
     pub validate_cuda: bool,
+    /// Preserve quantization (keep QTensor objects instead of dequantizing)
+    pub preserve_quantization: bool,
     /// Progress callback function
     pub progress: Option<ProgressFn>,
     /// Smart mapping oracle for intelligent tensor name resolution
@@ -39,6 +42,7 @@ impl LoadOptions {
             dtype,
             use_mmap: true,
             validate_cuda: false,
+            preserve_quantization: false,
             progress: None,
             smart_mapping_oracle: None,
         }
@@ -57,6 +61,7 @@ impl LoadOptions {
             dtype: self.dtype,
             use_mmap: self.use_mmap,
             validate_cuda: self.validate_cuda,
+            preserve_quantization: self.preserve_quantization,
             progress: None,             // Skip progress callback
             smart_mapping_oracle: None, // Skip oracle
         }
@@ -85,6 +90,12 @@ impl LoadOptions {
         self.smart_mapping_oracle = Some(oracle);
         self
     }
+
+    /// Preserve quantization (keep QTensor objects instead of dequantizing)
+    pub fn with_quantization_preserved(mut self) -> Self {
+        self.preserve_quantization = true;
+        self
+    }
 }
 
 impl Default for LoadOptions {
@@ -94,6 +105,7 @@ impl Default for LoadOptions {
             dtype: DType::F32,
             use_mmap: true,
             validate_cuda: false,
+            preserve_quantization: false,
             smart_mapping_oracle: None,
             progress: None,
         }
@@ -110,6 +122,8 @@ pub struct LoadedModel {
     pub name_mapper: SmartTensorNameMapper,
     /// Raw tensor data (before name mapping)
     pub raw_tensors: HashMap<String, Tensor>,
+    /// Quantized tensors (preserved from GGUF files when preserve_quantization is enabled)
+    pub quantized_tensors: Option<HashMap<String, QTensor>>,
     /// Comprehensive model metadata
     pub metadata: crate::metadata::ModelMetadata,
     /// Per-tensor information and statistics
@@ -165,9 +179,52 @@ impl LoadedModel {
         self.raw_tensors.keys().cloned().collect()
     }
 
+    /// Get a quantized tensor by its mapped name (if quantization is preserved)
+    ///
+    /// # Arguments
+    /// * `mapped_name` - Name in the target format (after name mapping)
+    ///
+    /// # Returns
+    /// * `Some(&QTensor)` if the tensor exists and quantization is preserved
+    /// * `None` if tensor doesn't exist or quantization was not preserved
+    pub fn get_qtensor(&self, mapped_name: &str) -> Option<&QTensor> {
+        if let Some(ref qtensors) = self.quantized_tensors {
+            // Find the original HF name for this mapped name
+            let reverse_map = self.name_mapper.reverse_map();
+            if let Some(hf_name) = reverse_map.get(mapped_name) {
+                qtensors.get(hf_name)
+            } else {
+                // Try direct lookup in case it's not mapped
+                qtensors.get(mapped_name)
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Get a quantized tensor by its original HuggingFace name (if quantization is preserved)
+    pub fn get_qtensor_by_hf_name(&self, hf_name: &str) -> Option<&QTensor> {
+        self.quantized_tensors
+            .as_ref()
+            .and_then(|qtensors| qtensors.get(hf_name))
+    }
+
+    /// Check if quantized tensors are preserved
+    pub fn has_quantized_tensors(&self) -> bool {
+        self.quantized_tensors.is_some()
+    }
+
+    /// Get all quantized tensor names (if preserved)
+    pub fn quantized_tensor_names(&self) -> Vec<String> {
+        self.quantized_tensors
+            .as_ref()
+            .map(|qtensors| qtensors.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
     /// Check if the model is quantized
     pub fn is_quantized(&self) -> bool {
-        self.quantization_info.is_some()
+        self.quantization_info.is_some() || self.quantized_tensors.is_some()
     }
 
     /// Get quantization information
@@ -1174,6 +1231,7 @@ pub fn load_safetensors<P: AsRef<Path>>(
         config,
         name_mapper: smart_mapper,
         raw_tensors: tensors,
+        quantized_tensors: None,
         metadata: crate::metadata::ModelMetadata::new(),
         tensor_info: HashMap::new(),
         quantization_info: None,

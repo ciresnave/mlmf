@@ -175,6 +175,7 @@ impl ONNXLoader {
             config,
             name_mapper,
             raw_tensors: converted_tensors,
+            quantized_tensors: None,
             metadata: crate::metadata::ModelMetadata::new(),
             tensor_info: HashMap::new(),
             quantization_info: None,

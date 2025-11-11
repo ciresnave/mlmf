@@ -131,7 +131,7 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
     // Note: Oracle integration would happen here if LoadOptions contained oracle
     // For now, oracle integration is handled at the main loader level
 
-    // Load tensors from GGUF file (dequantized for compatibility)
+    // Load tensors from GGUF file (with optional quantization preservation)
     if let Some(callback) = &options.progress {
         callback(ProgressEvent::LoadingTensorsFromFiles {
             count: tensor_names.len(),
@@ -140,6 +140,11 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
     }
 
     let mut raw_tensors = HashMap::new();
+    let mut quantized_tensors = if options.preserve_quantization {
+        Some(HashMap::new())
+    } else {
+        None
+    };
 
     // Load a subset of tensors for now to avoid memory issues
     // In production, you might want to load tensors on-demand
@@ -148,17 +153,35 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
     for tensor_name in &sample_tensor_names {
         match content.get_qtensor(tensor_name) {
             Ok(qtensor) => {
-                // Dequantize the QTensor to a regular Tensor for compatibility
-                match qtensor.dequantize(&options.device) {
-                    Ok(tensor) => {
-                        raw_tensors.insert(tensor_name.to_string(), tensor);
+                if options.preserve_quantization {
+                    // Dequantize for backward compatibility first
+                    match qtensor.dequantize(&options.device) {
+                        Ok(tensor) => {
+                            raw_tensors.insert(tensor_name.to_string(), tensor);
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "Warning: Failed to dequantize tensor '{}': {}",
+                                tensor_name, e
+                            );
+                        }
                     }
-                    Err(e) => {
-                        // Log warning but continue with other tensors
-                        eprintln!(
-                            "Warning: Failed to dequantize tensor '{}': {}",
-                            tensor_name, e
-                        );
+                    // Store the quantized tensor directly
+                    if let Some(ref mut qtensors) = quantized_tensors {
+                        qtensors.insert(tensor_name.to_string(), qtensor);
+                    }
+                } else {
+                    // Only dequantize (original behavior)
+                    match qtensor.dequantize(&options.device) {
+                        Ok(tensor) => {
+                            raw_tensors.insert(tensor_name.to_string(), tensor);
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "Warning: Failed to dequantize tensor '{}': {}",
+                                tensor_name, e
+                            );
+                        }
                     }
                 }
             }
@@ -212,6 +235,7 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
         config,
         name_mapper,
         raw_tensors,
+        quantized_tensors,
         metadata: crate::metadata::ModelMetadata::new(),
         tensor_info: HashMap::new(),
         quantization_info: None,

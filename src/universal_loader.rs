@@ -252,6 +252,7 @@ fn create_loaded_model_from_tensors(
         config,
         name_mapper,
         raw_tensors: tensors,
+        quantized_tensors: None,
         metadata: crate::metadata::ModelMetadata::new(),
         tensor_info: HashMap::new(),
         quantization_info: None,
