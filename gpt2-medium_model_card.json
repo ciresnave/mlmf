@@ -1,0 +1,75 @@
+{
+  "model_info": {
+    "name": "GPT2-Medium",
+    "description": "A GPT-2 model with 353.5M parameters",
+    "architecture": "GPT-2",
+    "variant": "Small",
+    "version": null,
+    "authors": [
+      "Unknown"
+    ],
+    "license": null,
+    "source_url": null
+  },
+  "training_info": null,
+  "usage_info": {
+    "intended_uses": [
+      "Text generation",
+      "Conversational AI",
+      "Code completion",
+      "Question answering",
+      "Summarization"
+    ],
+    "limitations": [
+      "May generate biased or harmful content",
+      "Performance may vary on out-of-distribution data",
+      "Computational requirements may limit deployment",
+      "May generate factually incorrect information",
+      "Limited by training data cutoff",
+      "May struggle with complex reasoning tasks"
+    ],
+    "out_of_scope": [
+      "Generating harmful or illegal content",
+      "Impersonation or deception",
+      "Critical safety applications without human oversight",
+      "Medical diagnosis or treatment recommendations",
+      "Legal advice or financial recommendations"
+    ],
+    "bias_considerations": "This model may exhibit biases present in training data. Users should evaluate fairness for their specific use case.",
+    "ethical_considerations": "Consider potential misuse and ensure responsible deployment with appropriate safeguards."
+  },
+  "evaluation_info": null,
+  "technical_specs": {
+    "architecture": "GPT-2",
+    "parameter_count": 353502208,
+    "vocab_size": 50257,
+    "hidden_size": 1024,
+    "num_layers": 24,
+    "num_attention_heads": 16,
+    "max_sequence_length": 1024,
+    "supported_dtypes": [
+      "f32",
+      "f16",
+      "bf16"
+    ],
+    "model_format": "Unknown",
+    "file_size": null,
+    "memory_requirements": {
+      "parameters_mb": 674,
+      "inference_mb": 1826,
+      "training_mb": 2696,
+      "recommended_ram_mb": 3652
+    }
+  },
+  "card_metadata": {
+    "created_at": "2025-11-11 2:04:09.2109734 +00:00:00",
+    "generated_by": "MLMF Model Card Generator",
+    "card_version": "1.0",
+    "tags": [
+      "transformers",
+      "gpt-2",
+      "mlmf",
+      "unknown"
+    ]
+  }
+}

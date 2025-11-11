@@ -1,0 +1,129 @@
+[package]
+    authors = ["Eric Evans <CireSnave@gmail.com>"]
+    categories = ["algorithms", "science"]
+    description = "Machine Learning Model Files - Loading, saving, and dynamic mapping for ML models"
+    edition = "2024"
+    keywords = [
+        "gguf",
+        "machine-learning",
+        "model-files",
+        "safetensors",
+        "transformers",
+    ]
+    license = "MIT OR Apache-2.0"
+    name = "mlmf"
+    readme = "README.md"
+    repository = "https://github.com/CireSnave/mlmf"
+    version = "0.1.0"
+
+[dependencies]
+    # Core Candle dependencies
+    candle-core = "0.9"
+    candle-nn   = "0.9"
+
+    # Serialization and file handling
+    safetensors = "0.6"
+    serde       = { version = "1.0", features = ["derive"] }
+    serde_json  = "1.0"
+
+    # Error handling and utilities
+    anyhow    = "1.0"
+    bytemuck  = "1.14"
+    byteorder = "1.5"
+    regex     = "1.10"
+    thiserror = "2"
+
+    # Optional dependencies for specific formats
+    tokenizers = { version = "0.22", optional = true }
+
+    # Progress reporting and distributed timestamps
+    chrono    = { version = "0.4", features = ["serde"] }
+    indicatif = { version = "0.18", optional = true }
+
+    # Parallel processing
+    rayon = { version = "1.10", optional = true }
+
+    # Memory mapping for GGUF
+    memmap2 = { version = "0.9", optional = true }
+
+    # ONNX support
+    prost       = { version = "0.14", optional = true }
+    prost-types = { version = "0.14", optional = true }
+
+    # Model card timestamps
+    time = { version = "0.3", features = ["serde"] }
+
+    # Half precision floats for ONNX
+    half = { version = "2.3", optional = true }
+
+    # Distributed computing support
+    tokio = { version = "1.0", features = ["full"] }
+    uuid  = { version = "1.0", features = ["v4"] }
+
+[features]
+    # Comprehensive by default - MLMF should be full-featured out of the box
+    default = ["awq", "gguf", "onnx", "progress", "pytorch", "tokenizers"]
+
+    # Individual format features (can be used for custom combinations)
+    awq     = []
+    gguf    = ["memmap2"]
+    onnx    = ["half", "prost", "prost-types"]
+    pytorch = []
+
+    # Utility features  
+    progress   = ["indicatif"]
+    rayon      = ["dep:rayon"]
+    tokenizers = ["dep:tokenizers"]
+
+    # Minimal build for resource-constrained environments
+    minimal = ["progress"]
+
+[dev-dependencies]
+    tempfile = "3.8"
+
+[build-dependencies]
+    prost-build = "0.14"
+
+[[example]]
+    name              = "load_llama"
+    required-features = []
+
+[[example]]
+    name              = "test_gguf_loading"
+    required-features = ["gguf"]
+
+[[example]]
+    name              = "smart_mapping_test"
+    required-features = []
+
+[[example]]
+    name              = "test_awq_loading"
+    required-features = ["awq"]
+
+[[example]]
+    name              = "test_full_gguf_loading"
+    required-features = ["gguf"]
+
+[[example]]
+    name              = "test_gguf_export"
+    required-features = ["gguf"]
+
+[[example]]
+    name              = "gguf_export_guide"
+    required-features = ["gguf"]
+
+[[example]]
+    name              = "pytorch_support_example"
+    required-features = ["pytorch"]
+
+[[example]]
+    name              = "model_card_example"
+    required-features = []
+
+[[example]]
+    name              = "onnx_import_example"
+    required-features = []
+
+    [package.metadata.docs.rs]
+        all-features = true
+        rustdoc-args = ["--cfg", "docsrs"]

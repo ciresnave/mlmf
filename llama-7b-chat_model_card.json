@@ -1,0 +1,76 @@
+{
+  "model_info": {
+    "name": "LLaMA-7B-Chat",
+    "description": "A LLaMA model with 5.2B parameters",
+    "architecture": "LLaMA",
+    "variant": "3B-Instruct",
+    "version": null,
+    "authors": [
+      "Unknown"
+    ],
+    "license": null,
+    "source_url": null
+  },
+  "training_info": null,
+  "usage_info": {
+    "intended_uses": [
+      "Text generation",
+      "Conversational AI",
+      "Code completion",
+      "Question answering",
+      "Summarization"
+    ],
+    "limitations": [
+      "May generate biased or harmful content",
+      "Performance may vary on out-of-distribution data",
+      "Computational requirements may limit deployment",
+      "May generate factually incorrect information",
+      "Limited by training data cutoff",
+      "May struggle with complex reasoning tasks"
+    ],
+    "out_of_scope": [
+      "Generating harmful or illegal content",
+      "Impersonation or deception",
+      "Critical safety applications without human oversight",
+      "Medical diagnosis or treatment recommendations",
+      "Legal advice or financial recommendations"
+    ],
+    "bias_considerations": "This model may exhibit biases present in training data. Users should evaluate fairness for their specific use case.",
+    "ethical_considerations": "Consider potential misuse and ensure responsible deployment with appropriate safeguards."
+  },
+  "evaluation_info": null,
+  "technical_specs": {
+    "architecture": "LLaMA",
+    "parameter_count": 5164498944,
+    "vocab_size": 32000,
+    "hidden_size": 4096,
+    "num_layers": 32,
+    "num_attention_heads": 32,
+    "max_sequence_length": 4096,
+    "supported_dtypes": [
+      "f32",
+      "f16",
+      "bf16"
+    ],
+    "model_format": "Unknown",
+    "file_size": null,
+    "memory_requirements": {
+      "parameters_mb": 12887,
+      "inference_mb": 52503,
+      "training_mb": 51548,
+      "recommended_ram_mb": 105006
+    }
+  },
+  "card_metadata": {
+    "created_at": "2025-11-11 2:04:09.2080672 +00:00:00",
+    "generated_by": "MLMF Model Card Generator",
+    "card_version": "1.0",
+    "tags": [
+      "transformers",
+      "llama",
+      "mlmf",
+      "1b+",
+      "unknown"
+    ]
+  }
+}
