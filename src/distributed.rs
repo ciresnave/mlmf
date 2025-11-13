@@ -4,7 +4,7 @@
 //! including model sharding, device placement, cross-node communication, and
 //! load balancing for large-scale inference scenarios.
 
-use candle_core::{Device, Tensor};
+use candlelight::{Device, Tensor};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;

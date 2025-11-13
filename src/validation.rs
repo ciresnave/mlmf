@@ -5,7 +5,7 @@
 
 use crate::config::ModelConfig;
 use crate::error::{Error, Result};
-use candle_core::{DType, Device};
+use candlelight::{DType, Device};
 
 /// Memory usage estimate for a model
 #[derive(Debug, Clone)]
@@ -142,6 +142,11 @@ pub fn validate_dtype_for_device(dtype: DType, device: &Device) -> Result<()> {
                     // BF16 support on CPU is limited, warn but allow
                     Ok(())
                 }
+                DType::F8E4M3 => {
+                    // F8E4M3 support on CPU, allow
+                    Ok(())
+                }
+                _ => Ok(()),
             }
         }
         Device::Cuda(_) => {
@@ -153,7 +158,9 @@ pub fn validate_dtype_for_device(dtype: DType, device: &Device) -> Result<()> {
                 | DType::F16
                 | DType::F32
                 | DType::F64
-                | DType::BF16 => Ok(()),
+                | DType::BF16
+                | DType::F8E4M3 => Ok(()),
+                _ => Ok(()),
             }
         }
         #[allow(unreachable_patterns)]
@@ -192,6 +199,7 @@ pub fn validate_dtype_for_device(dtype: DType, device: &Device) -> Result<()> {
 ///     rope_theta: 10000.0,
 ///     tie_word_embeddings: false,
 ///     architecture: Architecture::LLaMA,
+///     raw_config: serde_json::json!({}),
 /// };
 ///
 /// let estimate = estimate_memory_usage(&config, DType::F16, Some(1), None);

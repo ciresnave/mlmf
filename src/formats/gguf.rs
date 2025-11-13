@@ -16,7 +16,9 @@ use crate::{
     ModelConfig,
 };
 // Removed unused imports - Device and Tensor not currently used
-use candle_nn::VarBuilder;
+use candlelight::VarBuilder;
+// quantized module from candle_core (same version as candlelight)
+use candle_core::quantized;
 use memmap2::Mmap;
 use std::{
     collections::HashMap,
@@ -31,7 +33,7 @@ pub struct GGUFContent {
     _mmap: Arc<Mmap>,
 
     /// Candle's GGUF content for compatibility
-    candle_content: candle_core::quantized::gguf_file::Content,
+    candle_content: quantized::gguf_file::Content,
 }
 
 impl GGUFContent {
@@ -70,7 +72,7 @@ impl GGUFContent {
                 e
             ))
         })?;
-        let candle_content = candle_core::quantized::gguf_file::Content::read(&mut file)
+        let candle_content = quantized::gguf_file::Content::read(&mut file)
             .map_err(|e| Error::model_loading(&format!("Failed to parse GGUF content: {}", e)))?;
 
         Ok(Self {
@@ -89,12 +91,13 @@ impl GGUFContent {
     }
 
     /// Get tensor by name (loads quantized tensor from memory-mapped file)
-    pub fn get_qtensor(&self, name: &str) -> Result<candle_core::quantized::QTensor> {
+    pub fn get_qtensor(&self, name: &str) -> Result<quantized::QTensor> {
         // Use Candle's GGUF API to load the tensor directly from the memory-mapped data
         let mut cursor = std::io::Cursor::new(&**self._mmap);
 
         // Note: Candle 0.9 GGUF tensor loading requires device parameter
-        let device = candle_core::Device::Cpu; // Default device - should be configurable
+        use candlelight::Device;
+        let device = Device::Cpu; // Default device - should be configurable
 
         self.candle_content
             .tensor(&mut cursor, name, &device)
@@ -219,7 +222,8 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
         VarBuilder::from_tensors(raw_tensors.clone(), options.dtype, &options.device)
     } else {
         // Fallback to empty VarMap if no tensors were loaded
-        let var_map = candle_nn::VarMap::new();
+        use candlelight::prelude::VarMap;
+        let var_map = VarMap::new();
         VarBuilder::from_varmap(&var_map, options.dtype, &options.device)
     };
 

@@ -64,7 +64,7 @@ pub fn save_as_safetensors(
 /// Returns `Ok(())` on success, or `Err(Error)` on failure.
 pub fn save_safetensors_with_metadata(
     path: &Path,
-    tensors: &std::collections::HashMap<String, candle_core::Tensor>,
+    tensors: &std::collections::HashMap<String, candlelight::Tensor>,
     metadata: &std::collections::HashMap<String, String>,
 ) -> Result<(), Error> {
     use std::fs::File;

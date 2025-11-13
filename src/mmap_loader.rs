@@ -5,7 +5,7 @@
 
 use crate::error::{Error, Result};
 use crate::progress::{ProgressEvent, ProgressFn};
-use candle_core::{DType, Device, Tensor};
+use candlelight::{DType, Device, Tensor};
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};

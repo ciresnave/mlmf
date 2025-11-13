@@ -3,15 +3,15 @@
 //! This module provides the main entry points for loading models from various formats
 //! with automatic architecture detection, tensor name mapping, and progress reporting.
 
-use crate::config::{load_config, ModelConfig};
+use crate::config::ModelConfig;
 use crate::error::{Error, Result};
 use crate::progress::{ProgressEvent, ProgressFn, ProgressTimer};
 use crate::smart_mapping::{NameMappingOracle, SmartTensorNameMapper};
 use crate::validation::{validate_dtype_for_device, validate_memory_requirements};
 
+use candlelight::{DType, Device, Tensor, VarBuilder};
+// Access quantized and safetensors from candle_core (same version as candlelight uses)
 use candle_core::quantized::QTensor;
-use candle_core::{DType, Device, Tensor};
-use candle_nn::VarBuilder;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -660,13 +660,13 @@ impl LoadedModel {
 
             // Calculate size based on dtype
             let dtype_size = match tensor.dtype() {
-                candle_core::DType::F32 => 4,
-                candle_core::DType::F16 => 2,
-                candle_core::DType::BF16 => 2,
-                candle_core::DType::F64 => 8,
-                candle_core::DType::U8 => 1,
-                candle_core::DType::U32 => 4,
-                candle_core::DType::I64 => 8,
+                DType::F32 => 4,
+                DType::F16 => 2,
+                DType::BF16 => 2,
+                DType::F64 => 8,
+                DType::U8 => 1,
+                DType::U32 => 4,
+                DType::I64 => 8,
                 _ => 4,
             };
             total_size += param_count * dtype_size;
@@ -817,7 +817,7 @@ impl LoadedModel {
                     .iter()
                     .next()
                     .map(|(_, t)| t.device())
-                    .unwrap_or(&candle_core::Device::Cpu)
+                    .unwrap_or(&Device::Cpu)
             ),
             hardware_info: {
                 let mut info = std::collections::HashMap::new();

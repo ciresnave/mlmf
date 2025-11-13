@@ -4,7 +4,7 @@
 //! ONNX import enables universal model loading from models exported by PyTorch,
 //! TensorFlow, Keras, and other frameworks.
 
-use candle_core::{DType, Device};
+use candlelight::{DType, Device};
 use mlmf::{
     loader::LoadOptions,
     universal_loader::{detect_model_format, is_supported_model, load_model},
@@ -71,6 +71,7 @@ fn demonstrate_real_onnx_import(model_path: &Path) -> Result<(), Box<dyn std::er
         dtype: DType::F32, // Start with F32 for compatibility
         use_mmap: false,   // ONNX doesn't use memory mapping
         validate_cuda: false,
+        preserve_quantization: false,
         progress: Some(Box::new(|event| {
             println!("      Progress: {:?}", event);
         })),
@@ -135,6 +136,7 @@ fn demonstrate_real_onnx_import(model_path: &Path) -> Result<(), Box<dyn std::er
         dtype: DType::F32,
         use_mmap: false,
         validate_cuda: false,
+        preserve_quantization: false,
         progress: Some(Box::new(|event| {
             println!("      ONNX Load Progress: {:?}", event);
         })),

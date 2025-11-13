@@ -509,19 +509,21 @@ fn save_model_by_format(
 }
 
 /// Calculate total size of tensors in bytes
-fn calculate_total_size(tensors: &HashMap<String, candle_core::Tensor>) -> usize {
+fn calculate_total_size(tensors: &HashMap<String, candlelight::Tensor>) -> usize {
+    use candlelight::DType;
     // Calculate total bytes from tensor shapes and dtypes
     tensors
         .values()
         .map(|tensor| {
             let elem_count = tensor.shape().elem_count();
             let dtype_size = match tensor.dtype() {
-                candle_core::DType::U8 => 1,
-                candle_core::DType::U32 => 4,
-                candle_core::DType::I64 => 8,
-                candle_core::DType::BF16 | candle_core::DType::F16 => 2,
-                candle_core::DType::F32 => 4,
-                candle_core::DType::F64 => 8,
+                DType::U8 => 1,
+                DType::U32 => 4,
+                DType::I64 => 8,
+                DType::BF16 | DType::F16 => 2,
+                DType::F32 => 4,
+                DType::F64 => 8,
+                _ => 4,
             };
             elem_count * dtype_size
         })

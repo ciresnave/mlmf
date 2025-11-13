@@ -3,9 +3,9 @@
 //! This example shows how to use the new integrated quantization features
 //! that are now first-class methods on LoadedModel rather than external contexts.
 
-use candle_core::{DType, Device};
+use candlelight::{DType, Device};
 use mlmf::{
-    loader::{load_safetensors, LoadOptions},
+    loader::{LoadOptions, load_safetensors},
     metadata::CalibrationMethod,
 };
 use std::collections::HashMap;

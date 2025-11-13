@@ -14,7 +14,7 @@ use crate::{
     progress::ProgressEvent,
     saver::{ModelSaver, SaveOptions},
 };
-use candle_core::{DType, Tensor};
+use candlelight::{DType, Tensor};
 use std::{
     collections::HashMap,
     fs::File,
@@ -24,7 +24,7 @@ use std::{
 
 /// GGUF quantization types matching llama.cpp conventions
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(non_camel_case_types)] // Keep GGUF standard naming (Q4_K_M, Q6_K, etc.)
+#[allow(non_camel_case_types)]// Keep GGUF standard naming (Q4_K_M, Q6_K, etc.)
 pub enum GGUFQuantType {
     /// No quantization - F32 format
     F32,

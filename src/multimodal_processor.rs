@@ -5,8 +5,8 @@
 
 use crate::error::{Error as MlmfError, Result};
 use crate::multimodal::*;
-use candle_core::{DType, Device, Module, Tensor};
-use candle_nn::{Linear, VarBuilder, VarMap};
+use candlelight::prelude::{Linear, Module, VarBuilder, VarMap, ops};
+use candlelight::{DType, Device, Tensor};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -426,7 +426,7 @@ impl CrossModalAttention {
         let scale_factor = (self.head_dim as f64).sqrt() as f32;
         let scale_tensor = Tensor::full(scale_factor, scores.shape(), scores.device())?;
         let scaled_scores = scores.div(&scale_tensor)?;
-        let attention_weights = candle_nn::ops::softmax(&scaled_scores, 3)?;
+        let attention_weights = ops::softmax(&scaled_scores, 3)?;
 
         // Apply attention to values
         let attended = attention_weights.matmul(&v)?; // [batch, heads, seq_q, head_dim]
@@ -524,10 +524,11 @@ impl FusionLayer {
                     let stacked = Tensor::stack(embeddings, 1)?; // [batch, num_modalities, dim]
                     let projected = proj.forward(&stacked)?;
                     let attention_scores = attn_weights.forward(&projected)?;
-                    let attention_weights = candle_nn::ops::softmax(&attention_scores, 1)?;
+                    let attention_weights = ops::softmax(&attention_scores, 1)?;
 
                     // Weighted sum
-                    Ok((stacked * attention_weights)?.sum(1)?)
+                    let weighted = (&stacked * &attention_weights)?;
+                    Ok(weighted.sum(1)?)
                 } else {
                     // Fallback to simple mean
                     let stacked = Tensor::stack(embeddings, 0)?;
@@ -546,7 +547,7 @@ impl FusionLayer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use candle_core::Device;
+    use candlelight::Device;
 
     #[test]
     fn test_basic_processor_creation() -> Result<()> {

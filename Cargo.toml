@@ -14,12 +14,15 @@
     name = "mlmf"
     readme = "README.md"
     repository = "https://github.com/CireSnave/mlmf"
-    version = "0.2.0"
+    version = "0.2.1"
 
 [dependencies]
-    # Core Candle dependencies
-    candle-core = "0.9"
-    candle-nn   = "0.9"
+    # Candlelight - Unified Candle ML framework wrapper (from GitHub)
+    candlelight = { git = "https://github.com/ciresnave/candlelight" }
+    
+    # Candle core for modules not re-exported by candlelight (quantized, safetensors)
+    # Using same revision as Candle to ensure compatibility
+    candle-core = { git = "https://github.com/huggingface/candle", rev = "db08cc0a5a786e00f873c35ced7db51fd7d7083a" }
 
     # Serialization and file handling
     safetensors = "0.6"

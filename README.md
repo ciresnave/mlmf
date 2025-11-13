@@ -12,6 +12,7 @@
 - 📦 **Multiple Formats**: Comprehensive support for SafeTensors, GGUF, ONNX, PyTorch, and AWQ formats
 - 🗺️ **Name Mapping**: Intelligent tensor name mapping between HuggingFace and custom formats
 - 💾 **Memory Efficient**: Memory-mapped loading for large models (30GB+)
+- ⚡ **Quantization**: Advanced post-training quantization with multiple schemes (INT8, INT4, Mixed)
 - 🔧 **Device Management**: Automatic CUDA detection with CPU fallback
 - 📊 **Progress Reporting**: Optional progress callbacks for long-running operations
 - 🛡️ **Type Safety**: Comprehensive error handling with detailed context
@@ -23,14 +24,14 @@ Add `mlmf` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-mlmf = "0.1"
+mlmf = { git = "https://github.com/CireSnave/mlmf", tag = "v0.2.1" }
 ```
 
 ### Basic Usage
 
 ```rust
 use mlmf::{LoadOptions, loader};
-use candle_core::{Device, DType};
+use candlelight::{Device, DType};
 
 // Load a LLaMA model from SafeTensors
 let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
@@ -88,6 +89,28 @@ let result = convert_model(
 println!("Conversion completed in {:.2}s", result.duration.as_secs_f64());
 ```
 
+### Advanced Quantization
+
+```rust
+use mlmf::quantization::{QuantizationConfig, QuantizationEngine, QuantizationType, CalibrationMethod};
+
+// Configure quantization
+let config = QuantizationConfig {
+    quantization_type: QuantizationType::Int8,
+    calibration_method: CalibrationMethod::KlDivergence,
+    calibration_samples: 256,
+    block_wise: true,
+    symmetric: true,
+    ..Default::default()
+};
+
+// Create quantization engine
+let engine = QuantizationEngine::new(config, device)?;
+
+// Quantize a loaded model (placeholder - requires actual model)
+// let quantized_model = engine.quantize_model(&loaded_model, progress_callback)?;
+```
+
 ## Architecture
 
 MLMF provides a modular architecture with the following components:
@@ -111,8 +134,11 @@ MLMF provides a modular architecture with the following components:
 See the [`examples/`](examples/) directory for complete working examples:
 
 - [`load_llama.rs`](examples/load_llama.rs) - Loading LLaMA models from SafeTensors
-- [`load_gpt2.rs`](examples/load_gpt2.rs) - Loading GPT-2 models
-- [`load_gguf.rs`](examples/load_gguf.rs) - Loading quantized GGUF models
+- [`advanced_quantization.rs`](examples/advanced_quantization.rs) - Advanced quantization API usage
+- [`test_gguf_loading.rs`](examples/test_gguf_loading.rs) - Loading quantized GGUF models
+- [`pytorch_support_example.rs`](examples/pytorch_support_example.rs) - Loading PyTorch models
+- [`onnx_export_example.rs`](examples/onnx_export_example.rs) - Exporting models to ONNX format
+- [`multimodal_demo.rs`](examples/multimodal_demo.rs) - Multi-modal model handling
 
 ## Performance
 

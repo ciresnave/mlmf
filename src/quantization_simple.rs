@@ -11,7 +11,7 @@
 
 use crate::progress::{ProgressEvent, ProgressFn};
 use crate::{Error, LoadOptions, LoadedModel};
-use candle_core::{DType, Device, Tensor};
+use candlelight::{DType, Device, Tensor};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;

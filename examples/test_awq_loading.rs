@@ -3,8 +3,8 @@
 //! This example demonstrates AWQ (Activation-aware Weight Quantization) model loading
 //! and shows the integration with smart mapping for efficient quantized model inference.
 
-use candle_core::{DType, Device};
-use mlmf::{formats::awq::is_awq_model, loader::load_awq_auto, LoadOptions};
+use candlelight::{DType, Device};
+use mlmf::{LoadOptions, formats::awq::is_awq_model, loader::load_awq_auto};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔬 Testing AWQ Model Loading Support");

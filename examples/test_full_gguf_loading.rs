@@ -3,8 +3,8 @@
 //! This example demonstrates the complete GGUF loading pipeline including
 //! actual tensor loading and validation of the loaded data.
 
-use candle_core::{DType, Device};
-use mlmf::{formats::gguf::load_gguf, LoadOptions};
+use candlelight::{DType, Device};
+use mlmf::{LoadOptions, formats::gguf::load_gguf};
 use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

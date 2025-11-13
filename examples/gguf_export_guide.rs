@@ -4,10 +4,10 @@
 //! for different use cases and model types.
 
 use anyhow::Result;
-use candle_core::{Device, Tensor};
+use candlelight::{Device, Tensor};
 use mlmf::{
     formats::gguf_export::{
-        export_to_gguf_f16, export_to_gguf_q8_0, GGUFExportOptions, GGUFQuantType, MetadataValue,
+        GGUFExportOptions, GGUFQuantType, MetadataValue, export_to_gguf_f16, export_to_gguf_q8_0,
     },
     saver::SaveOptions,
 };

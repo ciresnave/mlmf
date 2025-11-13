@@ -26,11 +26,11 @@
 //! - **Full models**: Complete model objects (limited support)
 
 use crate::{
+    LoadOptions,
     error::{Error, Result},
     progress::ProgressEvent,
-    LoadOptions,
 };
-use candle_core::{DType, Device, Tensor};
+use candlelight::{DType, Device, Tensor};
 use std::{collections::HashMap, fs::File, io::BufReader, path::Path};
 
 /// Options for loading PyTorch files

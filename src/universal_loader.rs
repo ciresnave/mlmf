@@ -5,7 +5,7 @@ use crate::{
 
 #[cfg(feature = "pytorch")]
 use crate::formats::pytorch_loader::load_pytorch;
-use candle_core::Tensor;
+use candlelight::Tensor;
 use std::{collections::HashMap, path::Path};
 
 /// Load model from any supported format, auto-detecting from file extension
@@ -29,15 +29,14 @@ use std::{collections::HashMap, path::Path};
 ///
 /// ```rust,no_run
 /// use mlmf::{load_model, LoadOptions};
-/// use candle_core::{Device, DType};
+/// use candlelight::{Device, DType};
 ///
 /// let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
-/// let options = LoadOptions::new(device, DType::F16).with_progress();
 ///
 /// // Load from different formats
-/// let model1 = load_model("model.safetensors", options.clone())?;
-/// let model2 = load_model("model.pt", options.clone())?; // Requires pytorch feature
-/// let model3 = load_model("./model_directory", options)?; // Multi-file model
+/// let model1 = load_model("model.safetensors", LoadOptions::new(device.clone(), DType::F16))?;
+/// let model2 = load_model("model.pt", LoadOptions::new(device.clone(), DType::F16))?; // Requires pytorch feature
+/// let model3 = load_model("./model_directory", LoadOptions::new(device, DType::F16))?; // Multi-file model
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn load_model<P: AsRef<Path>>(path: P, options: LoadOptions) -> Result<LoadedModel> {
@@ -214,7 +213,7 @@ fn create_loaded_model_from_tensors(
     options: LoadOptions,
 ) -> Result<LoadedModel> {
     use crate::{config::ModelConfig, smart_mapping::SmartTensorNameMapper};
-    use candle_nn::VarBuilder;
+    use candlelight::VarBuilder;
 
     // Create default config
     use crate::name_mapping::Architecture;
@@ -244,7 +243,8 @@ fn create_loaded_model_from_tensors(
     // Create var builder from tensors
     // This is a simplified approach - proper VarBuilder creation from raw tensors
     // requires more complex integration with Candle's VarMap
-    let var_map = candle_nn::VarMap::new();
+    use candlelight::prelude::VarMap;
+    let var_map = VarMap::new();
     let var_builder = VarBuilder::from_varmap(&var_map, options.dtype, &options.device);
 
     Ok(LoadedModel {

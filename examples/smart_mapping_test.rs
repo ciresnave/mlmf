@@ -3,11 +3,11 @@
 //! This example demonstrates the smart mapping feature integrated into the main loader,
 //! showing how it falls back to ML-powered inference when static patterns fail.
 
-use candle_core::{DType, Device};
+use candlelight::{DType, Device};
 use mlmf::{
+    LoadOptions,
     loader::load_safetensors,
     smart_mapping::{ChatBasedOracle, MappingContext},
-    LoadOptions,
 };
 use std::collections::HashMap;
 

@@ -1,3 +1,7 @@
+#![allow(missing_docs)]
+#![allow(rustdoc::missing_doc_code_examples)]
+#![allow(clippy::missing_docs_in_private_items)]
+
 //! MLMF - Machine Learning Model Files
 //!
 //! This crate provides a comprehensive toolkit for working with ML model files across formats.
@@ -17,7 +21,7 @@
 //!
 //! ```rust,no_run
 //! use mlmf::{LoadOptions, loader};
-//! use candle_core::{Device, DType};
+//! use candlelight::{Device, DType};
 //!
 //! let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
 //! let options = LoadOptions {
@@ -25,6 +29,7 @@
 //!     dtype: DType::F16,
 //!     use_mmap: true,
 //!     validate_cuda: false,
+//!     preserve_quantization: false,
 //!     progress: Some(mlmf::progress::default_progress()),
 //!     smart_mapping_oracle: None,
 //! };
@@ -55,8 +60,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 // Re-export core types for convenience
-pub use candle_core::{DType, Device};
-pub use candle_nn::VarBuilder;
+pub use candlelight::{DType, Device, VarBuilder};
 
 // Public modules
 pub mod cache;
@@ -77,6 +81,7 @@ pub mod multimodal_loader;
 pub mod multimodal_processor;
 pub mod name_mapping;
 pub mod progress;
+pub mod quantization;
 pub mod saver;
 pub mod smart_mapping;
 pub mod universal_loader;
@@ -91,7 +96,7 @@ pub mod conversion;
 // Re-export commonly used types
 pub use cache::{CacheConfig, CacheConfigBuilder, CacheStats, MemoryPressure, ModelCache};
 pub use cached_loader::{
-    global_cached_loader, load_cached, load_safetensors_cached, CachedModelLoader,
+    CachedModelLoader, global_cached_loader, load_cached, load_safetensors_cached,
 };
 pub use checkpoint::{
     Checkpoint, CheckpointManager, CheckpointMetadata, CheckpointSaveOptions, OptimizerState,
@@ -115,7 +120,11 @@ pub use model_card::{
     TrainingInfo, UsageInfo,
 };
 pub use name_mapping::{Architecture, TensorNameMapper};
-pub use saver::{save_model, save_safetensors, ModelSaver, SaveOptions};
+pub use quantization::{
+    ActivationStats, CalibrationDataset, QuantizationConfig, QuantizationEngine,
+    QuantizationScheme, QuantizationType,
+};
+pub use saver::{ModelSaver, SaveOptions, save_model, save_safetensors};
 pub use universal_loader::{detect_model_format, is_supported_model, load_model};
 
 #[cfg(feature = "gguf")]

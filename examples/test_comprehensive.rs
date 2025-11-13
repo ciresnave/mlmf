@@ -1,12 +1,12 @@
 //! Comprehensive test of mlmf with real model files
 
-use candle_core::{DType, Device};
+use candlelight::{DType, Device};
 use mlmf::{
+    LoadOptions,
     formats::{awq::is_awq_model, gguf::load_gguf},
     loader::{load_awq_auto, load_safetensors},
     name_mapping::TensorNameMapper,
     smart_mapping::SmartTensorNameMapper,
-    LoadOptions,
 };
 use std::path::Path;
 

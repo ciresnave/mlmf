@@ -18,7 +18,7 @@ pub enum Error {
 
     /// Candle errors
     #[error("Candle error: {0}")]
-    Candle(#[from] candle_core::Error),
+    Candle(#[from] candlelight::Error),
 
     /// SafeTensors errors
     #[error("SafeTensors error: {0}")]

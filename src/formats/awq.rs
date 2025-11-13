@@ -16,7 +16,7 @@ use crate::{
     ModelConfig,
 };
 // Removed unused Device import
-use candle_nn::VarBuilder;
+use candlelight::VarBuilder;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -147,7 +147,8 @@ pub fn load_awq<P: AsRef<Path>>(model_dir: P, mut options: LoadOptions) -> Resul
         callback(ProgressEvent::BuildingModel);
     }
 
-    let var_map = candle_nn::VarMap::new();
+    use candlelight::prelude::VarMap;
+    let var_map = VarMap::new();
     let var_builder = VarBuilder::from_varmap(&var_map, options.dtype, &options.device);
 
     if let Some(callback) = &options.progress {

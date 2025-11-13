@@ -6,7 +6,7 @@
 
 use crate::error::{Error, Result};
 use crate::progress::{ProgressEvent, ProgressFn};
-use candle_core::{Device, Tensor};
+use candlelight::{Device, Tensor};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -449,16 +449,16 @@ pub mod lora {
         // Parse LoRA tensors
         let mut lora_modules: HashMap<String, (Option<Tensor>, Option<Tensor>)> = HashMap::new();
 
-        for (tensor_name, tensor) in all_tensors {
+        for (tensor_name, tensor) in &all_tensors {
             // LoRA tensors follow naming pattern: base_model.model.layers.0.self_attn.q_proj.lora_A.weight
-            if let Some(lora_info) = parse_lora_tensor_name(&tensor_name) {
+            if let Some(lora_info) = parse_lora_tensor_name(tensor_name) {
                 let module_entry = lora_modules
                     .entry(lora_info.module_name.clone())
                     .or_default();
 
                 match lora_info.matrix_type.as_str() {
-                    "lora_A" => module_entry.0 = Some(tensor),
-                    "lora_B" => module_entry.1 = Some(tensor),
+                    "lora_A" => module_entry.0 = Some(tensor.clone()),
+                    "lora_B" => module_entry.1 = Some(tensor.clone()),
                     _ => continue, // Skip unknown matrix types
                 }
             }

@@ -7,13 +7,12 @@
 //! - Fusion strategies
 //! - Integration with caching and distributed systems
 
+use candlelight::Tensor;
 use mlmf::{
-    Device, DType, LoadOptions, Modality, MultiModalConfig, MultiModalInput,
-    MultiModalLoader, ModalityConfig, ModalityInput, PreprocessingConfig,
-    FusionStrategy, CrossModalAttentionConfig, BasicMultiModalProcessor,
-    MultiModalProcessor, ModelCache,
+    BasicMultiModalProcessor, CrossModalAttentionConfig, DType, Device, FusionStrategy,
+    LoadOptions, Modality, ModalityConfig, ModalityInput, ModelCache, MultiModalConfig,
+    MultiModalInput, MultiModalLoader, MultiModalProcessor, PreprocessingConfig,
 };
-use candle_core::Tensor;
 use std::collections::HashMap;
 
 #[tokio::main]
@@ -58,8 +57,13 @@ async fn test_multimodal_config() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Add all modality types
-    let modalities = [Modality::Text, Modality::Image, Modality::Audio, Modality::Video];
-    
+    let modalities = [
+        Modality::Text,
+        Modality::Image,
+        Modality::Audio,
+        Modality::Video,
+    ];
+
     for &modality in &modalities {
         let config = match modality {
             Modality::Text => ModalityConfig::default_text(),
@@ -87,15 +91,18 @@ async fn test_multimodal_config() -> Result<(), Box<dyn std::error::Error>> {
             },
             _ => continue,
         };
-        
+
         custom_config.modalities.insert(modality, config);
         custom_config.max_sequence_lengths.insert(modality, 1024);
     }
 
-    println!("   ✓ Custom configuration with {} modalities", custom_config.modalities.len());
-    println!("   ✓ Cross-modal attention: {} heads, dropout: {}", 
-        custom_config.cross_modal_attention.num_heads,
-        custom_config.cross_modal_attention.dropout
+    println!(
+        "   ✓ Custom configuration with {} modalities",
+        custom_config.modalities.len()
+    );
+    println!(
+        "   ✓ Cross-modal attention: {} heads, dropout: {}",
+        custom_config.cross_modal_attention.num_heads, custom_config.cross_modal_attention.dropout
     );
 
     Ok(())
@@ -107,13 +114,21 @@ async fn test_multimodal_processor() -> Result<(), Box<dyn std::error::Error>> {
 
     let device = Device::Cpu;
     let dtype = DType::F32;
-    
+
     // Create a basic configuration
     let mut config = MultiModalConfig::default();
-    
+
     // Simplify for testing
-    config.modalities.get_mut(&Modality::Text).unwrap().embedding_dim = 64;
-    config.modalities.get_mut(&Modality::Image).unwrap().embedding_dim = 64;
+    config
+        .modalities
+        .get_mut(&Modality::Text)
+        .unwrap()
+        .embedding_dim = 64;
+    config
+        .modalities
+        .get_mut(&Modality::Image)
+        .unwrap()
+        .embedding_dim = 64;
 
     // Create processor
     let processor = BasicMultiModalProcessor::new(config.clone(), device.clone(), dtype)?;
@@ -127,7 +142,7 @@ async fn test_multimodal_processor() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create test input
     let batch_size = 2;
-    let text_input = Tensor::randint(0, 100, (batch_size, 32), &device)?;
+    let text_input = (Tensor::rand(0f32, 100f32, (batch_size, 32), &device)?.to_dtype(DType::U32))?;
     let image_input = Tensor::randn(0f32, 1f32, (batch_size, 3, 64, 64), &device)?;
 
     let mut modality_inputs = HashMap::new();
@@ -143,8 +158,14 @@ async fn test_multimodal_processor() -> Result<(), Box<dyn std::error::Error>> {
     // Process input
     let output = processor.process(multimodal_input)?;
     println!("   ✓ Input processed successfully");
-    println!("   ✓ Fused embeddings shape: {:?}", output.fused_embeddings.shape());
-    println!("   ✓ Modality embeddings: {}", output.modality_embeddings.len());
+    println!(
+        "   ✓ Fused embeddings shape: {:?}",
+        output.fused_embeddings.shape()
+    );
+    println!(
+        "   ✓ Modality embeddings: {}",
+        output.modality_embeddings.len()
+    );
 
     Ok(())
 }
@@ -155,7 +176,7 @@ async fn test_cross_modal_attention() -> Result<(), Box<dyn std::error::Error>> 
 
     let device = Device::Cpu;
     let dtype = DType::F32;
-    
+
     use mlmf::multimodal_processor::CrossModalAttention;
 
     // Create attention layer
@@ -179,7 +200,7 @@ async fn test_cross_modal_attention() -> Result<(), Box<dyn std::error::Error>> 
     // Test attention computation
     let batch_size = 2;
     let seq_len = 16;
-    
+
     let query = Tensor::randn(0f32, 1f32, (batch_size, seq_len, 64), &device)?;
     let key = Tensor::randn(0f32, 1f32, (batch_size, seq_len, 64), &device)?;
     let value = Tensor::randn(0f32, 1f32, (batch_size, seq_len, 64), &device)?;
@@ -188,11 +209,17 @@ async fn test_cross_modal_attention() -> Result<(), Box<dyn std::error::Error>> 
 
     println!("   ✓ Attention computation successful");
     println!("   ✓ Output shape: {:?}", attended_output.shape());
-    println!("   ✓ Attention weights shape: {:?}", attention_weights.shape());
+    println!(
+        "   ✓ Attention weights shape: {:?}",
+        attention_weights.shape()
+    );
 
     // Verify attention properties
     assert_eq!(attended_output.shape().dims(), &[batch_size, seq_len, 64]);
-    assert_eq!(attention_weights.shape().dims(), &[batch_size, seq_len, seq_len]);
+    assert_eq!(
+        attention_weights.shape().dims(),
+        &[batch_size, seq_len, seq_len]
+    );
 
     Ok(())
 }
@@ -203,13 +230,16 @@ async fn test_fusion_strategies() -> Result<(), Box<dyn std::error::Error>> {
 
     let device = Device::Cpu;
     let dtype = DType::F32;
-    
+
     use mlmf::multimodal_processor::FusionLayer;
 
     let strategies = vec![
         ("Early Fusion", FusionStrategy::EarlyFusion),
         ("Late Fusion", FusionStrategy::LateFusion),
-        ("Attention Fusion", FusionStrategy::AttentionFusion { attention_dim: 32 }),
+        (
+            "Attention Fusion",
+            FusionStrategy::AttentionFusion { attention_dim: 32 },
+        ),
     ];
 
     for (name, strategy) in strategies {
@@ -247,13 +277,13 @@ async fn test_cache_integration() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create cache
     let cache_config = mlmf::cache::CacheConfig {
-        max_size_mb: 100,
-        max_entries: 10,
-        ttl_seconds: 3600,
-        enable_compression: false,
-        compression_level: 1,
+        max_models: 10,
+        max_memory_bytes: 100 * 1024 * 1024, // 100 MB
         memory_pressure_threshold: 0.8,
-        eviction_strategy: mlmf::cache::EvictionStrategy::LRU,
+        ttl: Some(std::time::Duration::from_secs(3600)),
+        enable_cache_warming: false,
+        cache_warming_interval: std::time::Duration::from_secs(300),
+        cache_warming_count: 3,
     };
 
     let cache = ModelCache::new(cache_config);
@@ -262,7 +292,7 @@ async fn test_cache_integration() -> Result<(), Box<dyn std::error::Error>> {
     // Test multi-modal specific cache keys
     let cache_keys = vec![
         "multimodal_text_./models/bert",
-        "multimodal_image_./models/vit", 
+        "multimodal_image_./models/vit",
         "multimodal_audio_./models/wav2vec",
         "crossmodal_attention_text_image",
         "fusion_result_early_fusion",
@@ -326,25 +356,33 @@ async fn benchmark_multimodal_performance() -> Result<(), Box<dyn std::error::Er
 
     // Create simplified config for benchmarking
     let mut config = MultiModalConfig::default();
-    config.modalities.get_mut(&Modality::Text).unwrap().embedding_dim = 128;
-    config.modalities.get_mut(&Modality::Image).unwrap().embedding_dim = 128;
+    config
+        .modalities
+        .get_mut(&Modality::Text)
+        .unwrap()
+        .embedding_dim = 128;
+    config
+        .modalities
+        .get_mut(&Modality::Image)
+        .unwrap()
+        .embedding_dim = 128;
 
     let processor = BasicMultiModalProcessor::new(config, device.clone(), dtype)?;
 
     // Benchmark different input sizes
-    let test_cases = vec![
-        ("Small", 1, 64),
-        ("Medium", 4, 256), 
-        ("Large", 8, 512),
-    ];
+    let test_cases = vec![("Small", 1, 64), ("Medium", 4, 256), ("Large", 8, 512)];
 
     for (name, batch_size, seq_len) in test_cases {
-        println!("   📊 Testing {} inputs (batch: {}, seq: {})", name, batch_size, seq_len);
+        println!(
+            "   📊 Testing {} inputs (batch: {}, seq: {})",
+            name, batch_size, seq_len
+        );
 
         let start_time = std::time::Instant::now();
 
         // Create test input
-        let text_input = Tensor::randint(0, 1000, (batch_size, seq_len), &device)?;
+        let text_input =
+            (Tensor::rand(0f32, 1000f32, (batch_size, seq_len), &device)?.to_dtype(DType::U32))?;
         let image_input = Tensor::randn(0f32, 1f32, (batch_size, 3, 64, 64), &device)?;
 
         let mut modality_inputs = HashMap::new();

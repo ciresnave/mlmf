@@ -155,6 +155,7 @@ fn create_example_models() -> Vec<(String, ModelConfig)> {
                 rope_theta: 10000.0,
                 tie_word_embeddings: false,
                 architecture: Architecture::LLaMA,
+                raw_config: serde_json::json!({}),
             },
         ),
         (
@@ -173,6 +174,7 @@ fn create_example_models() -> Vec<(String, ModelConfig)> {
                 rope_theta: 10000.0,
                 tie_word_embeddings: true,
                 architecture: Architecture::GPT2,
+                raw_config: serde_json::json!({}),
             },
         ),
         (
@@ -191,6 +193,7 @@ fn create_example_models() -> Vec<(String, ModelConfig)> {
                 rope_theta: 10000.0,
                 tie_word_embeddings: false,
                 architecture: Architecture::GPTNeoX,
+                raw_config: serde_json::json!({}),
             },
         ),
     ]
@@ -312,6 +315,7 @@ fn demonstrate_format_specific_cards() -> Result<(), Box<dyn std::error::Error>>
         rope_theta: 10000.0,
         tie_word_embeddings: true,
         architecture: Architecture::GPT2,
+        raw_config: serde_json::json!({}),
     };
 
     for (format_name, filename) in formats {
@@ -351,6 +355,7 @@ fn demonstrate_card_customization() -> Result<(), Box<dyn std::error::Error>> {
         rope_theta: 10000.0,
         tie_word_embeddings: false,
         architecture: Architecture::LLaMA,
+        raw_config: serde_json::json!({}),
     };
 
     // Minimal card (no technical details, no memory estimation)

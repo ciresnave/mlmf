@@ -13,7 +13,7 @@ use crate::{
     smart_mapping::SmartTensorNameMapper,
     validation,
 };
-use candle_core::{DType, Device, Shape, Tensor};
+use candlelight::{DType, Device, Shape, Tensor};
 use std::{collections::HashMap, fs, path::Path};
 
 #[cfg(feature = "onnx")]
@@ -166,7 +166,7 @@ impl ONNXLoader {
         }
 
         // Create VarBuilder from tensors
-        use candle_nn::VarBuilder;
+        use candlelight::VarBuilder;
         let var_builder =
             VarBuilder::from_tensors(converted_tensors.clone(), self.dtype, &self.device);
 

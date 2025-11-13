@@ -3,8 +3,8 @@
 //! This example shows how to load a LLaMA model from a directory containing
 //! config.json and .safetensors files using the mlmf library.
 
-use candle_core::{DType, Device};
-use mlmf::{loader::load_safetensors, LoadOptions};
+use candlelight::{DType, Device};
+use mlmf::{LoadOptions, loader::load_safetensors};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Configure loading options

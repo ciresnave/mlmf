@@ -1,4 +1,4 @@
-use candle_core::{DType, Device, Tensor};
+use candlelight::{DType, Device, Tensor};
 use mlmf::Error;
 use std::collections::HashMap;
 use std::path::Path;

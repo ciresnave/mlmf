@@ -4,10 +4,10 @@
 //! quantization options using the mlmf crate.
 
 use anyhow::Result;
-use candle_core::{Device, Tensor};
+use candlelight::{Device, Tensor};
 use mlmf::{
     formats::gguf_export::{GGUFExportOptions, GGUFQuantType},
-    saver::{save_gguf, SaveOptions},
+    saver::{SaveOptions, save_gguf},
 };
 use std::collections::HashMap;
 use tempfile::TempDir;

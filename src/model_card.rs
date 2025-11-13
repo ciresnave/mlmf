@@ -8,7 +8,7 @@ use crate::config::{HFConfig, ModelConfig};
 use crate::error::{Error, Result};
 use crate::name_mapping::Architecture;
 use crate::validation;
-use candle_core::DType;
+use candlelight::DType;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;

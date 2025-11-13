@@ -7,7 +7,7 @@ use crate::{
     error::{Error, Result},
     progress::ProgressEvent,
 };
-use candle_core::Tensor;
+use candlelight::Tensor;
 use std::collections::HashMap;
 use std::path::Path;
 

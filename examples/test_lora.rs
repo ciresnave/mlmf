@@ -3,8 +3,8 @@
 //! This example demonstrates LoRA adapter creation, configuration,
 //! and basic operations for efficient model fine-tuning.
 
-use candle_core::{DType, Device, Tensor};
-use mlmf::lora::{lora, LoRAAdapter, LoRAConfig, LoRAWeights};
+use candlelight::{DType, Device, Tensor};
+use mlmf::lora::{LoRAAdapter, LoRAConfig, LoRAWeights, lora};
 
 use std::fs;
 use tempfile::TempDir;

@@ -17,7 +17,7 @@ use crate::{
     progress::ProgressEvent,
     saver::{ModelSaver, SaveOptions},
 };
-use candle_core::Tensor;
+use candlelight::Tensor;
 use std::{collections::HashMap, fs::File, io::Write, path::Path};
 
 /// ONNX model architecture types we can export

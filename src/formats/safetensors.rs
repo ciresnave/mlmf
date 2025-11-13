@@ -4,7 +4,7 @@
 //! This module provides utilities specific to SafeTensors files.
 
 use crate::error::{Error, Result};
-use candle_core::{DType, Device, Tensor};
+use candlelight::{DType, Device, Tensor};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -84,8 +84,8 @@ pub fn get_safetensors_tensor_names<P: AsRef<Path>>(file_path: P) -> Result<Vec<
     let file_path = file_path.as_ref();
 
     // Load just the tensors to get names, then extract keys
-    let tensors =
-        candle_core::safetensors::load(file_path, &candle_core::Device::Cpu).map_err(|e| {
+    use candlelight::Device;
+    let tensors = candle_core::safetensors::load(file_path, &Device::Cpu).map_err(|e| {
             Error::model_loading(format!("Failed to load {}: {}", file_path.display(), e))
         })?;
 

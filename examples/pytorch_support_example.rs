@@ -1,5 +1,5 @@
-use candle_core::{DType, Device, Tensor};
-use mlmf::{detect_model_format, is_supported_model, load_model, Error, LoadOptions};
+use candlelight::{DType, Device, Tensor};
+use mlmf::{Error, LoadOptions, detect_model_format, is_supported_model, load_model};
 use std::collections::HashMap;
 
 fn main() -> Result<(), Error> {

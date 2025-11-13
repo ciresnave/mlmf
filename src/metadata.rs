@@ -3,7 +3,7 @@
 //! This module provides comprehensive metadata management for ML models,
 //! including provenance tracking, tensor information, and quantization metadata.
 
-use candle_core::DType;
+use candlelight::DType;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

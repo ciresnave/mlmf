@@ -1,9 +1,10 @@
 use mlmf::{
-    SimpleDistributedManager, DistributedConfig, DistributedConfigBuilder, 
-    NodeConfig, DeviceType, DeviceInfo, NodeCapabilities, NodeRole, ShardingStrategy,
-    InferenceRequest, RequestPriority, ClusterStatus
+    DeviceType, DistributedConfig, DistributedConfigBuilder, InferenceRequest, NodeConfig,
+    ShardingStrategy, SimpleDistributedManager,
+    distributed::{DeviceInfo, NodeCapabilities, NodeRole},
+    distributed_core::RequestPriority,
 };
-use std::net::{SocketAddr, IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 #[tokio::main]

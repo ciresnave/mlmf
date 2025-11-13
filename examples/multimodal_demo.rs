@@ -3,11 +3,11 @@
 //! This example demonstrates how to load and use multi-modal models
 //! with text and image inputs using the MLMF multi-modal framework.
 
+use candlelight::Tensor;
 use mlmf::{
-    Device, DType, LoadOptions, Modality, MultiModalConfig, MultiModalInput, MultiModalLoader,
-    ModalityConfig, ModalityInput, PreprocessingConfig,
+    DType, Device, LoadOptions, Modality, ModalityConfig, ModalityInput, MultiModalConfig,
+    MultiModalInput, MultiModalLoader, PreprocessingConfig,
 };
-use candle_core::Tensor;
 use std::collections::HashMap;
 
 #[tokio::main]
@@ -18,12 +18,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup device and basic options
     let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
     let dtype = DType::F16;
-    
+
     println!("📱 Using device: {:?}", device);
 
     // Create multi-modal configuration
     let mut config = MultiModalConfig::default();
-    
+
     // Add audio modality support
     config.modalities.insert(
         Modality::Audio,
@@ -46,7 +46,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.cross_modal_attention.dropout = 0.1;
 
     println!("🔧 Multi-modal configuration created");
-    println!("   Modalities: {:?}", config.modalities.keys().collect::<Vec<_>>());
+    println!(
+        "   Modalities: {:?}",
+        config.modalities.keys().collect::<Vec<_>>()
+    );
 
     // Setup base load options
     let load_options = LoadOptions {
@@ -54,6 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         dtype,
         use_mmap: true,
         validate_cuda: false,
+        preserve_quantization: false,
         progress: None,
         smart_mapping_oracle: None,
     };
@@ -85,8 +89,9 @@ async fn demonstrate_multimodal_input(device: &Device) -> Result<(), Box<dyn std
     // Create sample multi-modal inputs
     let batch_size = 2;
 
-    // Text input (tokenized)
-    let text_tokens = Tensor::randint(0, 1000, (batch_size, 128), device)?;
+    // Text input (tokenized) - using rand and converting to int
+    let text_tokens =
+        (Tensor::rand(0f32, 1000f32, (batch_size, 128), device)?.to_dtype(DType::U32))?;
     let text_input = ModalityInput::Text(text_tokens);
 
     // Image input (pixel values or patches)
@@ -117,9 +122,18 @@ async fn demonstrate_multimodal_input(device: &Device) -> Result<(), Box<dyn std
         batch_size,
     };
 
-    println!("   📝 Text input shape: {:?}", multimodal_input.modality_inputs[&Modality::Text].shape());
-    println!("   🖼️  Image input shape: {:?}", multimodal_input.modality_inputs[&Modality::Image].shape());
-    println!("   🎵 Audio input shape: {:?}", multimodal_input.modality_inputs[&Modality::Audio].shape());
+    println!(
+        "   📝 Text input shape: {:?}",
+        multimodal_input.modality_inputs[&Modality::Text].shape()
+    );
+    println!(
+        "   🖼️  Image input shape: {:?}",
+        multimodal_input.modality_inputs[&Modality::Image].shape()
+    );
+    println!(
+        "   🎵 Audio input shape: {:?}",
+        multimodal_input.modality_inputs[&Modality::Audio].shape()
+    );
     println!("   📏 Batch size: {}", multimodal_input.batch_size);
 
     Ok(())
@@ -148,7 +162,7 @@ async fn demonstrate_fusion_strategies() -> Result<(), Box<dyn std::error::Error
 
     for (name, strategy) in strategies {
         println!("   🎯 {}: {:?}", name, strategy);
-        
+
         match strategy {
             FusionStrategy::EarlyFusion => {
                 println!("      └─ Concatenates embeddings at input level");
@@ -189,10 +203,7 @@ async fn demonstrate_distributed_multimodal() -> Result<(), Box<dyn std::error::
         Modality::Image,
         vec!["vision-node-1".to_string(), "vision-node-2".to_string()],
     );
-    modality_assignments.insert(
-        Modality::Audio,
-        vec!["audio-node-1".to_string()],
-    );
+    modality_assignments.insert(Modality::Audio, vec!["audio-node-1".to_string()]);
 
     distributed_config.sharding_strategy = ShardingStrategy::ModalitySpecific {
         modality_assignments: modality_assignments.clone(),

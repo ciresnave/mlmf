@@ -5,7 +5,7 @@
 //! cross-modal attention and processing.
 
 use crate::error::Result;
-use candle_core::{DType, Device, Tensor};
+use candlelight::{DType, Device, Tensor};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
