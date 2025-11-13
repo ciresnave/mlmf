@@ -65,7 +65,7 @@
 
 [features]
     # Comprehensive by default - MLMF should be full-featured out of the box
-    default = ["awq", "gguf", "onnx", "progress", "pytorch", "tokenizers"]
+    default = ["awq", "gguf", "onnx", "progress", "pytorch", "rayon", "tokenizers"]
 
     # Individual format features (can be used for custom combinations)
     awq     = []
