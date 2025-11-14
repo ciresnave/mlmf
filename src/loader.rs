@@ -10,8 +10,8 @@ use crate::smart_mapping::{NameMappingOracle, SmartTensorNameMapper};
 use crate::validation::{validate_dtype_for_device, validate_memory_requirements};
 
 use candlelight::{DType, Device, Tensor, VarBuilder};
-// Access quantized and safetensors from candle_core (same version as candlelight uses)
-use candle_core::quantized::QTensor;
+// Access quantized and safetensors from candlelight (re-exports candle_core)
+use candlelight::quantized::QTensor;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1338,7 +1338,7 @@ fn load_safetensors_regular(
     device: &Device,
     dtype: DType,
 ) -> Result<HashMap<String, Tensor>> {
-    let tensors = candle_core::safetensors::load(file_path, device).map_err(|e| {
+    let tensors = candlelight::safetensors::load(file_path, device).map_err(|e| {
         Error::model_loading(format!("Failed to load {}: {}", file_path.display(), e))
     })?;
 

@@ -17,8 +17,8 @@ use crate::{
 };
 // Removed unused imports - Device and Tensor not currently used
 use candlelight::VarBuilder;
-// quantized module from candle_core (same version as candlelight)
-use candle_core::quantized;
+// quantized module from candlelight (re-exports candle_core::quantized)
+use candlelight::quantized;
 use memmap2::Mmap;
 use std::{
     collections::HashMap,

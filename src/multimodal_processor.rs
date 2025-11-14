@@ -5,7 +5,8 @@
 
 use crate::error::{Error as MlmfError, Result};
 use crate::multimodal::*;
-use candlelight::prelude::{Linear, Module, VarBuilder, VarMap, ops};
+use candlelight::nn::ops;
+use candlelight::prelude::{Linear, Module, VarBuilder, VarMap};
 use candlelight::{DType, Device, Tensor};
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -443,7 +443,7 @@ pub mod lora {
         };
 
         // Load tensors from SafeTensors using Candle's built-in loader
-        let all_tensors = candle_core::safetensors::load(&model_file, device)
+        let all_tensors = candlelight::safetensors::load(&model_file, device)
             .map_err(|e| Error::model_loading(format!("Failed to load SafeTensors: {}", e)))?;
 
         // Parse LoRA tensors

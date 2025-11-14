@@ -40,7 +40,7 @@ pub fn load_regular_safetensors<P: AsRef<Path>>(
 ) -> Result<HashMap<String, Tensor>> {
     let file_path = file_path.as_ref();
 
-    let tensors = candle_core::safetensors::load(file_path, device).map_err(|e| {
+    let tensors = candlelight::safetensors::load(file_path, device).map_err(|e| {
         Error::model_loading(format!("Failed to load {}: {}", file_path.display(), e))
     })?;
 
@@ -85,7 +85,7 @@ pub fn get_safetensors_tensor_names<P: AsRef<Path>>(file_path: P) -> Result<Vec<
 
     // Load just the tensors to get names, then extract keys
     use candlelight::Device;
-    let tensors = candle_core::safetensors::load(file_path, &Device::Cpu).map_err(|e| {
+    let tensors = candlelight::safetensors::load(file_path, &Device::Cpu).map_err(|e| {
             Error::model_loading(format!("Failed to load {}: {}", file_path.display(), e))
         })?;
 
