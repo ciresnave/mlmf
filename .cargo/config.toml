@@ -1,0 +1,16 @@
+# Cargo configuration for Windows MSVC builds
+
+[target.x86_64-pc-windows-msvc]
+    rustflags = [
+        # Use MSVC C++ runtime libraries instead of libstdc++
+        # Each flag is a separate "-C <option>" pair on the command line.
+        # Do NOT split "-C" and its argument into separate array elements —
+        # rustc treats each array entry as one token, so ["-C", "link-arg=..."]
+        # passes a bare "-C" token, which is invalid.
+        "-Clink-arg=/DEFAULTLIB:msvcprt.lib",
+        "-Clink-arg=/NODEFAULTLIB:stdc++.lib",
+    ]
+
+[build]
+    # Explicitly target MSVC toolchain
+    target = "x86_64-pc-windows-msvc"

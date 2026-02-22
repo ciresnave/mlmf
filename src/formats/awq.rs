@@ -227,6 +227,7 @@ fn awq_config_to_model_config(
         vocab_size: awq_config.vocab_size.unwrap_or(32000) as usize,
         hidden_size: awq_config.hidden_size.unwrap_or(4096) as usize,
         num_attention_heads: awq_config.num_attention_heads.unwrap_or(32) as usize,
+        num_key_value_heads: awq_config.num_attention_heads.unwrap_or(32) as usize, // AWQ typically doesn't specify GQA
         num_hidden_layers: awq_config.num_hidden_layers.unwrap_or(32) as usize,
         intermediate_size: awq_config.intermediate_size.unwrap_or(11008) as usize,
         max_position_embeddings: awq_config.max_position_embeddings.unwrap_or(4096) as usize,

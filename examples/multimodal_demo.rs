@@ -103,8 +103,8 @@ async fn demonstrate_multimodal_input(device: &Device) -> Result<(), Box<dyn std
     let audio_input = ModalityInput::Audio(audio_features);
 
     // Create attention masks
-    let text_mask = Tensor::ones((batch_size, 128), candle_core::DType::F32, device)?;
-    let image_mask = Tensor::ones((batch_size, 196), candle_core::DType::F32, device)?; // 14x14 patches
+    let text_mask = Tensor::ones((batch_size, 128), candlelight::DType::F32, device)?;
+    let image_mask = Tensor::ones((batch_size, 196), candlelight::DType::F32, device)?; // 14x14 patches
 
     // Assemble multi-modal input
     let mut modality_inputs = HashMap::new();

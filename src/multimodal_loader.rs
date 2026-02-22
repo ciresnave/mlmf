@@ -472,7 +472,7 @@ impl FusionComponent for BasicFusionComponent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use candle_core::Device;
+    use candlelight::Device;
 
     #[test]
     fn test_multimodal_loader_creation() {

@@ -14,14 +14,20 @@
     name = "mlmf"
     readme = "README.md"
     repository = "https://github.com/CireSnave/mlmf"
-    version = "0.2.1"
+    version = "0.3.0"
 
 [dependencies]
     # Candlelight - Unified Candle ML framework wrapper (from GitHub)
-    candlelight = { git = "https://github.com/ciresnave/candlelight" }
+    # Use default-features = false to avoid pulling in flash-attn and other CUDA
+    # acceleration features.  MLMF is a file-loading library and never runs inference
+    # kernels, so it only needs DType/Device from candlelight.  flash-attn's build
+    # script fetches CUTLASS from GitHub and checks out files with extremely long
+    # Doxygen-generated HTML names that exceed Windows' MAX_PATH (260 chars), breaking
+    # the build on Windows entirely.
+    candlelight = { git = "https://github.com/ciresnave/candlelight", default-features = false }
 
     # Serialization and file handling
-    safetensors = "0.6"
+    safetensors = "0.7"
     serde       = { version = "1.0", features = ["derive"] }
     serde_json  = "1.0"
 
@@ -30,6 +36,7 @@
     bytemuck  = "1.14"
     byteorder = "1.5"
     regex     = "1.10"
+    sysinfo   = "0.38"
     thiserror = "2"
 
     # Optional dependencies for specific formats
@@ -78,7 +85,7 @@
     minimal = ["progress"]
 
 [dev-dependencies]
-    tempfile = "3.8"
+    tempfile = "3"
 
 [build-dependencies]
     prost-build = "0.14"

@@ -907,7 +907,7 @@ pub mod lora {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use candle_core::Device;
+    use candlelight::Device;
 
     #[test]
     fn test_lora_config_creation() {

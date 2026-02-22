@@ -1095,7 +1095,7 @@ impl LoadedModel {
 /// # Examples
 /// ```rust,no_run
 /// use mlmf::{LoadOptions, loader::load_awq};
-/// use candle_core::{Device, DType};
+/// use candlelight::{Device, DType};
 ///
 /// let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
 /// let options = LoadOptions::new(device, DType::F16)
@@ -1123,7 +1123,7 @@ pub fn load_awq<P: AsRef<Path>>(model_dir: P, options: LoadOptions) -> Result<Lo
 /// # Examples
 /// ```rust,no_run
 /// use mlmf::{LoadOptions, loader::load_safetensors};
-/// use candle_core::{Device, DType};
+/// use candlelight::{Device, DType};
 ///
 /// let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
 /// let options = LoadOptions::new(device, DType::F16).with_progress();

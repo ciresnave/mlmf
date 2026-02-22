@@ -221,6 +221,7 @@ fn create_loaded_model_from_tensors(
         vocab_size: 50257,
         hidden_size: 768,
         num_attention_heads: 12,
+        num_key_value_heads: 12,
         num_hidden_layers: 12,
         intermediate_size: 3072,
         max_position_embeddings: 2048,

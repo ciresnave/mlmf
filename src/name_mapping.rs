@@ -53,6 +53,20 @@ impl Architecture {
             Architecture::Unknown => vec!["No patterns available"],
         }
     }
+
+    /// Whether this architecture uses Rotary Position Embeddings (RoPE).
+    ///
+    /// RoPE computes position information on the fly and stores no position-embedding
+    /// table, so memory estimation should not include a position-embedding parameter
+    /// term for these architectures.
+    pub fn uses_rope(self) -> bool {
+        match self {
+            Architecture::LLaMA => true,    // LLaMA, Mistral, Qwen, SmolLM all use RoPE
+            Architecture::GPTNeoX => true,  // GPT-NeoX uses RoPE
+            Architecture::GPT2 => false,    // GPT-2 uses learned absolute embeddings
+            Architecture::Unknown => false, // Conservative: assume learned embeddings
+        }
+    }
 }
 
 /// Maps tensor names from HuggingFace format to target format
@@ -470,6 +484,16 @@ mod tests {
             mapper.map_name("transformer.h.0.attn.c_attn.weight"),
             Some("h.0.attn.c_attn.weight")
         );
+    }
+
+    #[test]
+    fn test_uses_rope() {
+        // Architectures that compute position on-the-fly (no stored table)
+        assert!(Architecture::LLaMA.uses_rope(),    "LLaMA should use RoPE");
+        assert!(Architecture::GPTNeoX.uses_rope(),  "GPT-NeoX should use RoPE");
+        // Architectures with learned absolute position embedding tables
+        assert!(!Architecture::GPT2.uses_rope(),    "GPT-2 should not use RoPE");
+        assert!(!Architecture::Unknown.uses_rope(), "Unknown should default to no RoPE (conservative)");
     }
 
     #[test]

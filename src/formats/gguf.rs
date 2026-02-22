@@ -201,6 +201,7 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
         vocab_size: 32000, // TODO: Read from GGUF metadata
         hidden_size: 4096,
         num_attention_heads: 32,
+        num_key_value_heads: 32, // GGUF doesn't specify GQA, default to same
         num_hidden_layers: 32,
         intermediate_size: 11008,
         max_position_embeddings: 4096,

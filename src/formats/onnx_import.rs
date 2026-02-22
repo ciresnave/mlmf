@@ -469,6 +469,7 @@ impl ONNXLoader {
             vocab_size,
             hidden_size,
             num_attention_heads: num_heads,
+            num_key_value_heads: num_heads, // ONNX doesn't specify GQA
             num_hidden_layers: num_layers,
             intermediate_size,
             max_position_embeddings: max_pos_embeddings,

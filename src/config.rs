@@ -28,6 +28,10 @@ pub struct HFConfig {
     #[serde(alias = "num_attention_heads", alias = "n_head", alias = "num_heads")]
     pub num_attention_heads: usize,
 
+    /// Number of key-value heads for Grouped Query Attention (GQA)
+    #[serde(alias = "num_key_value_heads")]
+    pub num_key_value_heads: Option<usize>,
+
     /// Number of transformer layers
     #[serde(alias = "num_hidden_layers", alias = "n_layer", alias = "num_layers")]
     pub num_hidden_layers: usize,
@@ -97,6 +101,9 @@ pub struct ModelConfig {
     pub hidden_size: usize,
     /// Number of attention heads
     pub num_attention_heads: usize,
+    /// Number of key-value heads for Grouped Query Attention (GQA)
+    /// Defaults to num_attention_heads for standard attention
+    pub num_key_value_heads: usize,
     /// Number of transformer layers
     pub num_hidden_layers: usize,
     /// Intermediate/FFN size
@@ -298,11 +305,13 @@ impl HFConfig {
 
         let rope_theta = self.rope_theta.unwrap_or(10000.0);
         let tie_word_embeddings = self.tie_word_embeddings.unwrap_or(false);
+        let num_key_value_heads = self.num_key_value_heads.unwrap_or(self.num_attention_heads);
 
         Ok(ModelConfig {
             vocab_size: self.vocab_size,
             hidden_size: self.hidden_size,
             num_attention_heads: self.num_attention_heads,
+            num_key_value_heads,
             num_hidden_layers: self.num_hidden_layers,
             intermediate_size,
             max_position_embeddings,
@@ -326,9 +335,12 @@ impl ModelConfig {
 
     /// Get the key/value head dimension for grouped query attention
     pub fn kv_head_dim(&self) -> usize {
-        // For standard attention, same as head_dim
-        // Can be overridden for GQA models
-        self.head_dim()
+        self.hidden_size / self.num_attention_heads
+    }
+
+    /// Get the total KV projection size (num_key_value_heads * head_dim)
+    pub fn kv_projection_size(&self) -> usize {
+        self.num_key_value_heads * self.kv_head_dim()
     }
 
     /// Check if this is a gated FFN architecture (SwiGLU, etc.)
@@ -519,6 +531,7 @@ mod tests {
             vocab_size: 1000,
             hidden_size: 768,
             num_attention_heads: 12,
+            num_key_value_heads: None, // Will default to num_attention_heads
             num_hidden_layers: 6,
             intermediate_size: None,
             max_position_embeddings: None,
@@ -549,6 +562,7 @@ mod tests {
             vocab_size: 32000,
             hidden_size: 4096,
             num_attention_heads: 32,
+            num_key_value_heads: None, // Will default to num_attention_heads
             num_hidden_layers: 32,
             intermediate_size: Some(11008),
             max_position_embeddings: Some(4096),
