@@ -148,7 +148,9 @@ GGUF declares dims in the opposite order from HF state dicts. **The ggml reversa
 
 ### 4.3 MetaValue
 
-Core's `MetaValue` is **GGUF's 13 typed variants including nested `Array`**, chosen deliberately because it is the strict superset. *Measured:* GGUF carries `U8 I8 U16 I16 U32 I32 U64 I64 F32 F64 Bool String Array(Vec<Value>)`; safetensors' `__metadata__` is `Option<HashMap<String, String>>` and can only ever produce `String`.
+Core's `MetaValue` is **GGUF's 13 typed variants including nested `Array`, plus a 14th — `Bytes(Vec<u8>)`** — chosen deliberately because it is the strict superset.
+
+**Why the 14th exists (added during implementation).** A GGUF string is a length-prefixed *byte array*, not a Rust `String`. A file carrying non-UTF-8 bytes in a token string is readable by the reference implementation, so refusing it would reject a valid file, and `String::from_utf8_lossy` substitutes U+FFFD — which silently changes what the model tokenizes to and violates §9 clause 2.1 outright. `Bytes` preserves such a value verbatim. Nothing is dropped and nothing is converted lossily. *Measured:* GGUF carries `U8 I8 U16 I16 U32 I32 U64 I64 F32 F64 Bool String Array(Vec<Value>)`; safetensors' `__metadata__` is `Option<HashMap<String, String>>` and can only ever produce `String`.
 
 That asymmetry is *why* GGUF is one file rather than a directory: its metadata system is expressive enough to absorb what `config.json` and `tokenizer.json` hold. It is not file concatenation.
 
@@ -162,7 +164,11 @@ That asymmetry is *why* GGUF is one file rather than a directory: its metadata s
 
 ### 4.5 Traits
 
-`mlmf-core` defines the seam that format crates implement and `mlmf-meta` consumes: a tensor-container trait (descriptors + borrowed bytes), a `MetadataSource` trait (typed key lookup), and a byte-source trait implemented by the source axis. Format crates depend on core alone; sources depend on core alone.
+`mlmf-core` defines the seam that format crates implement and `mlmf-meta` consumes: a tensor-container trait, a `MetadataSource` trait (typed key lookup), and a byte-source trait implemented by the source axis. Format crates depend on core alone; sources depend on core alone.
+
+**`TensorContainer::tensor_bytes` returns `Cow<'_, [u8]>`, not `&[u8]` (corrected during implementation).** Two independent requirements force it. §11 records that `mlmf-pickle` must return borrowed-or-owned, because a deflated ZIP entry has to be inflated into a buffer and cannot be borrowed — with `&[u8]` that crate simply cannot implement the seam. And `Cow` is what makes **AL-3 hold *through* the seam**: a caller can test `matches!(bytes, Cow::Owned(_))` and see that MLMF allocated. With `&[u8]`, an inflate-into-self copy would be exactly the invisible cost AL-3 forbids, with no API surface capable of revealing it.
+
+**Size arithmetic is checked, not wrapping (corrected during implementation).** `Shape::elem_count` and `Encoding::byte_size` both return `Result` and fail with `ShapeOverflow` / `SizeOverflow`. Unchecked `u64` multiplication over file-declared dimensions panics in debug and **wraps silently in release** — and a wrapped byte size then *validates as correct* against a wrapped range, which is a wrong answer that passes its own consistency check.
 
 ### 4.6 Alignment
 
