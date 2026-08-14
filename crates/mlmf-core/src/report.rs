@@ -117,20 +117,87 @@ mod tests {
         }
     }
 
+    fn key(k: &str, v: u32, origin: &str) -> Unrecognized {
+        Unrecognized {
+            kind: UnrecognizedKind::MetadataKey {
+                key: k.into(),
+                value: MetaValue::U32(v),
+            },
+            origin: origin.into(),
+        }
+    }
+
     #[test]
     fn reports_merge_so_a_multi_file_checkpoint_yields_one_account() {
+        // Identity and order, not arity. The previous version asserted only
+        // `entries().len() == 2` over two fixtures of *different* kinds, so
+        // a merge that deduplicated by kind and prepended — turning a
+        // sharded checkpoint's 40 distinct unknown keys into a report of 1 —
+        // passed. Spec §7 is explicit: "The report names the key, its typed
+        // value, and its origin — not a count."
+        let mut a = Report::new();
+        a.push(key("llama.future_a", 1, "shard-1"));
+        a.push(key("llama.future_b", 2, "shard-1"));
+
+        let mut b = Report::new();
+        b.push(key("llama.future_c", 3, "shard-2"));
+        b.push(key("llama.future_d", 4, "shard-2"));
+
+        a.merge(b);
+
+        assert_eq!(
+            a.entries(),
+            &[
+                key("llama.future_a", 1, "shard-1"),
+                key("llama.future_b", 2, "shard-1"),
+                key("llama.future_c", 3, "shard-2"),
+                key("llama.future_d", 4, "shard-2"),
+            ]
+        );
+    }
+
+    #[test]
+    fn merge_preserves_duplicate_kinds_from_different_origins() {
+        // The same key unknown in every shard is four facts, not one: which
+        // shards carried it is the thing an operator needs.
+        let mut a = Report::new();
+        a.push(key("llama.future_thing", 7, "shard-1"));
+        let mut b = Report::new();
+        b.push(key("llama.future_thing", 7, "shard-2"));
+
+        a.merge(b);
+        assert_eq!(a.entries().len(), 2);
+        assert_eq!(a.entries()[0].origin, "shard-1");
+        assert_eq!(a.entries()[1].origin, "shard-2");
+    }
+
+    #[test]
+    fn merge_absorbs_every_kind() {
         let mut a = Report::new();
         a.push(Unrecognized {
-            kind: UnrecognizedKind::File { name: "extra.bin".into() },
+            kind: UnrecognizedKind::File {
+                name: "extra.bin".into(),
+            },
             origin: "dir".into(),
         });
         let mut b = Report::new();
         b.push(Unrecognized {
-            kind: UnrecognizedKind::FeatureFlag { name: "flag".into(), raw: 3 },
+            kind: UnrecognizedKind::FeatureFlag {
+                name: "flag".into(),
+                raw: 3,
+            },
             origin: "shard-2".into(),
         });
 
         a.merge(b);
         assert_eq!(a.entries().len(), 2);
+        assert!(matches!(
+            a.entries()[0].kind,
+            UnrecognizedKind::File { .. }
+        ));
+        assert!(matches!(
+            a.entries()[1].kind,
+            UnrecognizedKind::FeatureFlag { .. }
+        ));
     }
 }

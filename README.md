@@ -4,12 +4,14 @@
 [![Documentation](https://docs.rs/mlmf/badge.svg)](https://docs.rs/mlmf)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/CireSnave/mlmf#license)
 
-**MLMF** (Machine Learning Model Files) is a comprehensive Rust crate for working with ML model files. MLMF provides loading, saving, conversion, and dynamic mapping capabilities for transformer models across multiple formats including SafeTensors, GGUF, ONNX, PyTorch, and AWQ. It eliminates code duplication and provides a unified, efficient API for model file operations.
+**MLMF** (Machine Learning Model Files) is a Rust crate for working with ML model files. MLMF provides loading, saving, conversion, and dynamic mapping capabilities for transformer models across SafeTensors, GGUF, ONNX and AWQ. **PyTorch `.bin` / `.pt` reading is not implemented**: `load_zip_pickle` and `load_legacy_pickle` both return an error advising conversion in Python, and a real pickle VM lands with `mlmf-pickle`.
+
+> **Note on this README.** MLMF is being rebuilt as a set of backend-agnostic crates under `crates/`, beginning with `mlmf-core`. See `docs/superpowers/specs/2026-08-14-backend-agnostic-mlmf-design.md`. The feature list below describes the legacy root crate, several parts of which that design schedules for deletion (calibration-based quantization, distributed loading, model cards, multimodal, architecture inference from tensor-name patterns).
 
 ## Features
 
 - 🏗️ **Architecture Detection**: Automatically detects model architecture (LLaMA, GPT-2, GPT-NeoX) from tensor names
-- 📦 **Multiple Formats**: Comprehensive support for SafeTensors, GGUF, ONNX, PyTorch, and AWQ formats
+- 📦 **Multiple Formats**: SafeTensors, GGUF, ONNX and AWQ. PyTorch pickle reading is **not implemented** — detection, options and progress exist around two functions that always return an error.
 - 🗺️ **Name Mapping**: Intelligent tensor name mapping between HuggingFace and custom formats
 - 💾 **Memory Efficient**: Memory-mapped loading for large models (30GB+)
 - ⚡ **Quantization**: Advanced post-training quantization with multiple schemes (INT8, INT4, Mixed)

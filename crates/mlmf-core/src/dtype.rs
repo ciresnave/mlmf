@@ -84,24 +84,58 @@ impl DType {
 mod tests {
     use super::*;
 
+    /// Every variant, with its wire size and its alignment, written out.
+    ///
+    /// The previous test named six of the fifteen variants, so `F64`, `U64`,
+    /// `I32`, `U32`, `I16` and `U16` could all be wrong with the suite
+    /// green. `DType::size` is the multiplicand in `Encoding::byte_size`'s
+    /// dense arm, which decides whether every declared byte range is
+    /// accepted — a wrong `U32` size rejects correctly-declared token-id and
+    /// offset tensors, or accepts corrupt ranges.
+    const EXPECTED: [(DType, usize, usize); 15] = [
+        (DType::F64, 8, 8),
+        (DType::F32, 4, 4),
+        (DType::F16, 2, 2),
+        (DType::BF16, 2, 2),
+        (DType::F8E4M3, 1, 1),
+        (DType::F8E5M2, 1, 1),
+        (DType::I64, 8, 8),
+        (DType::I32, 4, 4),
+        (DType::I16, 2, 2),
+        (DType::I8, 1, 1),
+        (DType::U64, 8, 8),
+        (DType::U32, 4, 4),
+        (DType::U16, 2, 2),
+        (DType::U8, 1, 1),
+        (DType::Bool, 1, 1),
+    ];
+
     #[test]
     fn sizes_are_the_wire_sizes() {
-        assert_eq!(DType::F32.size(), 4);
-        assert_eq!(DType::F16.size(), 2);
-        assert_eq!(DType::BF16.size(), 2);
-        assert_eq!(DType::F8E4M3.size(), 1);
-        assert_eq!(DType::Bool.size(), 1);
-        assert_eq!(DType::I64.size(), 8);
+        for (dt, size, _) in EXPECTED {
+            assert_eq!(dt.size(), size, "{dt:?} has the wrong wire size");
+        }
     }
 
     #[test]
-    fn alignment_never_exceeds_size() {
+    fn alignments_are_the_declared_values() {
+        // Not `alignment() <= size()`: `alignment()` delegates to `size()`,
+        // so that predicate is `x <= x` — a tautology satisfied by every
+        // value the function could possibly return.
+        for (dt, _, align) in EXPECTED {
+            assert_eq!(dt.alignment(), align, "{dt:?} has the wrong alignment");
+        }
+    }
+
+    #[test]
+    fn the_table_covers_every_variant() {
+        // So adding a variant to ALL without adding a row here fails, rather
+        // than silently leaving the new one unpinned.
+        assert_eq!(DType::ALL.len(), EXPECTED.len());
         for dt in DType::ALL {
             assert!(
-                dt.alignment() <= dt.size(),
-                "{dt:?}: alignment {} > size {}",
-                dt.alignment(),
-                dt.size()
+                EXPECTED.iter().any(|(d, _, _)| *d == dt),
+                "{dt:?} is in DType::ALL but has no row in the size table"
             );
         }
     }

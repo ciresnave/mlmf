@@ -47,18 +47,41 @@ impl Encoding {
     /// not a whole number of blocks. This is refused rather than rounded:
     /// a partial block has no defined byte length, so any answer would be
     /// invented.
+    ///
+    /// [`ErrorKind::SizeOverflow`] if the product exceeds `u64`. Both arms
+    /// multiplied unchecked before, which wrapped silently in release and
+    /// panicked in debug. The blocked arm's overflow is not hypothetical:
+    /// it occurs whenever `bytes_per_block > elements_per_block`, which is
+    /// true of real ggml types — Q8_0 (32/34), Q5_1 (32/24), Q8_K (256/292).
+    /// Q4_0 (32/18) happens to be safe, so a suite that tests only Q4_0 —
+    /// which this one did — cannot find it. A consumer that trusts a wrapped
+    /// `byte_size` to size a slice or advance an offset gets exactly the
+    /// subtle wrongness this module exists to prevent.
     pub fn byte_size(&self, elem_count: u64, tensor_name: &str) -> Result<u64> {
+        let overflow = || {
+            Error::from(ErrorKind::SizeOverflow {
+                name: tensor_name.to_string(),
+                elem_count,
+            })
+        };
         match self {
-            Encoding::Dense(dt) => Ok(elem_count * dt.size() as u64),
+            Encoding::Dense(dt) => elem_count
+                .checked_mul(dt.size() as u64)
+                .ok_or_else(overflow),
             Encoding::Blocked(spec) => {
-                if elem_count % spec.elements_per_block != 0 {
+                if !elem_count.is_multiple_of(spec.elements_per_block) {
                     return Err(Error::from(ErrorKind::RaggedBlock {
                         name: tensor_name.to_string(),
                         elem_count,
                         elements_per_block: spec.elements_per_block,
                     }));
                 }
-                Ok(elem_count / spec.elements_per_block * spec.bytes_per_block)
+                // The division stays before the multiply: that ordering is
+                // already correct and load-bearing, and it reduces (though
+                // it cannot eliminate) the overflow range.
+                (elem_count / spec.elements_per_block)
+                    .checked_mul(spec.bytes_per_block)
+                    .ok_or_else(overflow)
             }
         }
     }
@@ -124,6 +147,52 @@ mod tests {
         assert_eq!(Encoding::Dense(DType::F32).alignment(), 4);
         // A repr(C) Q4_0 block is { f16, [u8; 16] }: size 18, align 2.
         assert_eq!(Encoding::Blocked(q4_0()).alignment(), 2);
+    }
+
+    /// Q8_0: 32 weights per block, 34 bytes per block. Chosen deliberately
+    /// for the overflow test because `bytes_per_block > elements_per_block`,
+    /// which Q4_0 (32/18) does not satisfy — Q4_0's worst case is
+    /// `u64::MAX/32 * 18 = 1.04e19 < u64::MAX`, so it cannot overflow this
+    /// path and testing only Q4_0 could never find the defect.
+    fn q8_0() -> BlockSpec {
+        BlockSpec {
+            family: "ggml",
+            code: 8,
+            elements_per_block: 32,
+            bytes_per_block: 34,
+            alignment: 2,
+        }
+    }
+
+    #[test]
+    fn a_dense_size_that_overflows_is_refused_not_wrapped() {
+        let enc = Encoding::Dense(DType::F64);
+        let err = enc.byte_size(u64::MAX / 4, "big.weight").unwrap_err();
+        match err.kind() {
+            ErrorKind::SizeOverflow { name, elem_count } => {
+                assert_eq!(name, "big.weight");
+                assert_eq!(*elem_count, u64::MAX / 4);
+            }
+            other => panic!("wrong kind: {other:?}"),
+        }
+        assert!(err.to_string().contains("big.weight"), "{err}");
+    }
+
+    #[test]
+    fn a_blocked_size_that_overflows_is_refused_not_wrapped() {
+        // (u64::MAX / 32) * 34 is 1.96e19; a wrap reported 1.15e18, a silent
+        // 17x understatement of the tensor's byte length.
+        let enc = Encoding::Blocked(q8_0());
+        let elems = (u64::MAX / 32) * 32;
+        let err = enc.byte_size(elems, "blk.0.ffn_down.weight").unwrap_err();
+        assert!(matches!(err.kind(), ErrorKind::SizeOverflow { .. }));
+        assert!(err.to_string().contains("blk.0.ffn_down.weight"), "{err}");
+    }
+
+    #[test]
+    fn q8_0_still_computes_ordinary_sizes() {
+        // The overflow guard must not fire on a real tensor.
+        assert_eq!(Encoding::Blocked(q8_0()).byte_size(4096, "t").unwrap(), 4352);
     }
 
     #[test]

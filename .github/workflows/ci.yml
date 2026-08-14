@@ -1,0 +1,58 @@
+name: CI
+
+# Spec §3.3 is titled "Dependency contracts (enforced in CI, not by review)"
+# and calls C2 "the operative control". There was no CI configuration in this
+# repository at all: no .github, no .gitlab-ci.yml, no workflow of any kind.
+# C1 and the transitive half of C2 were enforced by a human remembering to
+# type `bash scripts/check-deps.sh` on a POSIX shell, on a Windows-primary
+# repository, and C1's ceiling was never evaluated automatically at all.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  core-gates:
+    # Windows is in the matrix because the target-specific dependency hole
+    # (a [target.'cfg(unix)'.dependencies] edge) is invisible to a host-only
+    # `cargo tree`, and Linux is in it because the shell gate must run where
+    # bash is native.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      # C6: build AND run the parser suite with default features off, so the
+      # mmap-free path is proven functional rather than merely compilable.
+      - name: cargo test -p mlmf-core --no-default-features
+        run: cargo test -p mlmf-core --no-default-features
+
+      # C1/C2/C3/C5/C7 all live here as ordinary Rust tests.
+      - name: cargo test -p mlmf-core
+        run: cargo test -p mlmf-core
+
+      # The same C1/C2 assertion through the script that owns --bless, so the
+      # two normalisations cannot silently drift apart.
+      - name: scripts/check-deps.sh
+        shell: bash
+        run: bash scripts/check-deps.sh
+
+      # #![warn(missing_docs)] is only meaningful if a warning fails a build.
+      - name: cargo doc -p mlmf-core --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-core --no-deps
+
+      - name: cargo clippy -p mlmf-core
+        run: cargo clippy -p mlmf-core --all-targets -- -D warnings
+
+# NOT gated here, deliberately and on the record: the legacy root `mlmf`
+# package. It depends on `candlelight` from git and runs a `prost-build`
+# build script, so it needs `protoc` and a long build. Spec §11 schedules it
+# for rewrite across the format axis rather than repair. When that lands,
+# `cargo test --workspace` belongs in the matrix above and the `mlmf` entry
+# comes out of BUILD_SCRIPT_ALLOWED in crates/mlmf-core/tests/workspace.rs.

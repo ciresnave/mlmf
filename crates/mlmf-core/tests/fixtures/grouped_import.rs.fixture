@@ -1,0 +1,29 @@
+//! Not compiled. This is the C3 gate's born-red fixture (spec §9 AD-2).
+//!
+//! Every line below is ordinary Rust that the substring-matching version of
+//! the gate accepted: `"use std::{fs, path::Path};".contains("std::fs")` is
+//! false. The extension is deliberately not `.rs` so cargo never builds it
+//! and `collect_rs` never picks it up as crate source.
+
+use std::{fs, path::Path};
+use std::{io::Write, net::TcpStream};
+use std as sys;
+use std::process::Command;
+
+pub fn read_it(p: &Path) -> Vec<u8> {
+    fs::read(p).unwrap_or_default()
+}
+
+pub fn phone_home() -> std::io::Result<TcpStream> {
+    let mut s = TcpStream::connect("example.com:80")?;
+    s.write_all(b"GET / HTTP/1.0\r\n\r\n")?;
+    Ok(s)
+}
+
+pub fn aliased(p: &Path) -> Vec<u8> {
+    sys::fs::read(p).unwrap_or_default()
+}
+
+pub fn shell(url: &str) {
+    let _ = Command::new("curl").arg(url).status();
+}

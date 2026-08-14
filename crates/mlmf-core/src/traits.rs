@@ -4,6 +4,9 @@
 //! Source crates implement [`ByteSource`]. Both depend on `mlmf-core`
 //! alone, which is what lets any source compose with any format.
 
+use std::borrow::Cow;
+use std::ops::Range;
+
 use crate::{MetaValue, Result, TensorDescriptor};
 
 /// A contiguous region of bytes obtained from somewhere.
@@ -15,21 +18,78 @@ pub trait ByteSource {
     fn as_bytes(&self) -> &[u8];
 }
 
+/// A source that can serve arbitrary byte ranges without materializing the
+/// whole artifact.
+///
+/// Spec §3.4 says "`&[u8]` **and `impl Read`** are the primary entry points
+/// and mmap is one byte-source among them, **which is what keeps streaming
+/// and IPC transports possible later**". [`ByteSource`] is only the first
+/// half: it demands one fully-materialized contiguous slice, so an HTTP
+/// range-request source, an IPC or shared-memory transport, a tar or ZIP
+/// member, or `mlmf-source-hub` streaming a 140 GB shard would each have to
+/// buffer the entire artifact into memory before it could be a source at
+/// all. That forecloses the very transports §3.1 sells the two-axis design
+/// on ("adding S3, IPC or an in-memory source later touches nothing that
+/// parses").
+///
+/// Expressed as a ranged read over a caller-supplied buffer rather than
+/// `std::io::Read` so that `mlmf-core` need not name `std::io`, which keeps
+/// the C3 allow-list of permitted `std` submodules tight.
+pub trait RangedSource {
+    /// Total size of the artifact in bytes, if the source knows it.
+    fn len(&self) -> Option<u64>;
+
+    /// Whether the artifact is known to be empty.
+    ///
+    /// `None` means the length is not known, which is not the same as empty.
+    fn is_empty(&self) -> Option<bool> {
+        self.len().map(|n| n == 0)
+    }
+
+    /// Fill `into` with the bytes in `range`.
+    ///
+    /// `into.len()` must equal the range's width; an implementation must not
+    /// short-read.
+    ///
+    /// # Errors
+    ///
+    /// If the range lies outside the artifact, or the underlying transport
+    /// fails ([`crate::ErrorKind::Source`]).
+    fn read_range(&self, range: Range<u64>, into: &mut [u8]) -> Result<()>;
+}
+
 /// Something that declares named tensors and can hand out their bytes.
 ///
-/// Bytes are **borrowed**. There is no tensor type, no device and no
-/// backend trait: a consumer builds whatever it wants from the slice.
-/// Alignment is not guaranteed — see [`crate::align`].
+/// There is no tensor type, no device and no backend trait: a consumer
+/// builds whatever it wants from the slice. Alignment is not guaranteed —
+/// see [`crate::align`].
 pub trait TensorContainer {
     /// Every tensor this container declares.
     fn tensors(&self) -> &[TensorDescriptor];
 
-    /// The bytes for one tensor.
+    /// The bytes for one tensor, **borrowed or owned**.
+    ///
+    /// `Cow` rather than `&[u8]` because spec §11 requires it by name:
+    /// "mmap-slicing a `.bin` works only because `torch.save` writes ZIP
+    /// entries **stored, not deflated**. A compressed entry must be
+    /// decompressed into an owned buffer, so **`mlmf-pickle` returns
+    /// borrowed-or-owned**, unlike GGUF and safetensors which are always
+    /// borrowable." A `&[u8]` return cannot carry that buffer, which left
+    /// `mlmf-pickle` with three bad options: inflate every deflated entry
+    /// eagerly at open time, reach for interior mutability plus unsafe
+    /// lifetime extension in a crate that is `#![forbid(unsafe_code)]`, or
+    /// not implement the seam at all — breaking §4.5's premise that
+    /// `mlmf-meta` and the umbrella consume one seam.
+    ///
+    /// It is also what makes AL-3 hold *through* the seam. A caller can test
+    /// `matches!(bytes, Cow::Owned(_))` and see that MLMF allocated. With
+    /// `&[u8]` the inflate-into-self copy would be exactly the invisible
+    /// cost AL-3 forbids, with no API surface able to reveal it.
     ///
     /// # Errors
     ///
     /// If the descriptor's range lies outside the container's data.
-    fn tensor_bytes(&self, descriptor: &TensorDescriptor) -> Result<&[u8]>;
+    fn tensor_bytes(&self, descriptor: &TensorDescriptor) -> Result<Cow<'_, [u8]>>;
 }
 
 /// Something that declares typed metadata under string keys.
@@ -69,10 +129,44 @@ mod tests {
         fn tensors(&self) -> &[TensorDescriptor] {
             &self.tensors
         }
-        fn tensor_bytes(&self, d: &TensorDescriptor) -> crate::Result<&[u8]> {
+        fn tensor_bytes(&self, d: &TensorDescriptor) -> crate::Result<Cow<'_, [u8]>> {
             let start = usize::try_from(d.bytes.start).expect("fits");
             let end = usize::try_from(d.bytes.end).expect("fits");
-            Ok(&self.blob[start..end])
+            Ok(Cow::Borrowed(&self.blob[start..end]))
+        }
+    }
+
+    impl RangedSource for Fake {
+        fn len(&self) -> Option<u64> {
+            Some(self.blob.len() as u64)
+        }
+        fn read_range(&self, range: Range<u64>, into: &mut [u8]) -> crate::Result<()> {
+            let start = usize::try_from(range.start).expect("fits");
+            let end = usize::try_from(range.end).expect("fits");
+            if end > self.blob.len() || into.len() != end - start {
+                return Err(crate::Error::from(crate::ErrorKind::Truncated {
+                    needed: range.end,
+                    available: self.blob.len() as u64,
+                }));
+            }
+            into.copy_from_slice(&self.blob[start..end]);
+            Ok(())
+        }
+    }
+
+    /// A container that has to materialize — the shape spec §11 says
+    /// `mlmf-pickle` takes for a deflated ZIP entry.
+    struct Inflating {
+        tensors: Vec<TensorDescriptor>,
+    }
+
+    impl TensorContainer for Inflating {
+        fn tensors(&self) -> &[TensorDescriptor] {
+            &self.tensors
+        }
+        fn tensor_bytes(&self, d: &TensorDescriptor) -> crate::Result<Cow<'_, [u8]>> {
+            let n = usize::try_from(d.byte_len()).expect("fits");
+            Ok(Cow::Owned(vec![0xAB; n]))
         }
     }
 
@@ -108,8 +202,49 @@ mod tests {
         let f = fake();
         let d = &f.tensors()[0];
         let bytes = f.tensor_bytes(d).expect("in range");
+        assert!(
+            matches!(bytes, Cow::Borrowed(_)),
+            "a mappable container must not allocate"
+        );
         assert_eq!(bytes.len(), 32);
         assert_eq!(bytes.as_ptr(), f.as_bytes().as_ptr());
+    }
+
+    #[test]
+    fn a_caller_can_see_when_mlmf_had_to_allocate() {
+        // AL-3 through the seam: the copy is a decision the caller can see.
+        let c = Inflating {
+            tensors: vec![TensorDescriptor {
+                name: "deflated".into(),
+                shape: Shape::new([2usize, 4]),
+                encoding: Encoding::Dense(DType::F32),
+                bytes: 0..32,
+            }],
+        };
+        let bytes = c.tensor_bytes(&c.tensors()[0]).expect("inflates");
+        assert!(
+            matches!(bytes, Cow::Owned(_)),
+            "an owned result must be distinguishable from a borrowed one"
+        );
+        assert_eq!(bytes.len(), 32);
+    }
+
+    #[test]
+    fn a_ranged_source_serves_a_window_without_materializing_the_whole() {
+        // Spec §3.4's second entry point. A source that cannot produce one
+        // contiguous slice — HTTP ranges, IPC, a ZIP member — still composes
+        // with the format axis.
+        let f = fake();
+        assert_eq!(RangedSource::len(&f), Some(32));
+        assert_eq!(f.is_empty(), Some(false));
+
+        let mut buf = [0u8; 8];
+        f.read_range(4..12, &mut buf).expect("in range");
+        assert_eq!(buf, [0u8; 8]);
+
+        let mut wrong = [0u8; 4];
+        assert!(f.read_range(0..8, &mut wrong).is_err(), "no short reads");
+        assert!(f.read_range(0..64, &mut [0u8; 64]).is_err(), "out of range");
     }
 
     #[test]

@@ -84,6 +84,11 @@ pub enum ErrorKind {
     },
 
     /// Bytes cannot be reinterpreted as the requested type (spec AL-2).
+    ///
+    /// Reachable only when the address genuinely is under-aligned. A length
+    /// that is not a whole number of `T` is [`ErrorKind::RaggedCast`],
+    /// because the two are not the same failure: one is recoverable by
+    /// copying and one means the declared range is wrong.
     #[error(
         "misaligned: {required}-byte alignment required, address is \
          {actual}-byte aligned"
@@ -93,6 +98,58 @@ pub enum ErrorKind {
         required: usize,
         /// Alignment the bytes actually have.
         actual: usize,
+    },
+
+    /// A byte range whose length is not a whole number of the target type.
+    ///
+    /// Kept distinct from [`ErrorKind::Misaligned`] deliberately. Collapsing
+    /// the two produced a self-contradictory message — "4-byte alignment
+    /// required, address is 64-byte aligned" — and left a consumer branching
+    /// on `Misaligned` unable to tell "move the data" from "this file is
+    /// corrupt".
+    #[error("ragged cast: {len} bytes is not a whole number of {width}-byte elements")]
+    RaggedCast {
+        /// Length of the byte range.
+        len: usize,
+        /// Size of one target element.
+        width: usize,
+    },
+
+    /// A declared byte range whose end precedes its start.
+    ///
+    /// Structurally impossible, so it is refused rather than rendered as a
+    /// zero-width range: `saturating_sub` would report "0 bytes" for a range
+    /// that is neither 0 bytes nor the size the shape requires, sending the
+    /// reader after a missing tensor instead of a swapped pair of offsets.
+    #[error("tensor {name}: byte range {start}..{end} ends before it starts")]
+    InvertedRange {
+        /// Tensor name as declared.
+        name: String,
+        /// Declared start offset.
+        start: u64,
+        /// Declared end offset.
+        end: u64,
+    },
+
+    /// A declared shape whose dimensions multiply out beyond `u64`.
+    ///
+    /// Spec §7's fatal tier: like an unknown type code, this makes byte-size
+    /// arithmetic unknowable, so proceeding would hand out *wrong* bytes
+    /// rather than incomplete ones. Both GGUF (`n_dims` × `u64`) and
+    /// safetensors (a JSON number array) let a file declare it.
+    #[error("shape {dims:?} overflows a u64 element count")]
+    ShapeOverflow {
+        /// Dimensions exactly as declared.
+        dims: Vec<usize>,
+    },
+
+    /// An element count and encoding whose byte size overflows `u64`.
+    #[error("tensor {name}: byte size of {elem_count} elements overflows a u64")]
+    SizeOverflow {
+        /// Tensor name as declared.
+        name: String,
+        /// Element count from the declared shape.
+        elem_count: u64,
     },
 
     /// A target format requires a value that is neither declared nor a
@@ -107,7 +164,13 @@ pub enum ErrorKind {
     ///
     /// `mlmf-core` performs no I/O; this variant exists so source crates
     /// can report their own failures without core depending on them.
-    #[error("source error")]
+    ///
+    /// The cause is in the message as well as in the `source()` chain.
+    /// `#[error("source error")]` alone dropped it: `format!("{e}")`,
+    /// `eprintln!("{e}")` and `unwrap`'s panic message do not walk the
+    /// chain, so an operator saw "source error" where the file said
+    /// "permission denied".
+    #[error("source error: {0}")]
     Source(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -179,6 +242,35 @@ mod tests {
         assert!(text.contains("gguf"), "format missing: {text}");
         assert!(text.contains('9'), "version missing: {text}");
         assert!(matches!(err.kind(), ErrorKind::UnsupportedVersion { .. }));
+    }
+
+    #[test]
+    fn a_source_error_carries_its_cause_in_the_message_and_in_the_chain() {
+        // `#[error("source error")]` discarded the only information the
+        // variant exists to carry. It survived in Debug and behind
+        // `Error::source()`, which `format!("{e}")`, `eprintln!("{e}")` and
+        // `unwrap`'s panic message do not walk — so the string a Fuel or
+        // Lightbulb operator saw for any I/O failure was "source error",
+        // with permission-denied / connection-reset / no-such-file dropped.
+        // Neither existing test constructed this variant, so `Error`'s
+        // `source()` impl was executed by no test either.
+        #[derive(Debug)]
+        struct Denied;
+        impl std::fmt::Display for Denied {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "model.gguf: permission denied")
+            }
+        }
+        impl std::error::Error for Denied {}
+
+        let err = Error::from(ErrorKind::Source(Box::new(Denied))).with_path("model.gguf");
+        let text = err.to_string();
+        assert!(text.contains("permission denied"), "cause dropped: {text}");
+        assert!(text.contains("model.gguf"), "path dropped: {text}");
+        assert!(
+            std::error::Error::source(&err).is_some(),
+            "the cause must stay in the chain as well as in the message"
+        );
     }
 
     #[test]

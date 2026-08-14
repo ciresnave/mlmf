@@ -27,4 +27,4 @@ pub use meta::MetaValue;
 pub use report::{Report, Unrecognized, UnrecognizedKind};
 pub use shape::Shape;
 pub use tensor::TensorDescriptor;
-pub use traits::{ByteSource, MetadataSource, TensorContainer};
+pub use traits::{ByteSource, MetadataSource, RangedSource, TensorContainer};
