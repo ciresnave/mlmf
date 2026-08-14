@@ -11,9 +11,11 @@
 #![warn(missing_docs)]
 
 pub mod dtype;
+pub mod encoding;
 pub mod error;
 pub mod shape;
 
 pub use dtype::DType;
+pub use encoding::{BlockSpec, Encoding};
 pub use error::{Error, ErrorKind, Result};
 pub use shape::Shape;
