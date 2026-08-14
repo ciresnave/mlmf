@@ -185,6 +185,10 @@ Therefore:
 
 Blocked encodings need less than dense ones: a `#[repr(C)]` Q4_0 block is `{ f16 scale, [u8; 16] }` — size 18, alignment 2. GGUF's 32-byte padding covers every encoding in this design; safetensors' worst case is F32's alignment of 4.
 
+**AL-2 is a capability gain, not only a hazard avoided.** Checking Fuel's own tree for this hazard found the asymmetry reproduced exactly — their GGUF path reads `general.alignment` with a 32-byte default and pads; their safetensors path has *zero* alignment references. Fuel has no UB, because their safetensors decode is byte-wise (`chunks_exact(4)` → `from_le_bytes` → `push`), which is alignment-independent and endian-explicit. **But that means Fuel copies every tensor on load despite mmap: what AL-3 names as the separate realigning path is, in Fuel today, the unconditional one.** A fallible `try_as_slice::<T>()` is precisely the primitive they lack — it lets a consumer borrow when alignment permits and fall back to byte-wise decode when it does not, which is a choice they currently cannot make. *(Fuel has opened a measurement of what that copy costs; no number is asserted here.)*
+
+**The failure shape is worth naming on its own: a latent UB masked by the common case.** It has no failing-test phase — it works, and works, and then a checkpoint with an odd-length U8 tensor arrives, and the failure is undefined behaviour rather than a wrong number. **A wrong answer gets investigated; UB gets a bug report about something else entirely.** AL-2's refusal to offer an infallible typed accessor is the response: it forces the common case and the rare case down the *same* code path, so the rare one cannot be reached only in production.
+
 *Raised by the Fuel architect against the first draft, where "align" appeared once in 406 lines and not normatively. Their framing: silence here is discovered by whoever writes the first zero-copy backend hand-off, which is them.*
 
 ---
