@@ -14,11 +14,13 @@ pub mod align;
 pub mod dtype;
 pub mod encoding;
 pub mod error;
+pub mod meta;
 pub mod shape;
 pub mod tensor;
 
 pub use dtype::DType;
 pub use encoding::{BlockSpec, Encoding};
 pub use error::{Error, ErrorKind, Result};
+pub use meta::MetaValue;
 pub use shape::Shape;
 pub use tensor::TensorDescriptor;
