@@ -1,3 +1,12 @@
+[workspace]
+members = ["crates/*"]
+
+[workspace.package]
+edition    = "2024"
+license    = "MIT OR Apache-2.0"
+repository = "https://github.com/CireSnave/mlmf"
+version    = "0.4.0"
+
 [package]
     authors = ["Eric Evans <CireSnave@gmail.com>"]
     categories = ["algorithms", "science"]

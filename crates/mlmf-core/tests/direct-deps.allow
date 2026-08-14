@@ -1,0 +1,5 @@
+# C2: mlmf-core's direct dependencies. Changing this file is a deliberate act.
+# Keep sorted. Every entry must be justified in the design spec.
+bytemuck
+smallvec
+thiserror

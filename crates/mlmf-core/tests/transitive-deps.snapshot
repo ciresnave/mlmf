@@ -1,0 +1,9 @@
+bytemuck
+mlmf-core
+proc-macro2
+quote
+smallvec
+syn
+thiserror
+thiserror-impl
+unicode-ident
