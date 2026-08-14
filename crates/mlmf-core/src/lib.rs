@@ -10,6 +10,10 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod dtype;
 pub mod error;
+pub mod shape;
 
+pub use dtype::DType;
 pub use error::{Error, ErrorKind, Result};
+pub use shape::Shape;
