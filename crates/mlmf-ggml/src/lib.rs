@@ -18,6 +18,10 @@
 //! carry them; [`CodeStatus::Retired`] names those so a reader is told to
 //! look backward rather than forward.
 //!
+//! The rule for which lookup to use: [`GgmlType::from_code`] to *resolve* a
+//! code into geometry, [`GgmlType::status`] to *report* why a code did not
+//! resolve.
+//!
 //! # What this crate will not do
 //!
 //! It will not dequantize. Turning blocks into floats requires each

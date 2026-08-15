@@ -51,7 +51,22 @@ impl GgmlType {
     ///
     /// [`ErrorKind::RaggedRow`] if the first dimension is not a whole
     /// number of blocks; [`ErrorKind::ShapeOverflow`] or
-    /// [`ErrorKind::SizeOverflow`] if the arithmetic does not fit a `u64`.
+    /// [`ErrorKind::SizeOverflow`] if the arithmetic does not fit a `u64`;
+    /// or [`ErrorKind::RaggedBlock`] for a rank-0 (empty `ne`) quantized
+    /// tensor — the row guard above only fires when `ne.first()` exists, so
+    /// an empty shape skips it, `elems` is left at its starting value of 1,
+    /// and `mlmf-core`'s own whole-tensor block check in
+    /// [`Encoding::byte_size`] is what refuses it instead.
+    ///
+    /// # Note
+    ///
+    /// Strictly stronger than [`mlmf_core::TensorDescriptor::validate`]'s
+    /// range check: that method only enforces whole-*tensor* divisibility,
+    /// while this enforces ggml's whole-*row* rule. Passing `validate()`
+    /// does not imply a layout ggml would produce — a `Q4_0` tensor with
+    /// `ne = [16, 64]` has a clean 1024 elements (32 blocks) and passes
+    /// `validate()`, but its first row of 16 is not a whole number of
+    /// blocks and this method refuses it.
     pub fn nbytes(self, ne: &[u64], name: &str) -> Result<u64> {
         let per_block = self.elements_per_block();
         if let Some(&row) = ne.first()
@@ -133,6 +148,47 @@ mod tests {
     }
 
     #[test]
+    fn the_four_types_that_are_not_two_byte_aligned() {
+        // Moved here from `types.rs`, and retargeted. It used to assert
+        // `GgmlType::from_code(15).unwrap().alignment()` — the bare
+        // accessor. But no consumer calls the bare accessor:
+        // `TensorDescriptor::is_borrowable_at` reads
+        // `Encoding::alignment()`, which for a blocked type is
+        // `BlockSpec::alignment` as set by `encoding()`'s match arm above.
+        // Those are two different projections of the same table, and only
+        // one of them gates the unsafe cast in the crate that consumes
+        // this one. Hardcoding `alignment: 2` in the `Blocked` arm left
+        // every test asserting the bare accessor green.
+        //
+        // Exact values, not `is_power_of_two()`: that assertion is
+        // satisfied by a body that returns 2 unconditionally, which is what
+        // a skimmed reading of the table produces.
+        assert_eq!(GgmlType::from_code(15).unwrap().encoding().alignment(), 4); // Q8_K
+        assert_eq!(GgmlType::from_code(29).unwrap().encoding().alignment(), 1); // IQ1_M
+        assert_eq!(GgmlType::from_code(39).unwrap().encoding().alignment(), 1); // MXFP4
+        assert_eq!(GgmlType::from_code(40).unwrap().encoding().alignment(), 1); // NVFP4
+        assert_eq!(GgmlType::from_code(2).unwrap().encoding().alignment(), 2); // and the common case
+    }
+
+    #[test]
+    fn the_projection_preserves_every_types_alignment() {
+        // The accessor is pinned against ground truth in tests/table.rs.
+        // This pins the *projection*, which is a different surface and the
+        // one consumers actually read: `TensorDescriptor::is_borrowable_at`
+        // compares against `encoding.alignment()`, not against
+        // `GgmlType::alignment()`. Hardcoding `alignment: 2` in the Blocked
+        // arm left all 34 tests green before this existed.
+        for t in GgmlType::ALL {
+            assert_eq!(
+                t.encoding().alignment(),
+                t.alignment(),
+                "{} loses its alignment crossing into Encoding",
+                t.name()
+            );
+        }
+    }
+
+    #[test]
     fn a_quantized_type_projects_to_a_block_spec_carrying_its_code() {
         // The code must survive the projection: Q4_0 and IQ4_NL have
         // identical geometry, so a consumer picking a kernel has nothing
@@ -205,6 +261,23 @@ mod tests {
         // A zero-length dimension yields zero bytes, not an error: GGUF
         // permits it and the range is simply empty.
         assert_eq!(GgmlType::Q4_0.nbytes(&[0, 64], "t").unwrap(), 0);
+    }
+
+    #[test]
+    fn a_rank_0_quantized_tensor_is_ragged_block_not_ragged_row() {
+        // A rank-0 declaration is a real if unusual thing for a file to
+        // declare. `ne.first()` is `None`, so the row guard above never
+        // fires — there is no row to check — and `elems` stays at its
+        // starting value of 1. Q4_0 packs 32 elements per block, so 1
+        // element is not a whole block, and core's own block check in
+        // `Encoding::byte_size` is what refuses it: RaggedBlock, not one of
+        // the errors this method's own row-rule logic can raise.
+        let err = GgmlType::Q4_0.nbytes(&[], "t").unwrap_err();
+        assert!(
+            matches!(err.kind(), ErrorKind::RaggedBlock { .. }),
+            "wrong kind: {:?}",
+            err.kind()
+        );
     }
 
     #[test]

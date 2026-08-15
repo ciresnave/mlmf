@@ -233,6 +233,14 @@ impl GgmlType {
     ///
     /// Never an error: see [`CodeStatus`] for why, and use
     /// [`GgmlType::status`] when you need to say *which kind* of unknown.
+    ///
+    /// # See also
+    ///
+    /// [`GgmlType::status`] — this collapses [`CodeStatus::Retired`] and
+    /// [`CodeStatus::Unassigned`] into the same `None`, which is the right
+    /// ergonomic path when a caller genuinely does not care why a code is
+    /// unresolvable. Reach for `status` instead when the caller needs to
+    /// report which kind of unknown it is.
     #[must_use]
     pub fn from_code(code: u32) -> Option<GgmlType> {
         GgmlType::ALL.into_iter().find(|t| t.code() == code)
@@ -310,17 +318,12 @@ mod tests {
         assert_eq!(b.name(), "IQ4_NL");
     }
 
-    #[test]
-    fn the_four_types_that_are_not_two_byte_aligned() {
-        // Exact values, not `is_power_of_two()`: that assertion is
-        // satisfied by a body that returns 2 unconditionally, which is what
-        // a skimmed reading of the table produces.
-        assert_eq!(GgmlType::from_code(15).unwrap().alignment(), 4); // Q8_K
-        assert_eq!(GgmlType::from_code(29).unwrap().alignment(), 1); // IQ1_M
-        assert_eq!(GgmlType::from_code(39).unwrap().alignment(), 1); // MXFP4
-        assert_eq!(GgmlType::from_code(40).unwrap().alignment(), 1); // NVFP4
-        assert_eq!(GgmlType::from_code(2).unwrap().alignment(), 2); // and the common case
-    }
+    // `the_four_types_that_are_not_two_byte_aligned` used to live here,
+    // asserting the bare `alignment()` accessor. It has moved to
+    // `geometry.rs`'s test module and now asserts through
+    // `encoding().alignment()` instead — see that file for why: the bare
+    // accessor is not the surface a consumer reads, and testing it left the
+    // projection into `Encoding::Blocked` completely uncovered.
 
     #[test]
     fn a_dense_type_is_one_element_per_block_and_not_quantized() {
