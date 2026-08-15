@@ -241,4 +241,58 @@ mod tests {
             assert_eq!(n, 2 * t.bytes_per_block(), "{}", t.name());
         }
     }
+
+    #[test]
+    fn every_pair_sharing_a_geometry_is_enumerated_and_agrees_on_size() {
+        // The crate's central hazard is "identical geometry, different
+        // meaning". An earlier version of this test named Q4_0/IQ4_NL and
+        // called them "the two", which told a maintainer the hazard was
+        // enumerated when it was not — there are eight colliding pairs, and
+        // Q3_K/IQ3_S sits in the corpus fixture unremarked.
+        //
+        // So derive them. A newly added type that collides with an existing
+        // one fails this test on the day it lands, which is the point: a new
+        // collision is a new hazard and a human should have to look at it.
+        //
+        // Deliberately no `std::collections` — the C3 purity gate scans
+        // `src/`, and `collections` is not on this crate's allow-list.
+        let mut found: Vec<(&str, &str)> = Vec::new();
+        for (i, a) in GgmlType::ALL.iter().enumerate() {
+            for b in &GgmlType::ALL[i + 1..] {
+                if a.elements_per_block() == b.elements_per_block()
+                    && a.bytes_per_block() == b.bytes_per_block()
+                {
+                    // Same geometry must mean same size, at every shape.
+                    let shape = [a.elements_per_block(), 4];
+                    assert_eq!(
+                        a.nbytes(&shape, a.name()).unwrap(),
+                        b.nbytes(&shape, b.name()).unwrap(),
+                        "{} and {} share a geometry but disagree on size",
+                        a.name(),
+                        b.name()
+                    );
+                    assert_ne!(a, b, "a pair must be two distinct types");
+                    found.push((a.name(), b.name()));
+                }
+            }
+        }
+        found.sort_unstable();
+        assert_eq!(
+            found,
+            [
+                ("F16", "BF16"),
+                ("F16", "I16"),
+                ("F32", "I32"),
+                ("I16", "BF16"),
+                ("I64", "F64"),
+                ("IQ2_XXS", "TQ2_0"),
+                ("Q3_K", "IQ3_S"),
+                ("Q4_0", "IQ4_NL"),
+            ]
+            .map(|(a, b)| (a, b))
+            .to_vec(),
+            "the set of geometry collisions changed — a new one is a new \
+             hazard and needs a deliberate decision, not a silent pass"
+        );
+    }
 }
