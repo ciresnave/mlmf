@@ -291,8 +291,13 @@ mod tests {
         assert_eq!(a.elements_per_block(), b.elements_per_block());
         assert_eq!(a.bytes_per_block(), b.bytes_per_block());
         assert_ne!(a, b);
-        assert_eq!(a.code(), 2);
-        assert_eq!(b.code(), 20);
+        // Deliberately NOT `assert_eq!(a.code(), 2)`: `from_code` returns
+        // the item satisfying `t.code() == code`, so that assertion is
+        // true by construction and cannot fail independently of the
+        // `unwrap` above. Pin the names instead, which the table supplies
+        // separately from the code.
+        assert_eq!(a.name(), "Q4_0");
+        assert_eq!(b.name(), "IQ4_NL");
     }
 
     #[test]
@@ -350,15 +355,32 @@ mod tests {
     }
 
     #[test]
-    fn every_retired_code_is_absent_from_the_live_table() {
-        // The two lists must not drift into disagreement: a code cannot be
-        // both live and retired, and this is the only place that is checked.
-        for code in [4u32, 5, 31, 32, 33, 36, 37, 38] {
+    fn the_live_and_retired_lists_cannot_drift_into_disagreement() {
+        // A code cannot be both live and retired, and this is the only
+        // place that is checked — so it must be checked in BOTH directions,
+        // and against the real lists rather than a copy of one.
+        //
+        // The first version of this test did neither. It iterated a
+        // hardcoded `[4u32, 5, 31, ...]` and asserted only retired => not
+        // live. Adding `(2, "Q4_0_ghost")` to RETIRED — code 2 being Q4_0,
+        // a live type — left all eight tests green, so the exact drift the
+        // comment called impossible was undetectable. Iterating the real
+        // constant is what makes the guard notice the list changing.
+        for (code, name) in GgmlType::RETIRED {
             assert!(
                 GgmlType::from_code(code).is_none(),
-                "code {code} is retired but also present in the live table"
+                "code {code} is retired as {name} but is also in the live table"
             );
         }
+        for t in GgmlType::ALL {
+            assert!(
+                GgmlType::RETIRED.iter().all(|(c, _)| *c != t.code()),
+                "{} (code {}) is live but is also listed as retired",
+                t.name(),
+                t.code()
+            );
+        }
+        assert_eq!(GgmlType::RETIRED.len(), 8, "ggml has eight retired codes");
     }
 
     #[test]
