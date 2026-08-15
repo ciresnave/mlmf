@@ -139,6 +139,16 @@ impl GgmlType {
     ];
 
     /// The one place any type's geometry is stated.
+    ///
+    /// **This match is load-bearing as an exhaustiveness gate, and its
+    /// location is part of the guarantee.** It has no wildcard arm, so
+    /// adding a variant to `GgmlType` without giving it geometry fails to
+    /// compile. That only works *inside this crate*: `GgmlType` is
+    /// `#[non_exhaustive]`, so the identical match written in an
+    /// integration test — or any other crate — is required to carry a `_`
+    /// arm and can never break. Moving this into `tests/`, or collapsing
+    /// it into a helper with a catch-all, removes the guard while leaving
+    /// code that looks the same.
     const fn row(self) -> Row {
         match self {
             GgmlType::F32 => Row(0, "F32", 1, 4, 4),
