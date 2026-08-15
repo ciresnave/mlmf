@@ -64,7 +64,16 @@ pub trait RangedSource {
 /// builds whatever it wants from the slice. Alignment is not guaranteed —
 /// see [`crate::align`].
 pub trait TensorContainer {
-    /// Every tensor this container declares.
+    /// Every tensor this container declares **that this build can describe**.
+    ///
+    /// A tensor whose declared encoding could not be resolved — an
+    /// unrecognized ggml type code, for instance — is absent from this
+    /// slice. [`TensorDescriptor`] has no way to say "length unknown," so
+    /// there is no descriptor to put here; instead the parse's
+    /// [`crate::Report`] gains a
+    /// [`crate::UnrecognizedKind::TensorEncoding`] entry naming the tensor,
+    /// the family, and the code. A consumer that ignores the report sees
+    /// only a shorter list, with no other signal that anything is missing.
     fn tensors(&self) -> &[TensorDescriptor];
 
     /// The tensor declared under `name`, if any.

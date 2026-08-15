@@ -109,6 +109,18 @@ impl TensorDescriptor {
     /// whole number of blocks, or [`ErrorKind::ShapeOverflow`] /
     /// [`ErrorKind::SizeOverflow`] if the declared arithmetic does not fit
     /// in a `u64`.
+    ///
+    /// # Note
+    ///
+    /// This checks the declared range against shape and encoding using
+    /// whole-*tensor* divisibility ([`crate::Encoding::byte_size`]) — it
+    /// cannot enforce a layout rule that only a specific format imposes.
+    /// ggml requires each *row* to be a whole number of blocks, which is
+    /// strictly stronger and is **not** checked here: a `Q4_0` tensor with
+    /// `ne = [16, 64]` has 1024 elements, a clean 32 blocks, so it passes
+    /// this method, yet no ggml writer produces that layout. A ggml
+    /// consumer must additionally call `GgmlType::nbytes` at tensor-info
+    /// parse time rather than relying on this method alone.
     pub fn validate(&self) -> Result<()> {
         // Ordering first, and before `byte_len` gets to invent a number.
         // A zero-element tensor is legal in safetensors (shape [0, 768],
