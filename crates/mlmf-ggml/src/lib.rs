@@ -13,6 +13,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod geometry;
 pub mod types;
 
 pub use types::{CodeStatus, GgmlType};
