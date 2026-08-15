@@ -93,10 +93,37 @@ mod tests {
     use mlmf_core::{DType, Encoding, ErrorKind};
 
     #[test]
-    fn a_dense_type_projects_to_a_dense_encoding() {
-        assert_eq!(GgmlType::F32.encoding(), Encoding::Dense(DType::F32));
-        assert_eq!(GgmlType::BF16.encoding(), Encoding::Dense(DType::BF16));
-        assert_eq!(GgmlType::I64.encoding(), Encoding::Dense(DType::I64));
+    fn every_dense_type_projects_to_its_own_scalar_type() {
+        // All eight, not a spot check — and the reason is the same lesson
+        // the quantized side already encodes. The dense types fall into
+        // equal-width groups: {F16, BF16, I16} are all 2 bytes, {F32, I32}
+        // both 4, {F64, I64} both 8. A mapping that returns the wrong
+        // member of a group changes no size anywhere, so
+        // `every_live_type_computes_a_size_for_a_shape_it_permits` stays
+        // green, and a consumer reinterprets i32 bytes as f32 with no error
+        // raised at any layer. Width does not identify a scalar type any
+        // more than block geometry identifies a quantization.
+        let expected = [
+            (GgmlType::F32, DType::F32),
+            (GgmlType::F16, DType::F16),
+            (GgmlType::BF16, DType::BF16),
+            (GgmlType::F64, DType::F64),
+            (GgmlType::I8, DType::I8),
+            (GgmlType::I16, DType::I16),
+            (GgmlType::I32, DType::I32),
+            (GgmlType::I64, DType::I64),
+        ];
+        for (t, dt) in expected {
+            assert_eq!(t.encoding(), Encoding::Dense(dt), "{}", t.name());
+        }
+        // And nothing else is dense. Without this, a quantized type that
+        // fell through to the dense arm would be caught by nothing above.
+        let dense: Vec<&str> = GgmlType::ALL
+            .into_iter()
+            .filter(|t| matches!(t.encoding(), Encoding::Dense(_)))
+            .map(GgmlType::name)
+            .collect();
+        assert_eq!(dense.len(), 8, "dense set drifted: {dense:?}");
     }
 
     #[test]
@@ -183,11 +210,22 @@ mod tests {
         let row = (u64::MAX / 32) * 32;
         assert_eq!(row % 32, 0, "the fixture must clear the row guard");
         let err = GgmlType::Q8_0.nbytes(&[row, 64], "big.weight").unwrap_err();
-        assert!(
-            matches!(err.kind(), ErrorKind::ShapeOverflow { .. }),
-            "got {:?}",
-            err.kind()
-        );
+        // The payload, not just the variant. `matches!(.., { .. })` alone
+        // would stay green if the u64 -> usize conversion were scrambled or
+        // saturated everything to usize::MAX, which is exactly the part of
+        // this arm that could go wrong quietly.
+        match err.kind() {
+            ErrorKind::ShapeOverflow { dims } => {
+                assert_eq!(dims.len(), 2, "both declared dimensions must appear");
+                assert_eq!(dims[1], 64, "the second dimension must survive verbatim");
+                assert_eq!(
+                    dims[0],
+                    usize::try_from(row).expect("64-bit target"),
+                    "the row length must be reported as declared, not saturated"
+                );
+            }
+            other => panic!("wrong kind: {other:?}"),
+        }
     }
 
     #[test]
