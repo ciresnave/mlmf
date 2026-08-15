@@ -11,9 +11,19 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// What went wrong, independent of which artifact it went wrong in.
 ///
-/// The first four variants are the **fatal** unknowns of spec §7: they
-/// make byte-size arithmetic unknowable, so continuing would hand out
-/// wrong bytes rather than incomplete ones.
+/// Most variants here are the **fatal** unknowns of spec §7: they make
+/// byte-size arithmetic unknowable, so continuing would hand out wrong
+/// bytes rather than incomplete ones.
+///
+/// [`ErrorKind::UnknownTypeCode`] is the exception, and the exception is
+/// the interesting part. Whether an unrecognised type code is fatal is a
+/// property of the **container**, not of the code. It is fatal where
+/// tensor offsets are derived by accumulating sizes, because one unknown
+/// length poisons every address after it. It is merely loud where the
+/// container stores each offset explicitly — as GGUF does — because the
+/// cost is then confined to that one tensor, and metadata and every other
+/// tensor stay readable. A format crate that can still address everything
+/// else reports the code through [`crate::Report`] and keeps going.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ErrorKind {
