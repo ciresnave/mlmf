@@ -124,6 +124,12 @@ mod tests {
             .map(GgmlType::name)
             .collect();
         assert_eq!(dense.len(), 8, "dense set drifted: {dense:?}");
+        // Not redundant with the size-based coverage test, though it looks
+        // it. That test catches a wrongly-routed quantized type only
+        // because no current type's bytes-per-element ratio equals a valid
+        // scalar width — Q8_0 is nearest at 34/32. That is a fact about
+        // today's table, not a guarantee. This check is set membership, so
+        // it holds regardless.
     }
 
     #[test]

@@ -50,6 +50,17 @@ jobs:
       - name: cargo clippy -p mlmf-core
         run: cargo clippy -p mlmf-core --all-targets -- -D warnings
 
+      - name: cargo test -p mlmf-ggml
+        run: cargo test -p mlmf-ggml
+
+      - name: cargo doc -p mlmf-ggml --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-ggml --no-deps
+
+      - name: cargo clippy -p mlmf-ggml
+        run: cargo clippy -p mlmf-ggml --all-targets -- -D warnings
+
 # NOT gated here, deliberately and on the record: the legacy root `mlmf`
 # package. It depends on `candlelight` from git and runs a `prost-build`
 # build script, so it needs `protoc` and a long build. Spec §11 schedules it
