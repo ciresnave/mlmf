@@ -12,6 +12,27 @@
 #
 # Covered here: 14 of 35 live codes. The other 21 appear in no ordinary
 # Hub download and are covered by Task 8's authored fixtures instead.
+#
+# Honesty note 1: the sabotage this fixture supports demonstrates test
+# *sensitivity*, not ground-truth *provenance*. Making Q6_K disagree and
+# watching the test go red proves the code and this fixture CAN disagree;
+# it does not prove these numbers are right. A fixture whose values had
+# secretly been computed by the same block formula the code uses would
+# produce an identical-looking red. The independence lives in how these
+# numbers were obtained — comparing each computed size against the real
+# gap between consecutive tensor offsets in actual files — and that
+# comparison happened off-repo and cannot be re-run from this checkout.
+# Treat "differential" as a description of that offline method, not as a
+# claim of a third source auditable from this repo.
+#
+# Honesty note 2: this test gives the `alignment` column zero coverage.
+# `Encoding::byte_size` computes (elem_count / elements_per_block) *
+# bytes_per_block and never consults `BlockSpec::alignment`. "Padded to
+# the file's declared alignment" above is GGUF's file-level
+# general.alignment (default 32) — a different thing from the per-type
+# struct alignment (1, 2, or 4) carried in the type table. Nothing in
+# this crate cross-checks the per-type alignment column against real
+# bytes.
 code	name	ne	nbytes	source_file	source_tensor
 0	F32	576	2304	SmolLM2-135M-Instruct-f16.gguf	blk.0.attn_norm.weight
 1	F16	576,192	221184	SmolLM2-135M-Instruct-f16.gguf	blk.0.attn_k.weight

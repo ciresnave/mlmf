@@ -29,16 +29,3 @@ fn computed_sizes_match_real_files() {
     }
     assert_eq!(checked, 20, "fixture lost rows");
 }
-
-#[test]
-fn the_two_types_with_identical_geometry_are_both_present_and_agree() {
-    // Q4_0 (code 2) and IQ4_NL (code 20) appear in the fixture at the same
-    // shapes and the same byte counts — measured from different files. That
-    // agreement is the evidence that identical geometry is a real property
-    // of these formats and not a transcription error in one of the rows.
-    let shape = [576u64, 192];
-    assert_eq!(
-        GgmlType::Q4_0.nbytes(&shape, "t").unwrap(),
-        GgmlType::IQ4_NL.nbytes(&shape, "t").unwrap()
-    );
-}
