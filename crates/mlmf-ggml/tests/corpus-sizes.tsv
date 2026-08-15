@@ -1,0 +1,35 @@
+# Real (type, shape, bytes) triples measured from real GGUF files.
+#
+# Method: for each tensor, compute nbytes from the type table, pad to the
+# file's declared alignment, and compare to the gap between this tensor's
+# declared offset and the next one's. Across 28 files and 2448 tensors the
+# two agreed every time. These 20 rows are that result, deduplicated to at
+# most two shapes per (type, rank).
+#
+# Corpus: C:\Models\gguf-corpus (see its MANIFEST.json for provenance).
+# This fixture is self-contained: the test does NOT read the corpus, so it
+# passes on a machine that has never downloaded a model.
+#
+# Covered here: 14 of 35 live codes. The other 21 appear in no ordinary
+# Hub download and are covered by Task 8's authored fixtures instead.
+code	name	ne	nbytes	source_file	source_tensor
+0	F32	576	2304	SmolLM2-135M-Instruct-f16.gguf	blk.0.attn_norm.weight
+1	F16	576,192	221184	SmolLM2-135M-Instruct-f16.gguf	blk.0.attn_k.weight
+1	F16	576,576	663552	SmolLM2-135M-Instruct-f16.gguf	blk.0.attn_output.weight
+2	Q4_0	576,192	62208	SmolLM2-135M-Instruct-Q4_0.gguf	blk.0.attn_k.weight
+2	Q4_0	576,576	186624	SmolLM2-135M-Instruct-Q4_0.gguf	blk.0.attn_output.weight
+3	Q4_1	1536,576	552960	SmolLM2-135M-Instruct-Q4_0.gguf	blk.0.ffn_down.weight
+6	Q5_0	576,192	76032	SmolLM2-135M-Instruct-Q4_K_M.gguf	blk.0.attn_k.weight
+6	Q5_0	576,576	228096	SmolLM2-135M-Instruct-Q4_K_M.gguf	blk.0.attn_output.weight
+7	Q5_1	576,192	82944	SmolLM2-135M-Instruct-Q5_K_S.gguf	blk.0.attn_k.weight
+7	Q5_1	576,576	248832	SmolLM2-135M-Instruct-Q5_K_S.gguf	blk.0.attn_output.weight
+8	Q8_0	576,192	117504	SmolLM2-135M-Instruct-Q4_K_M.gguf	blk.0.attn_v.weight
+8	Q8_0	576,576	352512	SmolLM2-135M-Instruct-Q6_K.gguf	blk.0.attn_output.weight
+11	Q3_K	1536,576	380160	SmolLM2-135M-Instruct-Q2_K.gguf	blk.0.ffn_down.weight
+12	Q4_K	1536,576	497664	SmolLM2-135M-Instruct-Q4_K_M.gguf	blk.11.ffn_down.weight
+13	Q5_K	1536,576	608256	SmolLM2-135M-Instruct-Q5_K_S.gguf	blk.0.ffn_down.weight
+14	Q6_K	1536,576	725760	SmolLM2-135M-Instruct-Q4_K_M.gguf	blk.0.ffn_down.weight
+20	IQ4_NL	576,192	62208	SmolLM2-135M-Instruct-IQ3_XS.gguf	blk.0.attn_k.weight
+20	IQ4_NL	576,576	186624	SmolLM2-135M-Instruct-IQ3_XS.gguf	blk.0.attn_output.weight
+21	IQ3_S	1536,576	380160	SmolLM2-135M-Instruct-IQ3_XS.gguf	blk.0.ffn_down.weight
+23	IQ4_XS	1536,576	470016	SmolLM2-135M-Instruct-IQ4_XS.gguf	blk.0.ffn_down.weight
