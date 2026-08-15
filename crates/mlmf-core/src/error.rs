@@ -69,6 +69,26 @@ pub enum ErrorKind {
         elements_per_block: u64,
     },
 
+    /// A row that is not a whole number of quantization blocks.
+    ///
+    /// Stronger than [`Self::RaggedBlock`], and not implied by it: a tensor
+    /// whose *total* element count divides cleanly can still have rows that
+    /// do not. ggml enforces the row rule, so a file violating it is one no
+    /// ggml writer produced, and a byte size computed from the total would
+    /// be arithmetic about a layout that does not exist.
+    #[error(
+        "tensor {name}: rows of {row_len} elements are not a multiple of \
+         the {elements_per_block}-element block size"
+    )]
+    RaggedRow {
+        /// Tensor name as declared.
+        name: String,
+        /// Length of one row — the first declared dimension.
+        row_len: u64,
+        /// Elements per block for the declared encoding.
+        elements_per_block: u64,
+    },
+
     /// A declared byte range that disagrees with shape and encoding.
     #[error(
         "tensor {name}: byte range is {actual} bytes but shape and encoding \
@@ -282,5 +302,25 @@ mod tests {
         let text = err.to_string();
         assert!(text.contains("64") && text.contains("10"), "{text}");
         assert!(!text.contains(" at "), "no path was set: {text}");
+    }
+
+    #[test]
+    fn a_ragged_row_names_the_row_length_not_the_element_count() {
+        // ggml requires each *row* to be a whole number of blocks, which is a
+        // strictly stronger rule than the whole-tensor divisibility RaggedBlock
+        // describes. A Q4_0 tensor of shape [16, 64] has 1024 elements — a
+        // clean 32 blocks — so RaggedBlock cannot describe it, yet ggml rejects
+        // it and no writer produces it. The message must therefore say 16, not
+        // 1024, or it sends the reader to look at the wrong number.
+        let e = Error::from(ErrorKind::RaggedRow {
+            name: "blk.0.attn_q.weight".into(),
+            row_len: 16,
+            elements_per_block: 32,
+        });
+        let s = e.to_string();
+        assert!(s.contains("blk.0.attn_q.weight"), "{s}");
+        assert!(s.contains("rows of 16"), "{s}");
+        assert!(s.contains("32-element block"), "{s}");
+        assert!(!s.contains("1024"), "{s}");
     }
 }
