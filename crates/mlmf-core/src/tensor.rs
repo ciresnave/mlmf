@@ -18,7 +18,29 @@ pub struct TensorDescriptor {
     pub shape: Shape,
     /// How the elements are laid out.
     pub encoding: Encoding,
-    /// Byte range within the container's data region.
+    /// Byte range **into the slice the container was opened over**, absolute
+    /// and with no addend (CD-4).
+    ///
+    /// This is the one fact in the descriptor a consumer cannot check for
+    /// itself, so leaving the base unstated would be the most expensive kind
+    /// of ambiguity: every format records offsets against a *different*
+    /// origin, and none of them is the start of the file. GGUF's tensor info
+    /// records an offset relative to the start of the data region, which
+    /// begins after the header, the metadata KV block and alignment padding;
+    /// safetensors' `data_offsets` are relative to the end of its JSON
+    /// header. A consumer that guessed "from the start of the file" and a
+    /// consumer that guessed "from the data region" would each read
+    /// plausible-looking floats, and only one of them would be right.
+    ///
+    /// So the format crate rebases **once, at parse time** — GGUF stores
+    /// `data_offset + info.offset`, safetensors stores `header_len +
+    /// data_offsets.0` — and every consumer thereafter writes
+    /// `&blob[d.bytes]` with nothing added. Rebasing is a parser's job done
+    /// once, not a caller's job done at every use site.
+    ///
+    /// It follows that [`Self::offset_alignment`] means something: it reports
+    /// the alignment of a real address within the mapping, not of a relative
+    /// number whose base might itself be misaligned.
     pub bytes: Range<u64>,
 }
 

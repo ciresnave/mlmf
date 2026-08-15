@@ -67,6 +67,27 @@ pub trait TensorContainer {
     /// Every tensor this container declares.
     fn tensors(&self) -> &[TensorDescriptor];
 
+    /// The tensor declared under `name`, if any.
+    ///
+    /// `None` means **not declared** — the same rule [`MetadataSource::get`]
+    /// follows. It is not an error and not a default (spec §5).
+    ///
+    /// Consumers overwhelmingly want keyed access rather than iteration: a
+    /// survey of Fuel's loader found 27 by-name lookups, several of them
+    /// inside per-layer loops. Without this method each of those sites grows
+    /// its own `tensors().iter().find(...)`, which puts the lookup strategy
+    /// in consumer code where MLMF cannot improve it and where the quadratic
+    /// walk is invisible.
+    ///
+    /// The default is that linear scan, which is the honest answer for a
+    /// container holding a handful of tensors. **A format crate parsing a
+    /// real model should override this with an index** — a 70B GGUF declares
+    /// on the order of a thousand tensors, and a caller walking every layer
+    /// turns the default into a million comparisons.
+    fn tensor(&self, name: &str) -> Option<&TensorDescriptor> {
+        self.tensors().iter().find(|d| d.name == name)
+    }
+
     /// The bytes for one tensor, **borrowed or owned**.
     ///
     /// `Cow` rather than `&[u8]` because spec §11 requires it by name:
@@ -266,5 +287,94 @@ mod tests {
         let f = fake();
         let m: &dyn MetadataSource = &f;
         assert!(m.get("general.architecture").is_some());
+    }
+
+    #[test]
+    fn a_container_can_be_asked_for_one_tensor_by_name() {
+        // Every consumer surveyed does keyed lookup, not iteration: Fuel
+        // fetches by name at 27 sites, several inside per-layer loops. With
+        // only `tensors()` in the seam each of those sites writes its own
+        // `.iter().find()`, so the lookup strategy — and its cost — lands in
+        // consumer code where MLMF cannot improve it.
+        let f = fake();
+        assert_eq!(
+            f.tensor("blk.0.attn_q.weight").map(|d| d.name.as_str()),
+            Some("blk.0.attn_q.weight")
+        );
+        // Absent means absent. It is not an error and not a default.
+        assert!(f.tensor("blk.99.attn_q.weight").is_none());
+    }
+
+    #[test]
+    fn a_container_with_many_tensors_can_replace_the_scan() {
+        // The default is a linear scan, which is correct but quadratic when
+        // a caller walks every layer. The point of putting the method in the
+        // trait rather than leaving it to callers is that a format crate can
+        // override it with an index; this asserts the override is actually
+        // reachable through the seam rather than shadowed by the default.
+        struct Indexed {
+            tensors: Vec<TensorDescriptor>,
+            hits: std::cell::Cell<u32>,
+        }
+        impl TensorContainer for Indexed {
+            fn tensors(&self) -> &[TensorDescriptor] {
+                &self.tensors
+            }
+            fn tensor_bytes(&self, _d: &TensorDescriptor) -> crate::Result<Cow<'_, [u8]>> {
+                Ok(Cow::Borrowed(&[]))
+            }
+            fn tensor(&self, name: &str) -> Option<&TensorDescriptor> {
+                self.hits.set(self.hits.get() + 1);
+                self.tensors.iter().find(|d| d.name == name)
+            }
+        }
+        let c = Indexed {
+            tensors: fake().tensors,
+            hits: std::cell::Cell::new(0),
+        };
+        let seam: &dyn TensorContainer = &c;
+        assert!(seam.tensor("blk.0.attn_q.weight").is_some());
+        assert_eq!(c.hits.get(), 1, "the override must win over the default");
+    }
+
+    #[test]
+    fn descriptor_ranges_index_the_slice_the_container_was_given() {
+        // CD-4. A GGUF file's tensor info records an offset relative to the
+        // start of the *data region*, while a safetensors header records one
+        // relative to the end of the header — two different bases, neither of
+        // which is the start of the file. If the seam left the base
+        // unstated, every consumer would guess, and a guess that is wrong by
+        // exactly the header length still produces plausible-looking floats.
+        //
+        // The rule: `bytes` indexes the byte slice the container was opened
+        // over, with no addend. Rebasing is the format crate's job, done once
+        // at parse time, not the caller's job done 27 times.
+        let header = 16usize;
+        let mut blob = vec![0u8; header + 32];
+        blob[header..].copy_from_slice(&[0xCD; 32]);
+        let f = Fake {
+            blob,
+            tensors: vec![TensorDescriptor {
+                name: "after.header".into(),
+                shape: Shape::new([2usize, 4]),
+                encoding: Encoding::Dense(DType::F32),
+                bytes: (header as u64)..(header as u64 + 32),
+            }],
+            meta: HashMap::new(),
+        };
+        let d = f.tensor("after.header").expect("declared");
+        d.validate().expect("consistent");
+        let bytes = f.tensor_bytes(d).expect("in range");
+        assert_eq!(
+            bytes.as_ref(),
+            &[0xCD; 32],
+            "the range must land on the data, not the header"
+        );
+        // Stated as an address, so a container that helpfully re-added its
+        // own base offset would fail here rather than silently reading 16
+        // bytes of header as the first four weights.
+        // Compared as addresses rather than via pointer arithmetic: the
+        // crate is `#![forbid(unsafe_code)]`, and a test is not exempt.
+        assert_eq!(bytes.as_ptr() as usize, f.blob.as_ptr() as usize + header);
     }
 }
