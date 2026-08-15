@@ -12,3 +12,9 @@ crates/mlmf-core/tests/transitive-deps.snapshot text eol=lf
 
 # The C3 purity fixture is compared as text by tests/purity.rs.
 *.fixture text eol=lf
+
+# The type-geometry fixtures are compared as text. `str::lines()` already
+# tolerates CRLF, so this is defence against a future non-Rust consumer
+# doing a byte comparison — which is exactly how the snapshot scar above
+# happened.
+*.tsv text eol=lf

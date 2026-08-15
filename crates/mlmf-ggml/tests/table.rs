@@ -34,8 +34,20 @@ fn fixture() -> Vec<Row> {
 
 #[test]
 fn the_fixture_itself_is_intact() {
-    // If a merge mangles the TSV into three rows, every other test in this
-    // file passes vacuously. Assert the fixture's own shape first.
+    // The fixture's own shape, checked before anything trusts it.
+    //
+    // The genuine justification is the DUPLICATE-ROW case, which is the
+    // one thing the other two tests cannot see: `every_ground_truth_row_is
+    // _in_the_table` iterates both copies and both match, and
+    // `the_table_declares_nothing_the_ground_truth_does_not` builds its
+    // set with `Vec::contains`, which is duplicate-blind. Only the row
+    // count notices.
+    //
+    // An earlier version of this comment claimed a truncated fixture would
+    // make the other tests "pass vacuously". That was false — a truncated
+    // fixture fails `the_table_declares_nothing…` immediately — and a
+    // comment giving a wrong reason is how a load-bearing test gets deleted
+    // later by someone who checks the rationale and finds it hollow.
     let rows = fixture();
     assert_eq!(rows.len(), 35, "expected 35 ground-truth rows");
     assert_eq!(rows.iter().filter(|r| r.kind == "dense").count(), 8);

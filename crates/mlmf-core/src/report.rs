@@ -5,10 +5,20 @@
 //! so the obligation lives in the type instead.
 //!
 //! Only **loud** unknowns appear here — things harmless to carry and
-//! dangerous to drop. **Fatal** unknowns (an unrecognised type code,
-//! version or encoding) are [`crate::ErrorKind`] variants, because they
-//! make byte-size arithmetic unknowable and continuing would hand out
+//! dangerous to drop. **Fatal** unknowns (an unrecognised container
+//! version or block encoding) are [`crate::ErrorKind`] variants, because
+//! they make byte-size arithmetic unknowable and continuing would hand out
 //! wrong bytes rather than incomplete ones.
+//!
+//! An unrecognised **type code** is fatal or loud depending on the
+//! container, not on the code itself: the split tracks whether the
+//! unknown poisons *other* addressing. A format that derives tensor
+//! offsets by accumulation — each tensor's size feeding the next tensor's
+//! start — cannot survive one unreadable size, so there the code is fatal
+//! for the same reason as an unrecognised version. GGUF stores each
+//! tensor's offset explicitly, so an unrecognised type code there costs
+//! exactly that one tensor's length; metadata and every other tensor stay
+//! readable, so the code belongs here instead.
 
 use crate::MetaValue;
 
