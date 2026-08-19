@@ -1,6 +1,8 @@
 # Lightbulb's requirements for the `mlmf-gguf` metadata seam
 
-**Status:** my understanding, awaiting confirmation from Lightbulb's architect.
+**Status:** confirmed and corrected by Lightbulb's architect, 2026-08-19.
+Six requirements confirmed complete (there was no seventh in the original set);
+R7 below was added by their implementation experience since.
 **Date recorded:** 2026-08-19. **Conversation date:** 2026-08-15.
 **Consumer:** Lightbulb (`C:\Projects\lightbulb`), reading GGUF metadata to resolve chat templates.
 
@@ -83,9 +85,13 @@ fn declaration(&self, key: &str) -> Declaration<'_>;
 
 `get()` stays as the ergonomic path; `declaration()` is the honest one.
 
-**[INFERRED]** — I am not certain "wrong type" was stated explicitly as
-distinct from "unparseable", or whether I merged two things Lightbulb kept
-separate.
+**Confirmed 2026-08-19.** I had flagged this `[INFERRED]`, suspecting I had
+merged "wrong type" and "unparseable". I had not — Lightbulb's own phrasing was
+`"key present but unparseable-or-wrong-type"` as a single state. The reading is
+faithful and `Declaration` is not a state short.
+
+**But see R4's addendum: the three states are correct *per key*, and the
+*join* has seven.**
 
 ## R3 — Byte-exact strings. No normalization, ever
 
@@ -113,11 +119,50 @@ array absent entirely**, **id out of range** — and all three must be
 distinguishable from *resolved to the empty string*, which is itself a
 legal-ish outcome they have to warn about.
 
-**My position, which they accepted:** MLMF supplies the primitives, not the
-join. Knowing that a particular integer key indexes a particular array key is
+**My position, agreed by Lightbulb on 2026-08-19 — and the provenance here was
+wrong until they corrected it.** I originally recorded this as "my position,
+which they accepted". They never accepted it: I proposed it and they replied
+without addressing it, and I recorded silence as agreement. They do agree, so
+the requirement is right and only its provenance was false — **which is the
+more dangerous combination, because nothing downstream would ever have
+surfaced it.** Had they disagreed, that sentence would have been the only
+record that they were never asked.
+
+**The generalisation, which is why this is written out rather than quietly
+fixed:** my `[INFERRED]` marks caught the places I *knew* I was interpolating.
+This was a place I did not, because **a proposal that draws no objection feels
+like a proposal that was accepted.**
+
+The position itself: MLMF supplies the primitives, not the join. Knowing that a particular integer key indexes a particular array key is
 ecosystem knowledge Lightbulb has and MLMF must not fake — it is interpretation,
 which the charter puts outside these walls. With `declaration()` plus R5's
 accessors, all four outcomes are distinguishable by construction.
+
+### Addendum — the join has seven failure modes, not three
+
+From Lightbulb's implementation since 2026-08-15. Their reader distinguishes,
+for BOS/EOS resolution alone:
+
+1. id key absent
+2. id present but not readable as an integer **of the type the accessor
+   accepts** — their `to_u64` upcasts `U64/U8/U16/U32/Bool` and **bails on
+   `I8/I16/I32/I64`**, so an `INT32`-typed id fails while looking like a
+   perfectly ordinary id
+3. id readable but **too large to index on this platform**
+4. `tokens` array absent entirely
+5. `tokens` present but **not an array**
+6. id in range but the **element is not a string**
+7. id genuinely out of range
+
+They found (3) tonight, from an external reviewer, in code that had already
+passed two audits, four task reviews and a whole-branch review — a single
+silent `?` in a function whose entire purpose is discriminating failure modes.
+
+**This strengthens the primitives-not-join position rather than complicating
+it.** Had MLMF supplied the join, MLMF would have to enumerate those seven —
+and the knowledge needed to get them right (that a `to_u64` rejects signed
+types; that vocabulary indices can exceed `usize` on a 32-bit target) is
+precisely the ecosystem knowledge the charter puts outside these walls.
 
 ## R5 — Indexed array access without materializing
 
@@ -170,14 +215,31 @@ promise cannot drift apart.
    unknown one. Eight ggml codes are retired; telling someone holding a 2023
    file to upgrade is a true-sounding message about the wrong cause.
 
-## Open question for Lightbulb
+## R7 — Distinguish "not the file it claims to be" from "malformed GGUF"
 
-Their `read_gguf_declaration(&Path) -> Option<GgufDeclaration>` collapses
-*"this isn't a `.gguf` at all"* (common, benign) with *"this IS a `.gguf` and
-the reader refused it"*. They fixed this in `1740582`/`c409c7e` after I raised
-it. **Confirm whether the fixed shape changes anything they need from my seam**
-— specifically whether they now want the not-a-GGUF case distinguishable at the
-MLMF boundary rather than at theirs.
+**Added 2026-08-19 from Lightbulb's implementation, not part of the original
+six.**
+
+They gate on `is_file()` plus a case-insensitive `.gguf` extension before ever
+calling MLMF, so *"not a GGUF at all"* — the common, benign case of a directory
+checkpoint — is answered before the seam sees it. **But that gate is a
+heuristic, and its residue lands here:** a file *named* `.gguf` whose magic
+bytes are not GGUF passes their check and arrives at the reader.
+
+So what must be distinguishable at the MLMF boundary is:
+
+- **magic or version unreadable** — this file is not what its name claims
+- **valid container, content unreadable** — this is a GGUF and something inside
+  it is wrong
+
+Those carry different operator remedies: *"you pointed me at the wrong file"*
+versus *"your file is malformed"*. Fuel collapses them today — both surface as
+one `Err` from `from_path` — which forces Lightbulb's warning to hedge across
+both with "if the file is otherwise sound".
+
+**Cheap here, impossible there.** The distinction is free at parse time,
+because the staged parse already separates magic+version from everything after
+it, and unrecoverable afterwards.
 
 ## Corrections wanted
 
