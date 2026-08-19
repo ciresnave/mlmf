@@ -1479,18 +1479,22 @@ mod tests {
         assert_eq!(files.len(), 2);
 
         // Should be sorted
-        assert!(files[0]
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .starts_with("model"));
-        assert!(files[1]
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .starts_with("model"));
+        assert!(
+            files[0]
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("model")
+        );
+        assert!(
+            files[1]
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("model")
+        );
     }
 
     #[test]
@@ -1499,10 +1503,12 @@ mod tests {
 
         let result = find_safetensors_files(temp_dir.path());
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("No .safetensors files found"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No .safetensors files found")
+        );
     }
 
     #[test]

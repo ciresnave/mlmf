@@ -8,8 +8,8 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 #[allow(non_camel_case_types)] // ggml's names, unaltered: renaming them
-                               // would break every cross-reference to
-                               // llama.cpp, which is the authority here.
+// would break every cross-reference to
+// llama.cpp, which is the authority here.
 pub enum GgmlType {
     /// IEEE-754 binary32.
     F32,

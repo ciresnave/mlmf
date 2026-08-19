@@ -3,7 +3,7 @@
 //! This example tests whether the architecture detection works correctly
 //! for Phi-3 models by examining tensor names and mapping.
 
-use mlmf::name_mapping::{TensorNameMapper, Architecture};
+use mlmf::name_mapping::{Architecture, TensorNameMapper};
 use std::collections::HashMap;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -63,16 +63,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn test_architecture_detection(model_name: &str, tensor_names: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+fn test_architecture_detection(
+    model_name: &str,
+    tensor_names: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
     match TensorNameMapper::from_tensor_names(tensor_names) {
         Ok(mapper) => {
             let detected_arch = mapper.architecture();
-            println!("  ✅ {}: Detected as {:?} ({})", 
-                model_name, 
-                detected_arch, 
+            println!(
+                "  ✅ {}: Detected as {:?} ({})",
+                model_name,
+                detected_arch,
                 detected_arch.name()
             );
-            
+
             // Test some mappings
             println!("    Example mappings:");
             for (i, name) in tensor_names.iter().take(3).enumerate() {
