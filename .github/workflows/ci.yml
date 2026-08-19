@@ -25,6 +25,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      # Formatting is a gate, not a preference. It runs first because it is
+      # the cheapest failure to produce and the cheapest to fix, and because
+      # a drifting file makes this check unenableable — the drift protects
+      # itself until someone sweeps it.
+      - name: cargo fmt --all --check
+        run: cargo fmt --all -- --check
 
       # C6: build AND run the parser suite with default features off, so the
       # mmap-free path is proven functional rather than merely compilable.
