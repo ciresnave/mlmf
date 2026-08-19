@@ -86,8 +86,8 @@ pub fn get_safetensors_tensor_names<P: AsRef<Path>>(file_path: P) -> Result<Vec<
     // Load just the tensors to get names, then extract keys
     use candlelight::Device;
     let tensors = candlelight::safetensors::load(file_path, &Device::Cpu).map_err(|e| {
-            Error::model_loading(format!("Failed to load {}: {}", file_path.display(), e))
-        })?;
+        Error::model_loading(format!("Failed to load {}: {}", file_path.display(), e))
+    })?;
 
     Ok(tensors.keys().cloned().collect())
 }

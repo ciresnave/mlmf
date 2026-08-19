@@ -3,7 +3,7 @@
 //! This example demonstrates saving and loading training checkpoints
 //! with model state, optimizer state, and training metadata.
 
-use mlmf::checkpoint::{checkpoint, CheckpointMetadata};
+use mlmf::checkpoint::{CheckpointMetadata, checkpoint};
 use mlmf::progress::default_progress;
 use std::fs;
 use tempfile::TempDir;

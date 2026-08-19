@@ -9,11 +9,11 @@
 //! - **Cross-platform**: Uses memmap2 for Windows/Linux/Mac compatibility
 
 use crate::{
+    ModelConfig,
     error::{Error, Result},
     loader::{LoadOptions, LoadedModel},
     progress::ProgressEvent,
     smart_mapping::SmartTensorNameMapper,
-    ModelConfig,
 };
 // Removed unused imports - Device and Tensor not currently used
 use candlelight::VarBuilder;

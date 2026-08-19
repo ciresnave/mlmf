@@ -166,9 +166,13 @@ fn the_gates_can_fail() {
         ),
         "only the [package] table's own version counts"
     );
-    assert!(declares_build_dependencies("[build-dependencies]\nprost-build = \"0.14\"\n"));
+    assert!(declares_build_dependencies(
+        "[build-dependencies]\nprost-build = \"0.14\"\n"
+    ));
     assert!(declares_build_dependencies(
         "[target.'cfg(unix)'.build-dependencies]\ncc = \"1\"\n"
     ));
-    assert!(!declares_build_dependencies("[dependencies]\nbytemuck = \"1\"\n"));
+    assert!(!declares_build_dependencies(
+        "[dependencies]\nbytemuck = \"1\"\n"
+    ));
 }

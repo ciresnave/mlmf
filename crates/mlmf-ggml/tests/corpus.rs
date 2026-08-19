@@ -19,12 +19,10 @@ fn computed_sizes_match_real_files() {
 
         let t = GgmlType::from_code(code).unwrap_or_else(|| panic!("code {code} missing"));
         assert_eq!(t.name(), name);
-        let got = t.nbytes(&ne, f[5]).unwrap_or_else(|e| panic!("{name} {ne:?}: {e}"));
-        assert_eq!(
-            got, expected,
-            "{name} {ne:?} from {} tensor {}",
-            f[4], f[5]
-        );
+        let got = t
+            .nbytes(&ne, f[5])
+            .unwrap_or_else(|e| panic!("{name} {ne:?}: {e}"));
+        assert_eq!(got, expected, "{name} {ne:?} from {} tensor {}", f[4], f[5]);
         checked += 1;
     }
     assert_eq!(checked, 20, "fixture lost rows");

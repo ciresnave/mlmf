@@ -215,7 +215,9 @@ mod tests {
         // x 18 bytes = 62208. Taken from a real file:
         // SmolLM2-135M-Instruct-Q4_0.gguf, blk.0.attn_k.weight.
         assert_eq!(
-            GgmlType::Q4_0.nbytes(&[576, 192], "blk.0.attn_k.weight").unwrap(),
+            GgmlType::Q4_0
+                .nbytes(&[576, 192], "blk.0.attn_k.weight")
+                .unwrap(),
             62208
         );
         assert_eq!(GgmlType::F32.nbytes(&[576], "t").unwrap(), 2304);
@@ -314,9 +316,9 @@ mod tests {
         // names it.
         for t in GgmlType::ALL {
             let row = t.elements_per_block();
-            let n = t.nbytes(&[row, 2], t.name()).unwrap_or_else(|e| {
-                panic!("{} failed on its own block size: {e}", t.name())
-            });
+            let n = t
+                .nbytes(&[row, 2], t.name())
+                .unwrap_or_else(|e| panic!("{} failed on its own block size: {e}", t.name()));
             assert_eq!(n, 2 * t.bytes_per_block(), "{}", t.name());
         }
     }

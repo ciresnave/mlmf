@@ -274,12 +274,24 @@ fn demonstrate_format_comparison() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n⚖️  Format Comparison");
     println!("====================\n");
 
-    println!("| Format      | Use Case                    | Pros                           | Cons                        |");
-    println!("| ----------- | --------------------------- | ------------------------------ | --------------------------- |");
-    println!("| SafeTensors | HuggingFace models         | Fast, safe, direct tensor storage | Limited to tensor data only |");
-    println!("| GGUF        | Quantized deployment       | Compact, efficient inference   | Lossy compression           |");
-    println!("| PyTorch     | Legacy/research models     | Wide compatibility             | Security risks (pickle)     |");
-    println!("| **ONNX**    | **Cross-framework export** | **Universal compatibility**    | **Complex graph parsing**   |");
+    println!(
+        "| Format      | Use Case                    | Pros                           | Cons                        |"
+    );
+    println!(
+        "| ----------- | --------------------------- | ------------------------------ | --------------------------- |"
+    );
+    println!(
+        "| SafeTensors | HuggingFace models         | Fast, safe, direct tensor storage | Limited to tensor data only |"
+    );
+    println!(
+        "| GGUF        | Quantized deployment       | Compact, efficient inference   | Lossy compression           |"
+    );
+    println!(
+        "| PyTorch     | Legacy/research models     | Wide compatibility             | Security risks (pickle)     |"
+    );
+    println!(
+        "| **ONNX**    | **Cross-framework export** | **Universal compatibility**    | **Complex graph parsing**   |"
+    );
     println!();
 
     println!("🎯 **ONNX Import is ideal for:**");

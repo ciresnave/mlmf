@@ -61,9 +61,9 @@ impl Architecture {
     /// term for these architectures.
     pub fn uses_rope(self) -> bool {
         match self {
-            Architecture::LLaMA => true,    // LLaMA, Mistral, Qwen, SmolLM all use RoPE
-            Architecture::GPTNeoX => true,  // GPT-NeoX uses RoPE
-            Architecture::GPT2 => false,    // GPT-2 uses learned absolute embeddings
+            Architecture::LLaMA => true, // LLaMA, Mistral, Qwen, SmolLM all use RoPE
+            Architecture::GPTNeoX => true, // GPT-NeoX uses RoPE
+            Architecture::GPT2 => false, // GPT-2 uses learned absolute embeddings
             Architecture::Unknown => false, // Conservative: assume learned embeddings
         }
     }
@@ -263,7 +263,7 @@ impl TensorNameMapper {
                     return Err(Error::tensor_name_mapping(format!(
                         "model.layers.{}",
                         layer_section
-                    )))
+                    )));
                 }
             };
 
@@ -489,11 +489,17 @@ mod tests {
     #[test]
     fn test_uses_rope() {
         // Architectures that compute position on-the-fly (no stored table)
-        assert!(Architecture::LLaMA.uses_rope(),    "LLaMA should use RoPE");
-        assert!(Architecture::GPTNeoX.uses_rope(),  "GPT-NeoX should use RoPE");
+        assert!(Architecture::LLaMA.uses_rope(), "LLaMA should use RoPE");
+        assert!(
+            Architecture::GPTNeoX.uses_rope(),
+            "GPT-NeoX should use RoPE"
+        );
         // Architectures with learned absolute position embedding tables
-        assert!(!Architecture::GPT2.uses_rope(),    "GPT-2 should not use RoPE");
-        assert!(!Architecture::Unknown.uses_rope(), "Unknown should default to no RoPE (conservative)");
+        assert!(!Architecture::GPT2.uses_rope(), "GPT-2 should not use RoPE");
+        assert!(
+            !Architecture::Unknown.uses_rope(),
+            "Unknown should default to no RoPE (conservative)"
+        );
     }
 
     #[test]

@@ -266,10 +266,7 @@ mod tests {
 
         a.merge(b);
         assert_eq!(a.entries().len(), 2);
-        assert!(matches!(
-            a.entries()[0].kind,
-            UnrecognizedKind::File { .. }
-        ));
+        assert!(matches!(a.entries()[0].kind, UnrecognizedKind::File { .. }));
         assert!(matches!(
             a.entries()[1].kind,
             UnrecognizedKind::FeatureFlag { .. }

@@ -28,24 +28,51 @@ pub struct QuantizationInfo {
 
 impl QuantizationInfo {
     /// FP32 weights and activations.
-    pub const F32: Self = Self { weight_bits: 32.0, activation_bytes: 4.0 };
+    pub const F32: Self = Self {
+        weight_bits: 32.0,
+        activation_bytes: 4.0,
+    };
     /// FP64 weights and activations.
-    pub const F64: Self = Self { weight_bits: 64.0, activation_bytes: 8.0 };
+    pub const F64: Self = Self {
+        weight_bits: 64.0,
+        activation_bytes: 8.0,
+    };
     /// FP16 weights with FP16 activations.
-    pub const F16: Self = Self { weight_bits: 16.0, activation_bytes: 2.0 };
+    pub const F16: Self = Self {
+        weight_bits: 16.0,
+        activation_bytes: 2.0,
+    };
     /// BFloat16 weights with BF16 activations.
-    pub const BF16: Self = Self { weight_bits: 16.0, activation_bytes: 2.0 };
+    pub const BF16: Self = Self {
+        weight_bits: 16.0,
+        activation_bytes: 2.0,
+    };
     /// Native FP8 (E4M3/E5M2) on Hopper/Ada/Blackwell — hardware-accelerated; both
     /// weights and activations remain in 1-byte FP8 tensors.
-    pub const FP8_NATIVE: Self = Self { weight_bits: 8.0, activation_bytes: 1.0 };
+    pub const FP8_NATIVE: Self = Self {
+        weight_bits: 8.0,
+        activation_bytes: 1.0,
+    };
     /// Native FP4 on Blackwell — 4-bit weight storage; activations accumulate in FP8.
-    pub const FP4_NATIVE: Self = Self { weight_bits: 4.0, activation_bytes: 1.0 };
+    pub const FP4_NATIVE: Self = Self {
+        weight_bits: 4.0,
+        activation_bytes: 1.0,
+    };
     /// Software INT8 / GGUF Q8_0 — 8-bit weight storage; dequantised to FP16 for compute.
-    pub const Q8_SOFTWARE: Self = Self { weight_bits: 8.0, activation_bytes: 2.0 };
+    pub const Q8_SOFTWARE: Self = Self {
+        weight_bits: 8.0,
+        activation_bytes: 2.0,
+    };
     /// Software Q4 (GGUF Q4_K_M, AWQ 4-bit) — 4-bit weight storage; dequantised to FP16.
-    pub const Q4_SOFTWARE: Self = Self { weight_bits: 4.0, activation_bytes: 2.0 };
+    pub const Q4_SOFTWARE: Self = Self {
+        weight_bits: 4.0,
+        activation_bytes: 2.0,
+    };
     /// Software Q2 (GGUF Q2_K) — 2-bit weight storage; dequantised to FP16 for compute.
-    pub const Q2_SOFTWARE: Self = Self { weight_bits: 2.0, activation_bytes: 2.0 };
+    pub const Q2_SOFTWARE: Self = Self {
+        weight_bits: 2.0,
+        activation_bytes: 2.0,
+    };
 }
 
 impl From<DType> for QuantizationInfo {
@@ -275,8 +302,8 @@ pub fn estimate_memory_usage(
     let batch_size = batch_size.unwrap_or(1);
     let sequence_length = sequence_length.unwrap_or(config.max_position_embeddings);
 
-    let bytes_per_weight  = quant.weight_bits / 8.0;
-    let activation_bytes  = quant.activation_bytes;
+    let bytes_per_weight = quant.weight_bits / 8.0;
+    let activation_bytes = quant.activation_bytes;
 
     // ── Parameter counts ────────────────────────────────────────────────────
     let token_emb_params = config.vocab_size * config.hidden_size;
@@ -294,10 +321,9 @@ pub fn estimate_memory_usage(
     // K and V use the smaller KV-head projection for GQA models.
     let head_dim = config.hidden_size / config.num_attention_heads;
     let kv_projection_size = config.num_key_value_heads * head_dim;
-    let attention_params_per_layer =
-        2 * config.hidden_size * config.hidden_size   // Q and O projections
+    let attention_params_per_layer = 2 * config.hidden_size * config.hidden_size   // Q and O projections
         + 2 * config.hidden_size * kv_projection_size // K and V projections (GQA-aware)
-        + 4 * config.hidden_size;                     // biases (when present)
+        + 4 * config.hidden_size; // biases (when present)
 
     let ffn_params_per_layer = if config.is_gated_ffn() {
         // SwiGLU / GeGLU: gate_proj + up_proj + down_proj
@@ -309,9 +335,9 @@ pub fn estimate_memory_usage(
 
     let layernorm_params_per_layer = 2 * config.hidden_size; // pre-attn + pre-ffn norms
 
-    let total_attention_params  = attention_params_per_layer  * config.num_hidden_layers;
-    let total_ffn_params        = ffn_params_per_layer        * config.num_hidden_layers;
-    let total_layernorm_params  = layernorm_params_per_layer  * config.num_hidden_layers;
+    let total_attention_params = attention_params_per_layer * config.num_hidden_layers;
+    let total_ffn_params = ffn_params_per_layer * config.num_hidden_layers;
+    let total_layernorm_params = layernorm_params_per_layer * config.num_hidden_layers;
 
     let output_params = if config.tie_word_embeddings {
         0
@@ -337,8 +363,10 @@ pub fn estimate_memory_usage(
         batch_size * sequence_length * config.hidden_size * config.num_hidden_layers * 4;
 
     // Attention score matrix: (batch, heads, seq, seq) per layer.
-    let attention_score_activations =
-        batch_size * config.num_attention_heads * sequence_length * sequence_length
+    let attention_score_activations = batch_size
+        * config.num_attention_heads
+        * sequence_length
+        * sequence_length
         * config.num_hidden_layers;
 
     // FFN intermediate tensor per layer.
@@ -347,28 +375,31 @@ pub fn estimate_memory_usage(
 
     let working_activations_gb =
         (hidden_state_activations + attention_score_activations + ffn_activations) as f64
-        * activation_bytes / (1024.0_f64.powi(3));
+            * activation_bytes
+            / (1024.0_f64.powi(3));
 
     // ── KV cache ─────────────────────────────────────────────────────────────
     // Keys + values for every layer, stored at activation precision:
     //   2 (K+V) × kv_heads × head_dim × layers × seq_len × batch
-    let kv_cache_elements =
-        2 * config.num_key_value_heads * head_dim
-        * config.num_hidden_layers * sequence_length * batch_size;
-    let kv_cache_gb =
-        (kv_cache_elements as f64) * activation_bytes / (1024.0_f64.powi(3));
+    let kv_cache_elements = 2
+        * config.num_key_value_heads
+        * head_dim
+        * config.num_hidden_layers
+        * sequence_length
+        * batch_size;
+    let kv_cache_gb = (kv_cache_elements as f64) * activation_bytes / (1024.0_f64.powi(3));
 
     let activation_gb = working_activations_gb + kv_cache_gb;
 
     // ── Breakdown (parameter components + KV cache annotation) ──────────────
     let gb = |params: usize| (params as f64) * bytes_per_weight / (1024.0_f64.powi(3));
     let breakdown = MemoryBreakdown {
-        token_embeddings_gb:    gb(token_emb_params),
+        token_embeddings_gb: gb(token_emb_params),
         position_embeddings_gb: gb(pos_emb_params),
-        attention_layers_gb:    gb(total_attention_params),
-        ffn_layers_gb:          gb(total_ffn_params),
-        layer_norms_gb:         gb(total_layernorm_params),
-        output_layer_gb:        gb(output_params),
+        attention_layers_gb: gb(total_attention_params),
+        ffn_layers_gb: gb(total_ffn_params),
+        layer_norms_gb: gb(total_layernorm_params),
+        output_layer_gb: gb(output_params),
         kv_cache_gb,
     };
 
@@ -537,7 +568,8 @@ mod tests {
         assert!(
             gpt2_est.parameters_gb > llama_est.parameters_gb,
             "GPT-2 parameter memory ({:.3}GB) should exceed LLaMA ({:.3}GB) due to position table",
-            gpt2_est.parameters_gb, llama_est.parameters_gb
+            gpt2_est.parameters_gb,
+            llama_est.parameters_gb
         );
     }
 
@@ -545,7 +577,7 @@ mod tests {
     fn test_kv_cache_scales_with_sequence_length() {
         let config = sample_config();
         let short = estimate_memory_usage(&config, DType::F16, Some(1), Some(512));
-        let long  = estimate_memory_usage(&config, DType::F16, Some(1), Some(2048));
+        let long = estimate_memory_usage(&config, DType::F16, Some(1), Some(2048));
 
         // KV cache is linear in sequence length
         assert!(
@@ -564,53 +596,63 @@ mod tests {
     #[test]
     fn test_quantization_info_constants() {
         // Standard float types
-        assert_eq!(QuantizationInfo::F32.weight_bits,       32.0);
-        assert_eq!(QuantizationInfo::F32.activation_bytes,  4.0);
-        assert_eq!(QuantizationInfo::F16.weight_bits,       16.0);
-        assert_eq!(QuantizationInfo::F16.activation_bytes,  2.0);
-        assert_eq!(QuantizationInfo::BF16.weight_bits,      16.0);
+        assert_eq!(QuantizationInfo::F32.weight_bits, 32.0);
+        assert_eq!(QuantizationInfo::F32.activation_bytes, 4.0);
+        assert_eq!(QuantizationInfo::F16.weight_bits, 16.0);
+        assert_eq!(QuantizationInfo::F16.activation_bytes, 2.0);
+        assert_eq!(QuantizationInfo::BF16.weight_bits, 16.0);
         assert_eq!(QuantizationInfo::BF16.activation_bytes, 2.0);
 
         // Native hardware formats: weights and activations both at reduced precision
-        assert_eq!(QuantizationInfo::FP8_NATIVE.weight_bits,       8.0);
-        assert_eq!(QuantizationInfo::FP8_NATIVE.activation_bytes,  1.0);
-        assert_eq!(QuantizationInfo::FP4_NATIVE.weight_bits,       4.0);
-        assert_eq!(QuantizationInfo::FP4_NATIVE.activation_bytes,  1.0);
+        assert_eq!(QuantizationInfo::FP8_NATIVE.weight_bits, 8.0);
+        assert_eq!(QuantizationInfo::FP8_NATIVE.activation_bytes, 1.0);
+        assert_eq!(QuantizationInfo::FP4_NATIVE.weight_bits, 4.0);
+        assert_eq!(QuantizationInfo::FP4_NATIVE.activation_bytes, 1.0);
 
         // Software quantisation: sub-byte weights, FP16 activations (dequantised before matmul)
-        assert_eq!(QuantizationInfo::Q4_SOFTWARE.weight_bits,       4.0);
-        assert_eq!(QuantizationInfo::Q4_SOFTWARE.activation_bytes,  2.0,
-            "Q4 software activations must be FP16 (2 bytes), not 0.5");
-        assert_eq!(QuantizationInfo::Q8_SOFTWARE.weight_bits,       8.0);
-        assert_eq!(QuantizationInfo::Q8_SOFTWARE.activation_bytes,  2.0,
-            "Q8 software activations must be FP16 (2 bytes)");
-        assert_eq!(QuantizationInfo::Q2_SOFTWARE.weight_bits,       2.0);
-        assert_eq!(QuantizationInfo::Q2_SOFTWARE.activation_bytes,  2.0);
+        assert_eq!(QuantizationInfo::Q4_SOFTWARE.weight_bits, 4.0);
+        assert_eq!(
+            QuantizationInfo::Q4_SOFTWARE.activation_bytes,
+            2.0,
+            "Q4 software activations must be FP16 (2 bytes), not 0.5"
+        );
+        assert_eq!(QuantizationInfo::Q8_SOFTWARE.weight_bits, 8.0);
+        assert_eq!(
+            QuantizationInfo::Q8_SOFTWARE.activation_bytes,
+            2.0,
+            "Q8 software activations must be FP16 (2 bytes)"
+        );
+        assert_eq!(QuantizationInfo::Q2_SOFTWARE.weight_bits, 2.0);
+        assert_eq!(QuantizationInfo::Q2_SOFTWARE.activation_bytes, 2.0);
     }
 
     #[test]
     fn test_quantization_info_from_dtype() {
-        let f32_info  = QuantizationInfo::from(DType::F32);
-        let f16_info  = QuantizationInfo::from(DType::F16);
+        let f32_info = QuantizationInfo::from(DType::F32);
+        let f16_info = QuantizationInfo::from(DType::F16);
         let bf16_info = QuantizationInfo::from(DType::BF16);
-        let u8_info   = QuantizationInfo::from(DType::U8);
-        let fp8_info  = QuantizationInfo::from(DType::F8E4M3);
+        let u8_info = QuantizationInfo::from(DType::U8);
+        let fp8_info = QuantizationInfo::from(DType::F8E4M3);
 
-        assert_eq!(f32_info.weight_bits,   32.0);
+        assert_eq!(f32_info.weight_bits, 32.0);
         assert_eq!(f32_info.activation_bytes, 4.0);
 
-        assert_eq!(f16_info.weight_bits,   16.0);
-        assert_eq!(bf16_info.weight_bits,  16.0);
+        assert_eq!(f16_info.weight_bits, 16.0);
+        assert_eq!(bf16_info.weight_bits, 16.0);
 
         // U8 is a software integer quant — activations are FP16, not 1 byte
-        assert_eq!(u8_info.weight_bits,        8.0);
-        assert_eq!(u8_info.activation_bytes,   2.0,
-            "U8 maps to Q8_SOFTWARE: activations should be FP16 (2 bytes)");
+        assert_eq!(u8_info.weight_bits, 8.0);
+        assert_eq!(
+            u8_info.activation_bytes, 2.0,
+            "U8 maps to Q8_SOFTWARE: activations should be FP16 (2 bytes)"
+        );
 
         // F8E4M3 is native Hopper/Ada FP8 — activations stay at 1 byte
-        assert_eq!(fp8_info.weight_bits,       8.0);
-        assert_eq!(fp8_info.activation_bytes,  1.0,
-            "F8E4M3 maps to FP8_NATIVE: activations should be FP8 (1 byte)");
+        assert_eq!(fp8_info.weight_bits, 8.0);
+        assert_eq!(
+            fp8_info.activation_bytes, 1.0,
+            "F8E4M3 maps to FP8_NATIVE: activations should be FP8 (1 byte)"
+        );
     }
 
     #[test]
@@ -618,9 +660,11 @@ mod tests {
         // Q4 software quant should store 4-bit weights but use FP16 activations.
         // A Q4 model should use ~1/8th the weight memory of F32 but similar activation memory.
         let config = sample_config();
-        let f32_est = estimate_memory_usage(&config, QuantizationInfo::F32,          Some(1), Some(512));
-        let q4_est  = estimate_memory_usage(&config, QuantizationInfo::Q4_SOFTWARE,  Some(1), Some(512));
-        let fp8_est = estimate_memory_usage(&config, QuantizationInfo::FP8_NATIVE,   Some(1), Some(512));
+        let f32_est = estimate_memory_usage(&config, QuantizationInfo::F32, Some(1), Some(512));
+        let q4_est =
+            estimate_memory_usage(&config, QuantizationInfo::Q4_SOFTWARE, Some(1), Some(512));
+        let fp8_est =
+            estimate_memory_usage(&config, QuantizationInfo::FP8_NATIVE, Some(1), Some(512));
 
         // Weight memory: Q4 should be 1/8 of F32 (4 bits vs 32 bits)
         let weight_ratio = f32_est.parameters_gb / q4_est.parameters_gb;

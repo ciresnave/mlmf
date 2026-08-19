@@ -1,5 +1,5 @@
-use mlmf::{SimpleDistributedManager, ShardingStrategy};
-use std::net::{SocketAddr, IpAddr, Ipv4Addr};
+use mlmf::{ShardingStrategy, SimpleDistributedManager};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -17,15 +17,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "./models/test",
         "test-model".to_string(),
         node_addresses,
-        ShardingStrategy::LayerSharding { layers_per_shard: 3 },
-    ).await?;
+        ShardingStrategy::LayerSharding {
+            layers_per_shard: 3,
+        },
+    )
+    .await?;
 
     println!("✅ Distributed manager created successfully");
 
     // Test 2: Cluster status
     let status = manager.get_cluster_status().await;
     println!("\n2️⃣  Cluster Status Check");
-    println!("✅ Nodes: {}/{} healthy", status.healthy_nodes, status.total_nodes);
+    println!(
+        "✅ Nodes: {}/{} healthy",
+        status.healthy_nodes, status.total_nodes
+    );
     println!("✅ Models: {}", status.total_models);
     println!("✅ Health: {:?}", status.cluster_health);
 

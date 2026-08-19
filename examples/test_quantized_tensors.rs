@@ -3,23 +3,25 @@ use mlmf::{LoadOptions, Result, load_model};
 fn main() -> Result<()> {
     // Test quantized tensor access with a small test file
     let test_file = "test_quantized.gguf";
-    
+
     println!("Testing quantized tensor preservation in MLMF...\n");
-    
+
     // Test 1: Load without preserving quantization (default behavior)
     println!("1. Testing default loading (no quantized tensor preservation):");
     let options_no_quant = LoadOptions {
         preserve_quantization: false,
         ..Default::default()
     };
-    
+
     // Try to load a GGUF file if available
     match load_model(test_file, options_no_quant) {
         Ok(model) => {
             println!("   ✓ Model loaded successfully");
             println!("   Regular tensors: {}", model.raw_tensors.len());
             match &model.quantized_tensors {
-                Some(qtensors) => println!("   Quantized tensors: {} (should be 0)", qtensors.len()),
+                Some(qtensors) => {
+                    println!("   Quantized tensors: {} (should be 0)", qtensors.len())
+                }
                 None => println!("   Quantized tensors: None (expected)"),
             }
         }
@@ -28,16 +30,16 @@ fn main() -> Result<()> {
             println!("   This is expected if no GGUF file is available for testing");
         }
     }
-    
+
     println!();
-    
+
     // Test 2: Load with quantization preservation
     println!("2. Testing with quantized tensor preservation:");
     let options_with_quant = LoadOptions {
         preserve_quantization: true,
         ..Default::default()
     };
-    
+
     match load_model(test_file, options_with_quant) {
         Ok(model) => {
             println!("   ✓ Model loaded successfully with quantization preservation");
@@ -68,14 +70,17 @@ fn main() -> Result<()> {
             println!("   This is expected if no GGUF file is available for testing");
         }
     }
-    
+
     println!();
-    
+
     // Test 3: Show the difference in LoadOptions
     println!("3. LoadOptions configuration:");
-    println!("   Default preserve_quantization: {}", LoadOptions::default().preserve_quantization);
+    println!(
+        "   Default preserve_quantization: {}",
+        LoadOptions::default().preserve_quantization
+    );
     println!("   With quantization enabled: true");
-    
+
     println!();
     println!("✓ Quantized tensor preservation feature implementation complete!");
     println!();
@@ -99,6 +104,6 @@ fn main() -> Result<()> {
     println!("    // Use quantized_tensor with Candle's QTensor API");
     println!("}}");
     println!("```");
-    
+
     Ok(())
 }
