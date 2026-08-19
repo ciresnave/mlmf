@@ -18,3 +18,9 @@ crates/mlmf-core/tests/transitive-deps.snapshot text eol=lf
 # doing a byte comparison — which is exactly how the snapshot scar above
 # happened.
 *.tsv text eol=lf
+
+# Licence files are compared byte-for-byte against canonical upstream text
+# (Apache-2.0 sha256 cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30).
+# Without this, core.autocrlf rewrites them on a Windows checkout and the
+# hash stops matching for a reason nobody would guess from the symptom.
+LICENSE-* text eol=lf
