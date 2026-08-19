@@ -22,3 +22,7 @@ examples/output/
 # Temporary files
 *.tmp
 *.temp
+# Agent tooling — local state, never part of the crate.
+.claude/
+.serena/
+supertool
