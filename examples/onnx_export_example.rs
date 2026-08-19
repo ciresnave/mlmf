@@ -91,7 +91,7 @@ fn main() -> Result<(), Error> {
     println!("Exporting to ONNX format...");
 
     // Use high-level save function
-    use mlmf::{save_model, SaveOptions};
+    use mlmf::{SaveOptions, save_model};
     let save_options = SaveOptions::default();
     match save_model(&tensors, output_path, &save_options) {
         Ok(_) => {

@@ -9,11 +9,11 @@
 //! - **Compatible with Candle**: Uses Candle's quantized tensor support
 
 use crate::{
+    ModelConfig,
     error::{Error, Result},
     loader::{LoadOptions, LoadedModel},
     progress::ProgressEvent,
     smart_mapping::SmartTensorNameMapper,
-    ModelConfig,
 };
 // Removed unused Device import
 use candlelight::VarBuilder;

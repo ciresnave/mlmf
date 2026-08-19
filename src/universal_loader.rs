@@ -1,6 +1,6 @@
 use crate::{
-    error::{Error, Result},
     LoadOptions, LoadedModel,
+    error::{Error, Result},
 };
 
 #[cfg(feature = "pytorch")]

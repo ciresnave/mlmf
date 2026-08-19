@@ -92,9 +92,12 @@ fn header_segments(inner: &str) -> Vec<String> {
 }
 
 fn is_dependency_table(segments: &[String]) -> bool {
-    segments
-        .iter()
-        .any(|s| matches!(s.as_str(), "dependencies" | "dev-dependencies" | "build-dependencies"))
+    segments.iter().any(|s| {
+        matches!(
+            s.as_str(),
+            "dependencies" | "dev-dependencies" | "build-dependencies"
+        )
+    })
 }
 
 /// Read every dependency this manifest declares, in any form, and flag every
@@ -246,7 +249,10 @@ fn the_gate_can_fail() {
     );
 
     let dev_form = parse_manifest("[dev-dependencies]\nsyn = \"2\"\n");
-    assert_eq!(dev_form.offending_tables, vec!["[dev-dependencies]".to_string()]);
+    assert_eq!(
+        dev_form.offending_tables,
+        vec!["[dev-dependencies]".to_string()]
+    );
 }
 
 #[test]

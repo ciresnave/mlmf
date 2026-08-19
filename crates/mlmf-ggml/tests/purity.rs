@@ -259,7 +259,9 @@ fn tokenize(src: &str) -> Vec<String> {
 // ---------------------------------------------------------------------------
 
 fn is_ident(t: &str) -> bool {
-    t.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+    t.chars()
+        .next()
+        .is_some_and(|c| c.is_alphabetic() || c == '_')
 }
 
 /// One fully-qualified path drawn out of a `use` tree, plus its alias.

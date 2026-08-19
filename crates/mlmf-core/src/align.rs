@@ -44,7 +44,9 @@ pub fn alignment_of(bytes: &[u8]) -> usize {
     // non-null — so the old `if addr == 0` branch was unreachable, and its
     // presence disguised the fact that the empty case was never handled.
     let addr = bytes.as_ptr() as usize;
-    let tz = addr.trailing_zeros().min(MAX_REPORTED_ALIGN.trailing_zeros());
+    let tz = addr
+        .trailing_zeros()
+        .min(MAX_REPORTED_ALIGN.trailing_zeros());
     1usize << tz
 }
 

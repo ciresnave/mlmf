@@ -12,9 +12,9 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::cached_loader::CachedModelLoader;
 use crate::LoadedModel;
-use anyhow::{anyhow, Result};
+use crate::cached_loader::CachedModelLoader;
+use anyhow::{Result, anyhow};
 
 /// Configuration for distributed model deployment
 #[derive(Debug, Clone, Serialize, Deserialize)]

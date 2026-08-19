@@ -131,9 +131,9 @@ fn the_snapshot_records_versions_not_only_names() {
     assert!(!pinned.is_empty(), "the snapshot must not be empty");
     for line in &pinned {
         assert!(
-            line.split_whitespace()
-                .nth(1)
-                .is_some_and(|v| v.starts_with('v') && v[1..].starts_with(|c: char| c.is_ascii_digit())),
+            line.split_whitespace().nth(1).is_some_and(
+                |v| v.starts_with('v') && v[1..].starts_with(|c: char| c.is_ascii_digit())
+            ),
             "snapshot line `{line}` carries no version"
         );
     }

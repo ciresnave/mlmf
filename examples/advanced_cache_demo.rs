@@ -6,27 +6,26 @@
  */
 
 use mlmf::{
-    CachedModelLoader, CacheConfig, CacheConfigBuilder, LoadOptions, MemoryPressure,
-    Device, DType,
+    CacheConfig, CacheConfigBuilder, CachedModelLoader, DType, Device, LoadOptions, MemoryPressure,
 };
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Configure advanced caching
     let cache_config = CacheConfigBuilder::new()
-        .max_models(5)                                    // Maximum 5 models in cache
-        .max_memory_gb(4)                                // 4GB memory limit
-        .memory_pressure_threshold(0.8)                  // Start eviction at 80% memory
-        .ttl(Duration::from_secs(1800))                  // 30 minute TTL
-        .enable_cache_warming(true)                      // Enable predictive loading
+        .max_models(5) // Maximum 5 models in cache
+        .max_memory_gb(4) // 4GB memory limit
+        .memory_pressure_threshold(0.8) // Start eviction at 80% memory
+        .ttl(Duration::from_secs(1800)) // 30 minute TTL
+        .enable_cache_warming(true) // Enable predictive loading
         .cache_warming_interval(Duration::from_secs(300)) // Warm every 5 minutes
         .build();
 
     // Create cached loader with advanced configuration
     let cached_loader = CachedModelLoader::with_config(cache_config);
-    
+
     // Helper to create load options (since LoadOptions doesn't implement Clone)
     let create_load_options = || -> Result<LoadOptions, Box<dyn std::error::Error>> {
         Ok(LoadOptions::new(Device::cuda_if_available(0)?, DType::F16).with_progress())
@@ -157,32 +156,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 6: Advanced cache configuration
     println!("\n⚙️  Advanced Configuration Examples");
     println!("-----------------------------------");
-    
+
     // Production configuration for large models
     let production_config = CacheConfigBuilder::new()
-        .max_models(3)                                    // Fewer models for large sizes
-        .max_memory_gb(16)                               // 16GB for production
-        .memory_pressure_threshold(0.75)                 // Conservative threshold
-        .ttl(Duration::from_secs(3600))                  // 1 hour TTL
+        .max_models(3) // Fewer models for large sizes
+        .max_memory_gb(16) // 16GB for production
+        .memory_pressure_threshold(0.75) // Conservative threshold
+        .ttl(Duration::from_secs(3600)) // 1 hour TTL
         .enable_cache_warming(true)
         .cache_warming_interval(Duration::from_secs(600)) // Warm every 10 minutes
         .build();
-    
-    println!("Production config: max {} models, {}GB memory limit", 
-        production_config.max_models, 
+
+    println!(
+        "Production config: max {} models, {}GB memory limit",
+        production_config.max_models,
         production_config.max_memory_bytes / (1024 * 1024 * 1024)
     );
-    
+
     // Development configuration for fast iteration
     let dev_config = CacheConfigBuilder::new()
-        .max_models(10)                                   // More models for dev
-        .max_memory_gb(8)                                // 8GB for development
-        .memory_pressure_threshold(0.9)                  // Aggressive threshold
-        .no_ttl()                                        // No expiration in dev
-        .enable_cache_warming(false)                     // Disable warming in dev
+        .max_models(10) // More models for dev
+        .max_memory_gb(8) // 8GB for development
+        .memory_pressure_threshold(0.9) // Aggressive threshold
+        .no_ttl() // No expiration in dev
+        .enable_cache_warming(false) // Disable warming in dev
         .build();
-    
-    println!("Development config: max {} models, no TTL, warming disabled", 
+
+    println!(
+        "Development config: max {} models, no TTL, warming disabled",
         dev_config.max_models
     );
 
@@ -190,6 +191,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   The caching system provides intelligent memory management,");
     println!("   predictive loading, and comprehensive monitoring for optimal");
     println!("   performance in both development and production environments.");
-    
+
     Ok(())
 }
