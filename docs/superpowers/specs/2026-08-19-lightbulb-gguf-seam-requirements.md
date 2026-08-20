@@ -158,6 +158,17 @@ They found (3) tonight, from an external reviewer, in code that had already
 passed two audits, four task reviews and a whole-branch review — a single
 silent `?` in a function whose entire purpose is discriminating failure modes.
 
+**Confirmed stable 2026-08-20.** Lightbulb re-checked R1–R7 against their
+implementation and nothing has changed; seven is the count.
+
+**A constraint on what MLMF must *not* build, from failure mode (3).** An id
+readable as `u64` but too large for `usize::try_from` is **a property of the
+consumer's platform, not of the file** — on a 64-bit host it never fires, on
+a 32-bit one it does, and the bytes are identical either way. So it is not a
+state [`Declaration`] can express and **must not be added to it**. This is
+the sharpest available evidence that primitives-not-join was right: MLMF
+would have been asked to enumerate a failure it cannot observe.
+
 **This strengthens the primitives-not-join position rather than complicating
 it.** Had MLMF supplied the join, MLMF would have to enumerate those seven —
 and the knowledge needed to get them right (that a `to_u64` rejects signed
