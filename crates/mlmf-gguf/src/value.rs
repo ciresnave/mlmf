@@ -306,8 +306,8 @@ fn decode_string(cursor: &mut Cursor<'_>) -> Result<MetaValue, GgufError> {
     })
 }
 
-/// Read an array's element type and count.
-fn read_array_prefix(cursor: &mut Cursor<'_>) -> Result<(ValueType, u64), GgufError> {
+/// Read an array's element type and count, leaving the cursor on element 0.
+pub(crate) fn read_array_prefix(cursor: &mut Cursor<'_>) -> Result<(ValueType, u64), GgufError> {
     let at = cursor.pos();
     let code = cursor.u32().map_err(|t| trunc(at, t))?;
     let elem = ValueType::from_code(code).ok_or_else(|| GgufError::Malformed {
