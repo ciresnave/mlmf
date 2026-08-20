@@ -26,7 +26,7 @@
 //! policy read from its own `Cargo.toml` and `tests/direct-deps.allow`.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Crate names that are I/O or networking. C3 is a property of the whole
 /// crate, not only of its `src/`: a dependency edge is how the capability
@@ -148,34 +148,14 @@ fn parse_manifest(text: &str) -> Facts {
 // Workspace member discovery
 // ---------------------------------------------------------------------------
 
-fn workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("crates/mlmf-core has a workspace root two levels up")
-        .to_path_buf()
-}
-
-/// Every workspace member that must satisfy C2/C3/C5 at the manifest level,
-/// with its own allow-list. Mirrors `purity.rs`'s `gated_members` — same
-/// crates, same discovery, so the two gates cannot silently drift apart on
-/// which crates they cover.
-fn gated_members() -> Vec<PathBuf> {
-    let root = workspace_root();
-    let mut out = Vec::new();
-    for entry in fs::read_dir(root.join("crates")).expect("crates/ is readable") {
-        let dir = entry.expect("readable entry").path();
-        if dir.join("Cargo.toml").is_file() {
-            out.push(dir);
-        }
-    }
-    out.sort();
-    assert!(
-        out.len() >= 2,
-        "expected at least two gated crates, found {out:?}"
-    );
-    out
-}
+// `gated_members` decides which crates every C2/C3 gate enforces at all, so
+// it and `workspace_root` live once, in `tests/common/mod.rs`, shared with
+// `purity.rs` (and `workspace_root` alone with `workspace.rs`) rather than
+// duplicated per file. See that module's doc comment for why a `#[path]`
+// include, not a dev-dependency.
+#[path = "common/mod.rs"]
+mod common;
+use common::gated_members;
 
 fn crate_name(dir: &Path) -> String {
     dir.file_name()
