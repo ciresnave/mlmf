@@ -2917,30 +2917,63 @@ Expected: the tests compile (the default trait impls exist from Task 1) but `arr
 
 - [ ] **Step 3: Implement the overrides**
 
+First, in `crates/mlmf-gguf/src/value.rs`, widen one helper — the accessors must not re-read a grammar that already has a reader:
+
+```rust
+/// Read an array's element type and count, leaving the cursor on element 0.
+pub(crate) fn read_array_prefix(cursor: &mut Cursor<'_>) -> Result<(ValueType, u64), GgufError> {
+```
+
+Then add the import and a positioning helper to `metadata.rs`:
+
+```rust
+use crate::value::{ValueType, decode_value, read_array_prefix, skip_value};
+```
+
+```rust
+    /// Position a cursor on an array's first element.
+    ///
+    /// Returns the element type, the declared count, and a cursor sitting
+    /// at element 0. `None` when the key is absent, unreadable, or not an
+    /// array.
+    ///
+    /// The prefix — element type code, then count — is read by
+    /// `value::read_array_prefix`, the function `skip_value` and
+    /// `decode_value` already use, instead of being re-read here. Task 5
+    /// cost a day to the case where two functions walked one grammar and
+    /// drifted apart; `array_len` and `array_get` would have been the third
+    /// and fourth walkers of this particular grammar, so they go through
+    /// the same door instead of each opening their own.
+    fn array_at(&self, key: &str) -> Option<(ValueType, u64, Cursor<'a>)> {
+        let e = self.entry(key)?;
+        if e.ty != ValueType::Array || e.unreadable.is_some() {
+            return None;
+        }
+        let mut c = Cursor::new(self.bytes);
+        c.seek(e.start).ok()?;
+        let (elem, count) = read_array_prefix(&mut c).ok()?;
+        Some((elem, count, c))
+    }
+```
+
 Add to `impl MetadataSource for GgufMetadata<'_>`:
 
 ```rust
     fn array_len(&self, key: &str) -> Option<u64> {
-        let e = self.entry(key)?;
-        if e.ty != ValueType::Array || e.unreadable.is_some() {
-            return None;
-        }
-        let mut c = Cursor::new(self.bytes);
-        c.seek(e.start).ok()?;
-        // Element type then count; both were validated during indexing.
-        c.u32().ok()?;
-        c.u64().ok()
+        self.array_at(key).map(|(_, count, _)| count)
     }
 
+    /// Decode one element without materializing the array.
+    ///
+    /// **Cost, because a caller cannot guess it:** constant time for
+    /// fixed-width elements, whose offset is arithmetic. `O(index)` for
+    /// `String` and nested `Array` elements, whose widths are only knowable
+    /// by walking — so a loop calling this at every index of a
+    /// 500,000-element token list is quadratic and will not finish. This
+    /// method is for reading a few elements out of many. A caller who wants
+    /// the whole array should call `get` once and pay once.
     fn array_get(&self, key: &str, index: u64) -> Option<MetaValue> {
-        let e = self.entry(key)?;
-        if e.ty != ValueType::Array || e.unreadable.is_some() {
-            return None;
-        }
-        let mut c = Cursor::new(self.bytes);
-        c.seek(e.start).ok()?;
-        let elem = ValueType::from_code(c.u32().ok()?)?;
-        let count = c.u64().ok()?;
+        let (elem, count, mut c) = self.array_at(key)?;
         if index >= count {
             return None;
         }
@@ -2959,6 +2992,11 @@ Add to `impl MetadataSource for GgufMetadata<'_>`:
                 }
             }
         }
+        // Nesting depth restarts at 0 here, so a nested element is walked
+        // with the full budget again rather than the remainder indexing had
+        // left. That direction is the safe one: this can never REJECT a
+        // subtree the index accepted, and a key that survived indexing must
+        // stay readable. It cannot accept anything the file does not hold.
         decode_value(&mut c, elem).ok()
     }
 ```
@@ -2972,7 +3010,7 @@ cargo clippy -p mlmf-gguf --all-targets -- -D warnings
 
 - [ ] **Step 5: Prove the tests can fail (AD-2)**
 
-1. Delete both overrides so the defaults apply again. `array_access_does_not_decode_the_array` must go red **on the cache assertion and nowhere else** — the values are still correct, only the cost is wrong. That contrast is the finding. Restore.
+1. Delete both overrides so the defaults apply again. Run plain `cargo test`, **not** clippy: the deletion orphans `array_at`, and a `dead_code` denial would turn this sabotage into a compile error that never reaches any assertion. `array_access_does_not_decode_the_array` must go red **on the cache assertion and nowhere else** — the values are still correct, only the cost is wrong. That contrast is the finding. Restore.
 2. In `array_get`'s fixed-width arm, drop the `index >= count` check. `a_fixed_width_array_is_indexed_by_arithmetic_not_by_walking` must go red on index 5 — without it, index 5 reads whatever follows the array, which is a plausible-looking `U32` from the next key's bytes. **Record the value you get**; a wrong number that looks like a token id is worse than an error.
 3. In `array_get`'s variable-width arm, change `for _ in 0..index` to `for _ in 0..index.saturating_sub(1)`. `array_accessors_agree_with_the_decoded_value` must go red — it compares every index against the decoded array, so an off-by-one cannot hide at any single index.
 
