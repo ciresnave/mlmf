@@ -3377,6 +3377,27 @@ WHICH assertion fired.
 5. In the KV index, change `break` to `continue` on the unknown-type path. `an_unknown_value_type_is_reported_and_earlier_keys_survive` must go red **on the `m.keys()` assertion specifically**, not on an earlier one. Record the phantom key you get.
 6. In `resolve_alignment`, drop the `is_power_of_two` check. `a_declared_alignment_is_honoured_and_a_bad_one_is_reported` must go red on the 63 case. Record what `alignment()` returns — an odd alignment silently accepted is a byte offset every consumer computes wrong.
 
+**Before running each sabotage, write down which tests SHOULD die, then
+compare.** A sabotage that kills everything proves the suite is alive. One
+that kills only SOME of what it should is the only signal that separates a
+live suite from one with dead fixtures — a fixture so uniform, empty, or
+short that a wrong answer is indistinguishable from a right one. Fuel found
+exactly this: every integer probe tensor was all zeros, so every comparison
+passed honestly against data carrying no information.
+
+It is not hypothetical here. Task 7's fixed-width fixture holds `0, 11, 22,
+33, 44`; an off-by-one in the indexing arithmetic kills two tests. Rebuilt
+with every element `0u32` — the same shape as a float-to-int truncation —
+**the identical sabotage kills nothing, 47 pass.** Measured, in a worktree.
+The distinctness of that fixture is load-bearing.
+
+So for each of the six above: name the expected set first, run, and report
+the SHORTFALL rather than the count. Red is not the finding; missing red
+where red was due is the finding. If a test you expected to die survives,
+inspect its fixture before concluding the code is fine — ask whether the
+assertion could pass with every element identical, with the array empty, or
+with the index arithmetic wrong in a direction the fixture cannot expose.
+
 **Standing rule for this file, now the third instance:** any assertion of the
 form `array_get(k, <out of range>) == None` requires a key declared AFTER the
 array in the same fixture. Without one the array is last, the read lands on
