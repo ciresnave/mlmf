@@ -3038,6 +3038,59 @@ Add to `crates/mlmf-gguf/src/lib.rs` after the crate docs:
         run: cargo clippy -p mlmf-gguf --all-targets -- -D warnings
 ```
 
+- [ ] **Step 6b: Make the CI crate list self-enforcing**
+
+The workflow names crates one by one. That is a maintenance obligation nobody is assigned, and this task is itself the proof — a new crate needs three lines added by hand or it is silently uncovered while the gate stays green.
+
+**`--workspace` is not the fix here, and it is worth recording why so nobody re-proposes it.** `cargo doc --workspace --no-deps` fails today:
+
+```
+error: unknown lint: `rustdoc::missing_doc_code_examples`
+ --> src\lib.rs:2:10
+error: could not document `mlmf`
+```
+
+That is the **legacy root crate**, which uses a nightly-only lint name and is scheduled for deletion. Switching to `--workspace` would break CI for a crate we are removing anyway. `clippy --workspace` fails on the same crate for its own reasons.
+
+So keep the enumeration and make forgetting it impossible instead. Add to `crates/mlmf-core/tests/workspace.rs`:
+
+```rust
+#[path = "common/mod.rs"]
+mod common;
+
+/// Every gated crate appears in the CI workflow, for every gate.
+///
+/// The workflow enumerates crates by name because `--workspace` cannot be
+/// used while the legacy root crate remains: it declares a nightly-only
+/// lint and fails `cargo doc`. An enumerated list is a standing obligation
+/// nobody owns, and the failure mode is silent — a crate omitted here is
+/// simply never checked, and every gate stays green while not covering it.
+///
+/// This test converts that into a loud one. It reads the workflow as text
+/// rather than parsing YAML, which is enough: the question is only whether
+/// a crate's name appears next to each gate.
+#[test]
+fn ci_names_every_gated_crate_in_every_gate() {
+    let workflow = std::fs::read_to_string(
+        common::workspace_root().join(".github/workflows/ci.yml"),
+    )
+    .expect("the CI workflow is readable");
+
+    for dir in common::gated_members() {
+        let name = dir.file_name().unwrap().to_string_lossy().to_string();
+        for gate in ["cargo test -p", "cargo doc -p", "cargo clippy -p"] {
+            let needle = format!("{gate} {name}");
+            assert!(
+                workflow.contains(&needle),
+                "CI does not run `{needle}` — the crate exists but this gate                  does not cover it, and nothing else would say so"
+            );
+        }
+    }
+}
+```
+
+**Prove it can fail:** delete the `cargo clippy -p mlmf-ggml` step from the workflow. The test must go red naming that exact command. Restore. Then delete the `cargo doc -p mlmf-gguf` step you added in Step 6 and confirm it names that one — two different crates and two different gates, so a single hardcoded needle cannot pass both.
+
 - [ ] **Step 7: Update the spec**
 
 In §11, mark `mlmf-gguf`'s metadata path as landed and record the two decisions this plan made that the spec did not anticipate:
