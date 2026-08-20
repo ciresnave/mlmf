@@ -1650,7 +1650,10 @@ mod tests {
     #[test]
     fn decode_value_round_trips_every_type() {
         // `decode_value` had tests for exactly two of thirteen types, and
-        // none at all for its Array arm — the branch carrying this crate's
+        // none at all for its Array arm. This loop covers the eleven
+        // scalars; String and Array are exercised by their own tests
+        // because both need structured fixtures rather than a width and a
+        // literal — the branch carrying this crate's
         // whole 500,000-element rationale. A copy-paste width slip in any
         // scalar arm (`I16` reaching for `cursor.u32()`, say) would
         // desynchronise the cursor and no test would have noticed.
@@ -1791,6 +1794,39 @@ mod tests {
             decode_value(&mut c, ValueType::Array).unwrap_err(),
             GgufError::Malformed { .. }
         ));
+    }
+
+    #[test]
+    fn skip_and_decode_agree_on_what_they_refuse() {
+        // The whole lazy design rests on this. `skip_value` decides what
+        // gets indexed at open; `decode_value` decides what can be read
+        // later. If they disagree, a key survives indexing and then fails
+        // when somebody asks for it, and the file looks fine until the
+        // moment it does not.
+        //
+        // Nothing forces them to agree — they walk the same grammar twice,
+        // in two functions, and a depth bound added to both independently
+        // produced exactly this divergence: the skip path's fixed-width
+        // fast path elided a descent the decode path still made, so skip
+        // accepted 64 levels that decode refused. This pins the agreement
+        // rather than the individual behaviours.
+        for nested in [1usize, 2, 63, 64, 65, 70] {
+            let mut b = Vec::new();
+            for _ in 0..nested {
+                b.extend_from_slice(&9u32.to_le_bytes()); // element type: Array
+                b.extend_from_slice(&1u64.to_le_bytes());
+            }
+            b.extend_from_slice(&4u32.to_le_bytes()); // a fixed-width leaf,
+            b.extend_from_slice(&1u64.to_le_bytes()); // which is the case
+            b.extend_from_slice(&7u32.to_le_bytes()); // the fast path takes
+
+            let skipped = skip_value(&mut Cursor::new(&b), ValueType::Array).is_ok();
+            let decoded = decode_value(&mut Cursor::new(&b), ValueType::Array).is_ok();
+            assert_eq!(
+                skipped, decoded,
+                "{nested} levels: skip accepted {skipped}, decode accepted {decoded}"
+            );
+        }
     }
 
     #[test]
@@ -1979,6 +2015,20 @@ fn skip_at_depth(cursor: &mut Cursor<'_>, ty: ValueType, depth: u32) -> Result<(
             match elem.fixed_width() {
                 // One seek for the whole run, not `count` reads.
                 Some(w) => {
+                    // The fast path elides the per-element descent that the
+                    // element-wise branch performs, so it must still account
+                    // for the level that descent would have cost. Without
+                    // this, `skip_value` accepts nesting `decode_value`
+                    // rejects — and since the lazy index skips at open and
+                    // decodes on access, that means a key survives indexing
+                    // and then fails when somebody reads it.
+                    if depth + 1 > MAX_ARRAY_DEPTH {
+                        return Err(GgufError::Malformed {
+                            stage: Stage::Metadata,
+                            offset: cursor.pos(),
+                            detail: format!("array nesting deeper than {MAX_ARRAY_DEPTH}"),
+                        });
+                    }
                     let at = cursor.pos();
                     let total = count.checked_mul(w).ok_or_else(|| GgufError::Malformed {
                         stage: Stage::Metadata,
