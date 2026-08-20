@@ -2320,9 +2320,19 @@ mod tests {
         let (m, report) = GgufMetadata::parse(&bytes, "t.gguf").expect("does not fail the open");
         assert_eq!(m.get("first"), Some(&MetaValue::String("kept".into())));
         assert!(matches!(m.declaration("broken"), Declaration::Unreadable(_)));
-        // `third` is genuinely unreachable — an unknown width means the
-        // parse cannot find it. Absent, and the report says why.
+        // `third` reads as Absent, and that is the honest limit of what
+        // this API can say: an unknown width means the parse never found
+        // out whether `third` exists. It is NOT a fact about the file.
+        //
+        // So the index must announce that it stopped, or a caller reading
+        // `Absent` concludes "this model declares no third key" from a scan
+        // that never reached it — a negative finding drawn from a truncated
+        // walk. `index_complete()` is what separates the two.
         assert!(matches!(m.declaration("third"), Declaration::Absent));
+        assert!(
+            !m.index_complete(),
+            "a walk that stopped early must say so, or Absent lies"
+        );
         assert!(!report.is_empty(), "the unknown type must be reported");
     }
 
@@ -2352,6 +2362,20 @@ mod tests {
                 other => panic!("{want_key}: expected Unreadable, got {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn a_clean_parse_reports_a_complete_index() {
+        // The other half of the pair. Without this, `index_complete` could
+        // return `false` unconditionally and the test above would still
+        // pass — a flag that is always pessimistic is as useless as one
+        // that is always optimistic, and only asserting both directions
+        // distinguishes them.
+        let bytes = gguf(&[("a", 8, s("x")), ("b", 8, s("y"))]);
+        let (m, report) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        assert!(m.index_complete());
+        assert!(report.is_empty());
+        assert_eq!(m.keys().len(), 2);
     }
 
     #[test]
@@ -2494,6 +2518,8 @@ pub struct GgufMetadata<'a> {
     entries: Vec<Entry>,
     alignment: u64,
     kv_end: u64,
+    /// False when the index stopped before every declared key was seen.
+    index_complete: bool,
 }
 
 impl<'a> GgufMetadata<'a> {
@@ -2516,6 +2542,7 @@ impl<'a> GgufMetadata<'a> {
         let mut cursor = Cursor::new(bytes);
         let header = parse_header(&mut cursor)?;
         let mut report = Report::new();
+        let mut index_complete = true;
         // Deliberately NOT `Vec::with_capacity(header.kv_count)`. The count
         // is a declared number this build has only checked for negativity,
         // so `i64::MAX` reaches here intact; preallocating from it panics on
@@ -2554,6 +2581,7 @@ impl<'a> GgufMetadata<'a> {
                     unreadable: Some(complaint),
                     value: OnceLock::new(),
                 });
+                index_complete = false;
                 break;
             };
 
@@ -2589,6 +2617,7 @@ impl<'a> GgufMetadata<'a> {
             entries,
             alignment: DEFAULT_ALIGNMENT,
             kv_end,
+            index_complete,
         };
         me.alignment = me.resolve_alignment(origin, &mut report);
         Ok((me, report))
@@ -2598,6 +2627,26 @@ impl<'a> GgufMetadata<'a> {
     #[must_use]
     pub fn header(&self) -> &Header {
         &self.header
+    }
+
+    /// Whether every key the header declared was indexed.
+    ///
+    /// `false` means the walk stopped early: an unknown value type has an
+    /// unknown width, so the parse cannot find the key that follows it.
+    ///
+    /// **This changes what [`mlmf_core::Declaration::Absent`] means, and a
+    /// caller that ignores it will draw a false conclusion.** With a
+    /// complete index, `Absent` is a fact about the file — the key is not
+    /// declared. With an incomplete one it means only *not found in the part
+    /// that could be read*, and the key may be sitting immediately past the
+    /// point where the walk stopped. Those are different claims:
+    /// "this model declares no chat template" versus "we could not get far
+    /// enough to tell". A count or a `keys()` listing taken from an
+    /// incomplete index can support a positive finding — this key IS here —
+    /// and never a negative one.
+    #[must_use]
+    pub fn index_complete(&self) -> bool {
+        self.index_complete
     }
 
     /// Offset just past the key-value block.
@@ -2612,7 +2661,16 @@ impl<'a> GgufMetadata<'a> {
     /// Alignment for the tensor data region.
     ///
     /// `general.alignment` when the file declares a valid one, otherwise
-    /// GGUF's documented default of 32. An invalid declaration is reported
+    /// GGUF's documented default of 32.
+    ///
+    /// **This is the effective value, and it does not say where it came
+    /// from.** A file that declares 32 and a file that declares nothing
+    /// both answer 32 here. That is the right shape for a caller who needs
+    /// a number, but a caller who needs the *fact* must ask
+    /// `declaration("general.alignment")`, which separates declared from
+    /// absent from undecodable. Spec §5 says absent never means a default;
+    /// this method returns a default precisely because alignment has a
+    /// documented one, and the raw fact stays reachable beside it. An invalid declaration is reported
     /// and falls back rather than failing the open — this is metadata, and
     /// R1 says reading metadata survives.
     #[must_use]
