@@ -1,12 +1,12 @@
-//! C3: `mlmf-core` performs no I/O. Enforced at the source level, not by
-//! convention — and **structurally**, not by substring match.
+//! C3: every gated workspace member performs no I/O. Enforced at the source
+//! level, not by convention — and **structurally**, not by substring match.
 //!
 //! The first version of this gate compared raw source text against the
 //! literal needles `"std::fs"` and `"std::net"`. That is defeated by a
 //! grouped import: `use std::{fs, path::Path};` contains neither needle and
 //! is the form `rustfmt` itself emits under `imports_granularity = "Crate"`.
 //! A module doing real `fs::read`, a real `TcpStream::connect` and a real
-//! `Command::new("curl")` compiled and exported from this crate with the
+//! `Command::new("curl")` compiled and exported from a gated crate with the
 //! whole suite green.
 //!
 //! So this gate does three things instead:
@@ -23,6 +23,14 @@
 //!    enumerate the next way to reach the outside world; an allow-list
 //!    fails closed when someone reaches for one.
 //!
+//! It used to be one copy of this file per crate, byte-identical apart from
+//! the allow-list. Nothing forced them to stay that way — a fix to the
+//! use-tree expander applied to one copy and not the other leaves a gate
+//! silently under-enforcing, which is the exact failure this gate exists to
+//! prevent and which happened here once already. So there is now one gate,
+//! iterating every `crates/*/` member (see `gated_members` below), with each
+//! member's own policy read from its own `tests/allowed-std.list`.
+//!
 //! Per spec §9 AD-2 (an unfalsified gate is PV-1's failure wearing a test's
 //! clothes) the scanner has a **born-red state**: `the_gate_can_fail` feeds
 //! it fixtures that must be rejected, and `the_gate_does_not_cry_wolf`
@@ -31,8 +39,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Crates that *are* I/O or networking. Naming one anywhere in core is a
-/// violation regardless of how it is spelled.
+/// Crates that *are* I/O or networking. Naming one anywhere in a gated crate
+/// is a violation regardless of how it is spelled.
 const FORBIDDEN_CRATES: &[&str] = &[
     "memmap2",
     "reqwest",
@@ -49,68 +57,6 @@ const FORBIDDEN_CRATES: &[&str] = &[
     "smol",
     "mio",
     "libloading",
-];
-
-/// The `std` submodules `mlmf-core` may name.
-///
-/// Deliberately an allow-list. `std::fs`, `std::net`, `std::process`,
-/// `std::env`, `std::os`, `std::io`, `std::thread` and `std::time` are all
-/// absent, and so is anything added to `std` after this list was written.
-///
-/// `std::path` is here because `PathBuf` is a **string type** used for error
-/// attribution — nothing is ever opened. `std::io` is *not* here: the
-/// ranged-read seam in `crate::traits` is expressed with a plain byte
-/// buffer precisely so core need not name it.
-const ALLOWED_STD: &[&str] = &[
-    "alloc",
-    "any",
-    "array",
-    "ascii",
-    "borrow",
-    "boxed",
-    "cell",
-    "char",
-    "clone",
-    "cmp",
-    "collections",
-    "convert",
-    "default",
-    "error",
-    "f32",
-    "f64",
-    "fmt",
-    "hash",
-    "hint",
-    "i8",
-    "i16",
-    "i32",
-    "i64",
-    "i128",
-    "isize",
-    "iter",
-    "marker",
-    "mem",
-    "num",
-    "ops",
-    "option",
-    "panic",
-    "path",
-    "pin",
-    "prelude",
-    "primitive",
-    "ptr",
-    "rc",
-    "result",
-    "slice",
-    "str",
-    "string",
-    "u8",
-    "u16",
-    "u32",
-    "u64",
-    "u128",
-    "usize",
-    "vec",
 ];
 
 // ---------------------------------------------------------------------------
@@ -420,23 +366,83 @@ fn collect_use_paths(toks: &[String]) -> Vec<UsePath> {
 }
 
 // ---------------------------------------------------------------------------
+// Workspace member discovery
+// ---------------------------------------------------------------------------
+
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("crates/mlmf-core has a workspace root two levels up")
+        .to_path_buf()
+}
+
+/// Every workspace member that must satisfy C3, with its own allow-list.
+///
+/// One gate rather than a copy per crate. The copies were provably
+/// identical when `mlmf-ggml` was written, and nothing forced them to stay
+/// that way — a fix to the use-tree expander applied to one and not the
+/// other leaves a gate silently under-enforcing, which is the exact
+/// failure this gate exists to prevent and which happened here once
+/// already.
+fn gated_members() -> Vec<PathBuf> {
+    let root = workspace_root();
+    let mut out = Vec::new();
+    for entry in fs::read_dir(root.join("crates")).expect("crates/ is readable") {
+        let dir = entry.expect("readable entry").path();
+        if dir.join("Cargo.toml").is_file() {
+            out.push(dir);
+        }
+    }
+    out.sort();
+    assert!(
+        out.len() >= 2,
+        "expected at least two gated crates, found {out:?}"
+    );
+    out
+}
+
+/// A crate's permitted `std` submodules, from its own tests/allowed-std.list.
+///
+/// Deliberately an allow-list. `std::fs`, `std::net`, `std::process`,
+/// `std::env`, `std::os`, `std::io` and `std::thread` are all ways to reach
+/// outside the process, and a deny-list would require enumerating the next
+/// one before it exists.
+fn allowed_std(crate_dir: &Path) -> Vec<String> {
+    let path = crate_dir.join("tests/allowed-std.list");
+    let raw = fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{} must declare its C3 allow-list: {e}", path.display()));
+    raw.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(str::to_string)
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
 // The check
 // ---------------------------------------------------------------------------
 
 /// Report every C3 violation in one source text. Public to the self-tests so
 /// the gate has a born-red state (spec §9 AD-2).
-fn scan_text(label: &str, src: &str) -> Vec<String> {
+fn scan_text(label: &str, src: &str, allowed: &[String]) -> Vec<String> {
     let code = strip_comments_and_literals(src);
     let toks = tokenize(&code);
     let mut v = Vec::new();
 
-    fn check_pair(label: &str, root: &str, child: Option<&str>, how: &str) -> Option<String> {
+    fn check_pair(
+        label: &str,
+        root: &str,
+        child: Option<&str>,
+        how: &str,
+        allowed: &[String],
+    ) -> Option<String> {
         if FORBIDDEN_CRATES.contains(&root) {
             return Some(format!("{label}: {how} names the I/O crate `{root}`"));
         }
         if root == "std"
             && let Some(child) = child
-            && !ALLOWED_STD.contains(&child)
+            && !allowed.iter().any(|a| a == child)
         {
             return Some(format!(
                 "{label}: {how} names `std::{child}`, which is not on the \
@@ -465,6 +471,7 @@ fn scan_text(label: &str, src: &str) -> Vec<String> {
             root,
             p.segments.get(1).map(String::as_str),
             "import",
+            allowed,
         ));
     }
 
@@ -472,7 +479,13 @@ fn scan_text(label: &str, src: &str) -> Vec<String> {
     //    `memmap2::Mmap::map(&f)`, `extern crate tokio;`.
     for w in toks.windows(3) {
         if w[1] == "::" && is_ident(&w[0]) && is_ident(&w[2]) {
-            v.extend(check_pair(label, &w[0], Some(w[2].as_str()), "path"));
+            v.extend(check_pair(
+                label,
+                &w[0],
+                Some(w[2].as_str()),
+                "path",
+                allowed,
+            ));
         }
     }
     for w in toks.windows(2) {
@@ -499,21 +512,30 @@ fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
-fn core_performs_no_io() {
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut files = Vec::new();
-    collect_rs(&src, &mut files);
-    assert!(!files.is_empty(), "found no source files to check");
-
+fn every_gated_crate_performs_no_io() {
     let mut violations = Vec::new();
-    for file in &files {
-        let text = fs::read_to_string(file).expect("source file is readable");
-        violations.extend(scan_text(&file.display().to_string(), &text));
+    for dir in gated_members() {
+        let allowed = allowed_std(&dir);
+        let name = dir
+            .file_name()
+            .expect("crate dir has a name")
+            .to_string_lossy()
+            .to_string();
+
+        let mut files = Vec::new();
+        collect_rs(&dir.join("src"), &mut files);
+        assert!(!files.is_empty(), "{name}: found no source files to check");
+
+        for file in &files {
+            let text = fs::read_to_string(file).expect("source file is readable");
+            let label = format!("{name}: {}", file.display());
+            violations.extend(scan_text(&label, &text, &allowed));
+        }
     }
 
     assert!(
         violations.is_empty(),
-        "mlmf-core must perform no I/O (C3); found:\n  {}",
+        "every gated crate must perform no I/O (C3); found:\n  {}",
         violations.join("\n  ")
     );
 }
@@ -523,6 +545,9 @@ fn the_gate_can_fail() {
     // AD-2: a gate that has never been red is not known to be a gate.
     // Every one of these compiles, and every one of these reaches the
     // outside world. The first is the exact form the old gate missed.
+    // Checked against mlmf-core's own allow-list, which is the broader of
+    // the two and so the harder case to reject correctly.
+    let allowed = allowed_std(Path::new(env!("CARGO_MANIFEST_DIR")));
     let must_be_rejected = [
         "use std::{fs, path::Path};\nfn f(p: &Path) { let _ = fs::read(p); }",
         "use std::{io::Write, net::TcpStream};",
@@ -541,7 +566,7 @@ fn the_gate_can_fail() {
         "use std::{fs::{File, OpenOptions}, fmt};",
     ];
     for (n, src) in must_be_rejected.iter().enumerate() {
-        let found = scan_text("fixture", src);
+        let found = scan_text("fixture", src, &allowed);
         assert!(
             !found.is_empty(),
             "case {n} slipped through the C3 gate:\n{src}"
@@ -555,7 +580,7 @@ fn the_gate_can_fail() {
         .join("fixtures")
         .join("grouped_import.rs.fixture");
     let text = fs::read_to_string(&fixture).expect("fixture must exist");
-    let found = scan_text("grouped_import.rs.fixture", &text);
+    let found = scan_text("grouped_import.rs.fixture", &text, &allowed);
     assert!(
         !found.is_empty(),
         "the on-disk grouped-import fixture was not rejected"
@@ -567,6 +592,7 @@ fn the_gate_does_not_cry_wolf() {
     // The old gate matched raw text including comments, so a doc comment
     // that merely mentioned memmap2 would have failed the build while a
     // real `fs::read` passed. Both halves of that are wrong.
+    let allowed = allowed_std(Path::new(env!("CARGO_MANIFEST_DIR")));
     let must_be_accepted = [
         "use std::path::{Path, PathBuf};",
         "use std::{fmt, ops::Range};",
@@ -583,7 +609,7 @@ fn the_gate_does_not_cry_wolf() {
         "use bytemuck::Pod;",
     ];
     for (n, src) in must_be_accepted.iter().enumerate() {
-        let found = scan_text("fixture", src);
+        let found = scan_text("fixture", src, &allowed);
         assert!(
             found.is_empty(),
             "case {n} was falsely rejected: {found:?}\n{src}"

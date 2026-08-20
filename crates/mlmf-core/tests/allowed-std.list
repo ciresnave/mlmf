@@ -1,0 +1,59 @@
+# C3: the std submodules mlmf-core may name.
+#
+# Deliberately an allow-list. std::fs, std::net, std::process, std::env,
+# std::os, std::io, std::thread and std::time are all absent, and so is
+# anything added to std after this list was written.
+#
+# std::path is here because PathBuf is a string type used for error
+# attribution -- nothing is ever opened. std::io is not here: the
+# ranged-read seam in crate::traits is expressed with a plain byte buffer
+# precisely so core need not name it.
+alloc
+any
+array
+ascii
+borrow
+boxed
+cell
+char
+clone
+cmp
+collections
+convert
+default
+error
+f32
+f64
+fmt
+hash
+hint
+i8
+i16
+i32
+i64
+i128
+isize
+iter
+marker
+mem
+num
+ops
+option
+panic
+path
+pin
+prelude
+primitive
+ptr
+rc
+result
+slice
+str
+string
+u8
+u16
+u32
+u64
+u128
+usize
+vec
