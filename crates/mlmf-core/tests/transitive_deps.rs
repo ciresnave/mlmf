@@ -57,6 +57,16 @@ fn current() -> Vec<String> {
             "all",
             "--prefix",
             "none",
+            // Without this the gate reports a false dependency change in
+            // any environment that sets CARGO_TERM_COLOR=always — which
+            // the CI toolchain action does. `cargo tree` then writes the
+            // dedup marker as "\e[33m\e[2m(*)\e[39m\e[22m", so the
+            // `split(" (")` below never matches, every entry keeps a
+            // coloured suffix, and the snapshot comparison fails on
+            // dependencies that did not change. The gate must measure the
+            // dependency set, not the terminal it ran in.
+            "--color",
+            "never",
         ])
         .arg("--manifest-path")
         .arg(&manifest)

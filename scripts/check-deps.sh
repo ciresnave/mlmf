@@ -38,7 +38,11 @@ CEILING=13
 # into a false "dependency set changed" — the same cry-wolf failure the
 # .gitattributes rule above exists to stop.
 current() {
-  cargo tree -p mlmf-core --edges normal,build --no-default-features \
+  # --color never: CARGO_TERM_COLOR=always (set by the CI toolchain action)
+  # makes cargo tree emit ANSI codes inside the dedup marker, which breaks
+  # the " (" split below and reports a false dependency change. Must match
+  # the invocation in crates/mlmf-core/tests/transitive_deps.rs exactly.
+  cargo tree -p mlmf-core --edges normal,build --no-default-features --color never \
     --target all --prefix none \
     | sed 's/ (.*//' \
     | sed 's/[[:space:]]*$//' \
