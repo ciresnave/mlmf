@@ -3269,6 +3269,11 @@ fn an_unknown_value_type_is_reported_and_earlier_keys_survive() {
     assert_eq!(m.get("first"), Some(&MetaValue::String("kept".into())));
     assert!(matches!(m.declaration("odd"), Declaration::Unreadable(_)));
     assert_eq!(report.entries().len(), 1);
+    // The WHOLE key set. Changing `break` to `continue` in the index leaves
+    // the cursor inside the unreadable value and invents a phantom key from
+    // its tail; every assertion above survives that, because none of them
+    // can see an EXTRA element. Third fixture in this crate to need it.
+    assert_eq!(m.keys(), ["first", "odd"]);
 }
 
 #[test]
@@ -3298,7 +3303,12 @@ fn a_string_declaring_a_length_beyond_the_file_is_truncated_not_an_allocation() 
 fn an_array_element_that_is_not_utf8_survives_indexed_access() {
     // R3 through R5's path, which is a different code path from `get`.
     let items: Vec<&[u8]> = vec![b"fine", &[0xFF, 0x00], b"also fine"];
-    let bytes = GgufBuilder::new().string_array("toks", &items).build();
+    // The trailing key is not decoration — see the standing rule in Step 4.
+    // Every array fixture in this file carries one.
+    let bytes = GgufBuilder::new()
+        .string_array("toks", &items)
+        .string("after", "sentinel")
+        .build();
     let (m, _) = GgufMetadata::parse(&bytes, "authored").unwrap();
     assert_eq!(m.array_len("toks"), Some(3));
     assert_eq!(
@@ -3309,11 +3319,18 @@ fn an_array_element_that_is_not_utf8_survives_indexed_access() {
 
 #[test]
 fn a_zero_length_array_has_a_length_and_no_elements() {
-    let bytes = GgufBuilder::new().string_array("empty", &[]).build();
+    let bytes = GgufBuilder::new()
+        .string_array("empty", &[])
+        .string("after", "sentinel")
+        .build();
     let (m, _) = GgufMetadata::parse(&bytes, "authored").unwrap();
     // Some(0), not None: the array is declared and it is empty. None would
     // say "not an array", which is a different fact.
     assert_eq!(m.array_len("empty"), Some(0));
+    // EVERY index of an empty array is out of range, so this assertion
+    // depends entirely on the trailing key above. Without it the array is
+    // last in the file, index 0 lands on EOF, and the cursor's bounds check
+    // supplies a `None` that looks like the accessor's.
     assert_eq!(m.array_get("empty", 0), None);
 }
 
@@ -3346,10 +3363,26 @@ cargo test -p mlmf-gguf --test authored
 
 Expected: PASS.
 
-- [ ] **Step 4: Prove the two that matter can fail (AD-2)**
+- [ ] **Step 4: Prove they can fail (AD-2)**
 
-1. In `decode_string`, use `String::from_utf8_lossy`. `a_non_utf8_value_survives_byte_for_byte` and `an_array_element_that_is_not_utf8_survives_indexed_access` must **both** go red. **Then run `measured_headers_parse_to_their_measured_values` (Task 9) under the same sabotage and confirm it stays green** — that contrast is the entire argument for this file's existence, and it should be recorded in the task report as a measured fact rather than a claim.
-2. Add `.trim_end_matches('\0')`. `a_trailing_nul_is_kept` must go red while `measured_headers_parse_to_their_measured_values` stays green — both named, so the discriminator is a string rather than a category.
+Eight controls in this plan could not reach the assertion they named, and
+three of them were fixtures shaped exactly like the ones in this file. Two
+sabotages for thirteen tests is not enough. Run all six, and for each record
+WHICH assertion fired.
+
+1. In `decode_string`, use `String::from_utf8_lossy`. `a_non_utf8_value_survives_byte_for_byte` and `an_array_element_that_is_not_utf8_survives_indexed_access` must **both** go red. **Then run `measured_headers_parse_to_their_measured_values` (Task 9) under the same sabotage and confirm it stays green** — that contrast is the entire argument for this file's existence, and it belongs in the task report as a measured fact rather than a claim.
+2. Add a trailing-NUL trim in `decode_string`. `a_trailing_nul_is_kept` must go red while `measured_headers_parse_to_their_measured_values` stays green — both named, so the discriminator is a string rather than a category.
+3. Delete `array_get`'s `index >= count` bound. `a_zero_length_array_has_a_length_and_no_elements` must go red. **If it stays green the fixture is wrong, not the code** — see the standing rule below.
+4. In `read_key`, replace the UTF-8 check with a lossy conversion. `a_key_that_is_not_utf8_fails_the_parse_rather_than_being_renamed` must go red. Keys are lookup tokens and values are not; without a test separating those rules, a well-meaning edit unifies them.
+5. In the KV index, change `break` to `continue` on the unknown-type path. `an_unknown_value_type_is_reported_and_earlier_keys_survive` must go red **on the `m.keys()` assertion specifically**, not on an earlier one. Record the phantom key you get.
+6. In `resolve_alignment`, drop the `is_power_of_two` check. `a_declared_alignment_is_honoured_and_a_bad_one_is_reported` must go red on the 63 case. Record what `alignment()` returns — an odd alignment silently accepted is a byte offset every consumer computes wrong.
+
+**Standing rule for this file, now the third instance:** any assertion of the
+form `array_get(k, <out of range>) == None` requires a key declared AFTER the
+array in the same fixture. Without one the array is last, the read lands on
+EOF, and the cursor supplies a `None` that looks like the bound's. Verify by
+deleting the bound and watching that assertion — if it does not go red, the
+fixture did not construct the world the test describes.
 
 - [ ] **Step 5: Commit**
 
