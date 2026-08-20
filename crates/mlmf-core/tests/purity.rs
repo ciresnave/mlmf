@@ -369,38 +369,14 @@ fn collect_use_paths(toks: &[String]) -> Vec<UsePath> {
 // Workspace member discovery
 // ---------------------------------------------------------------------------
 
-fn workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("crates/mlmf-core has a workspace root two levels up")
-        .to_path_buf()
-}
-
-/// Every workspace member that must satisfy C3, with its own allow-list.
-///
-/// One gate rather than a copy per crate. The copies were provably
-/// identical when `mlmf-ggml` was written, and nothing forced them to stay
-/// that way — a fix to the use-tree expander applied to one and not the
-/// other leaves a gate silently under-enforcing, which is the exact
-/// failure this gate exists to prevent and which happened here once
-/// already.
-fn gated_members() -> Vec<PathBuf> {
-    let root = workspace_root();
-    let mut out = Vec::new();
-    for entry in fs::read_dir(root.join("crates")).expect("crates/ is readable") {
-        let dir = entry.expect("readable entry").path();
-        if dir.join("Cargo.toml").is_file() {
-            out.push(dir);
-        }
-    }
-    out.sort();
-    assert!(
-        out.len() >= 2,
-        "expected at least two gated crates, found {out:?}"
-    );
-    out
-}
+// `gated_members` decides which crates every C2/C3 gate enforces at all, so
+// it and `workspace_root` live once, in `tests/common/mod.rs`, shared with
+// `deps.rs` (and `workspace_root` alone with `workspace.rs`) rather than
+// duplicated per file. See that module's doc comment for why a `#[path]`
+// include, not a dev-dependency.
+#[path = "common/mod.rs"]
+mod common;
+use common::gated_members;
 
 /// A crate's permitted `std` submodules, from its own tests/allowed-std.list.
 ///
