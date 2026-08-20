@@ -743,11 +743,15 @@ mod tests {
     fn floats_are_bit_exact_not_approximately_decoded() {
         // Compare BITS, and pick values that a lossy route would damage.
         //
-        // A first draft used -1.5, which is exactly representable in f32,
-        // f64 and decimal — so it survives a detour through any of them and
-        // the assertion could not distinguish `from_le_bytes` from the very
-        // thing its comment warned against. It passed for an uninteresting
-        // reason.
+        // A first draft used -1.5 and claimed exact equality would catch a
+        // detour through f64. Both halves of that were wrong. -1.5 is
+        // exactly representable in f32, f64 and decimal, so it distinguishes
+        // nothing — and an f32 -> f64 -> f32 round trip is bit-exact for
+        // EVERY f32, because widening never rounds and narrowing back with
+        // round-to-nearest recovers the original. There is no double
+        // rounding to lose. So the f64 detour was never a hazard worth
+        // naming; the real ones are flush-to-zero and byte order, which is
+        // what these values and this comparison are chosen for.
         let third = f32::from_bits(0x3EAA_AAAB); // nearest f32 to 1/3
         assert_eq!(
             Cursor::new(&third.to_le_bytes()).f32().unwrap().to_bits(),
@@ -912,6 +916,14 @@ cargo clippy -p mlmf-gguf --all-targets -- -D warnings
 1. Add `use std::{fs, path::Path};` and `pub fn r(p:&Path)->Vec<u8>{fs::read(p).unwrap()}` to `src/lib.rs`. The consolidated purity gate must go red **naming `mlmf-gguf`** — this crate is new, so this is the first proof the Task 2 loop actually reaches it. Restore.
 2. Add `byteorder = "1"` to `[dependencies]`. The deps gate must go red naming it. Restore.
 3. In `take`, change the bounds check to `if n > self.remaining() + 8`. `a_short_read_reports_what_it_needed_and_what_was_there` must go red. Restore.
+
+3b. **Isolate the advance half of the width test.** Inside the `fixed_width!` macro body, after `let raw = self.take(N as u64)?;` add `self.pos -= 1;`. Every value assertion still passes — the bytes read are correct — and only the seven `assert_eq!(c.pos(), ...)` assertions fail. Confirm the failure names a width. Restore.
+
+   **Do not use `u64 => u32` in the macro invocation for this.** It goes red, but as a *compile error*: the deny-by-default `overflowing_literals` lint rejects the 64-bit test literal before any test runs, which halts the binary and proves nothing about whether the advance assertions are live. A control that stops the compiler has not exercised anything.
+
+3c. **Prove the subnormal case is load-bearing.** In the `f32` reader, flush subnormals: `let v = <f32>::from_le_bytes(buf); Ok(if v.is_subnormal() { 0.0 } else { v })`. Only the subnormal assertion in `floats_are_bit_exact_not_approximately_decoded` may fail — the 1/3 case must stay green, which is what makes the two values complementary rather than redundant. Restore.
+
+   **Do not use an `f64` round trip for this.** `f32 -> f64 -> f32` is bit-exact for every `f32`: widening never rounds, and narrowing back with round-to-nearest recovers the original, so there is no double rounding to lose. It is a mathematical no-op and cannot fail.
 4. In `take`, make the **failure path itself** consume the remainder before returning:
 
    ```rust
