@@ -221,11 +221,21 @@ fn decode_at_depth(
         ValueType::Array => {
             let (elem, count) = read_array_prefix(cursor)?;
             // Bound the declared count by what the file could possibly
-            // contain before using it for anything. Every element occupies
-            // at least one byte, so a count exceeding the bytes remaining
-            // describes a file that cannot exist. Checking here is what
-            // makes the reservation below safe to attempt rather than a
-            // denial of service triggered by twelve bytes of header.
+            // contain: every element occupies at least one byte, so a count
+            // exceeding the bytes remaining describes a file that cannot
+            // exist.
+            //
+            // What this actually buys, stated accurately — an earlier draft
+            // of this comment claimed it prevents an allocation-driven
+            // abort, and a sabotage showed otherwise. For an absurd count
+            // like 2^40, `try_reserve` below already refuses, so removing
+            // this check still yields an error rather than a crash. The
+            // real gap is the MIDDLE of the range: a count of ten million
+            // against a one-kilobyte file passes `try_reserve` happily,
+            // allocates hundreds of megabytes, and only then fails on
+            // truncation partway through the loop. This bound refuses that
+            // before a byte is allocated, and names the invariant actually
+            // violated instead of the allocator's capacity.
             if count > cursor.remaining() {
                 return Err(GgufError::Malformed {
                     stage: Stage::Metadata,
@@ -596,8 +606,16 @@ mod tests {
         // count of 1. That is how cheaply a file can ask for unbounded
         // recursion, and why the depth bound exists — a stack overflow
         // aborts the process instead of returning an error.
+        // A literal depth, deliberately NOT `MAX_ARRAY_DEPTH + 5`. Writing
+        // it in terms of the constant means raising the constant to
+        // `u32::MAX` — the obvious sabotage — overflows the addition at
+        // COMPILE time and rustc's `arithmetic_overflow` lint rejects the
+        // crate before a test binary exists. The control could then never
+        // run. A fixture that depends on the value it is testing cannot
+        // survive that value being mutated.
+        const NESTED: usize = 200;
         let mut b = Vec::new();
-        for _ in 0..(MAX_ARRAY_DEPTH + 5) {
+        for _ in 0..NESTED {
             b.extend_from_slice(&9u32.to_le_bytes()); // element type: Array
             b.extend_from_slice(&1u64.to_le_bytes());
         }
