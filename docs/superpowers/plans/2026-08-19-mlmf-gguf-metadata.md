@@ -1089,34 +1089,40 @@ mod tests {
         // times has turned eight bytes into a hang.
         let b = header_bytes(3, -1, 0);
         let mut c = Cursor::new(&b);
-        match parse_header(&mut c).unwrap_err() {
-            GgufError::Malformed { stage, detail, .. } => {
-                assert_eq!(stage, Stage::Header);
-                assert!(detail.contains("-1"), "must name the value seen: {detail}");
+        // Whole-value comparison, for two reasons. A chain of field
+        // assertions carries ordering bias — one on `stage` above one on
+        // `detail` means a mutation touching only `detail` is masked or
+        // misattributed. And this test's own sabotage stops the error being
+        // produced at all, so it panics at `unwrap_err` before any inner
+        // assertion is reached: those assertions were never proven live.
+        assert_eq!(
+            parse_header(&mut c).unwrap_err(),
+            GgufError::Malformed {
+                stage: Stage::Header,
+                offset: 8,
+                detail: "tensor count is negative: -1".to_string(),
             }
-            other => panic!("expected Malformed, got {other:?}"),
-        }
+        );
     }
 
     #[test]
     fn a_truncated_header_reports_the_stage_and_the_offset() {
         let b = b"GGUF\x03\x00\x00\x00\x01".to_vec(); // 9 bytes: magic, version, one stray
         let mut c = Cursor::new(&b);
-        match parse_header(&mut c).unwrap_err() {
+        // Whole-value comparison rather than a chain of field assertions.
+        // Chaining means a transposition of `needed` and `available` — a
+        // plausible one-line slip, since they are adjacent in the
+        // construction — trips the `needed` assertion and the `available`
+        // one never runs, so the failure names the wrong field.
+        assert_eq!(
+            parse_header(&mut c).unwrap_err(),
             GgufError::Truncated {
-                stage,
-                offset,
-                needed,
-                available,
-            } => {
-                assert_eq!(stage, Stage::Header);
-                assert_eq!(offset, 8, "the tensor count starts at byte 8");
-                assert_eq!(needed, 8);
-                assert_eq!(available, 1);
+                stage: Stage::Header,
+                offset: 8, // the tensor count starts at byte 8
+                needed: 8,
+                available: 1,
             }
-            other => panic!("expected Truncated, got {other:?}"),
-        }
-    }
+        );
 
     #[test]
     fn an_empty_slice_is_not_gguf_rather_than_a_panic() {
@@ -2197,6 +2203,11 @@ impl<'a> GgufMetadata<'a> {
         let mut cursor = Cursor::new(bytes);
         let header = parse_header(&mut cursor)?;
         let mut report = Report::new();
+        // Deliberately NOT `Vec::with_capacity(header.kv_count)`. The count
+        // is a declared number this build has only checked for negativity,
+        // so `i64::MAX` reaches here intact; preallocating from it panics on
+        // capacity overflow before any truncation check runs. Growing as we
+        // go costs nothing at the 42-key scale real files use.
         let mut entries: Vec<Entry> = Vec::new();
 
         for _ in 0..header.kv_count {
