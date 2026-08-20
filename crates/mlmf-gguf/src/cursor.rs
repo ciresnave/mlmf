@@ -117,14 +117,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reads_little_endian_widths_and_advances() {
-        let bytes = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-        let mut c = Cursor::new(&bytes);
-        assert_eq!(c.pos(), 0);
-        assert_eq!(c.u16().unwrap(), 0x0201);
-        assert_eq!(c.pos(), 2);
-        assert_eq!(c.u32().unwrap(), 0x06050403);
-        assert_eq!(c.pos(), 6);
+    fn every_generated_reader_reads_its_own_width() {
+        // All seven, by identity rather than by sampling two. The macro
+        // guarantees the SHAPE of the generated bodies is identical; it does
+        // not guarantee the type list is right. `u64 => u32` in the
+        // invocation would produce a method named `u64` that reads four
+        // bytes, and no amount of testing `u16` and `u32` would notice.
+        //
+        // `u64` matters most: it is the width GGUF uses for every string
+        // length and every count, so Task 5 and Task 6 build directly on it.
+        let b = [0x11u8, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
+        assert_eq!(Cursor::new(&b).u8().unwrap(), 0x11);
+        assert_eq!(Cursor::new(&b).u16().unwrap(), 0x2211);
+        assert_eq!(Cursor::new(&b).u32().unwrap(), 0x4433_2211);
+        assert_eq!(Cursor::new(&b).u64().unwrap(), 0x8877_6655_4433_2211);
+        assert_eq!(
+            Cursor::new(&b).i64().unwrap(),
+            0x8877_6655_4433_2211u64 as i64
+        );
+
+        // And each advances by its own width. A reader that returns the
+        // right value after consuming the wrong number of bytes leaves the
+        // cursor desynchronised, and the symptom appears at the NEXT field
+        // rather than at this one.
+        let mut c = Cursor::new(&b);
+        c.u8().unwrap();
+        assert_eq!(c.pos(), 1, "u8");
+        let mut c = Cursor::new(&b);
+        c.u16().unwrap();
+        assert_eq!(c.pos(), 2, "u16");
+        let mut c = Cursor::new(&b);
+        c.u32().unwrap();
+        assert_eq!(c.pos(), 4, "u32");
+        let mut c = Cursor::new(&b);
+        c.u64().unwrap();
+        assert_eq!(c.pos(), 8, "u64");
+        let mut c = Cursor::new(&b);
+        c.i64().unwrap();
+        assert_eq!(c.pos(), 8, "i64");
+        let mut c = Cursor::new(&b);
+        c.f32().unwrap();
+        assert_eq!(c.pos(), 4, "f32");
+        let mut c = Cursor::new(&b);
+        c.f64().unwrap();
+        assert_eq!(c.pos(), 8, "f64");
     }
 
     #[test]
@@ -163,6 +199,10 @@ mod tests {
         let e = c.take(u64::MAX).unwrap_err();
         assert_eq!(e.needed, u64::MAX);
         assert_eq!(e.available, 8);
+        // The same guarantee its sibling short-read test pins: a refused
+        // read must not move the cursor, or every later error reports an
+        // offset that is wrong by however much the failed read consumed.
+        assert_eq!(c.pos(), 0);
     }
 
     #[test]
@@ -178,14 +218,37 @@ mod tests {
 
     #[test]
     fn floats_are_bit_exact_not_approximately_decoded() {
-        // f32::from_le_bytes, not a cast through f64 or a parse. Exact
-        // equality is the right assertion here: any transformation at all
-        // shows up as inequality.
-        let v: f32 = -1.5;
-        let bytes = v.to_le_bytes();
-        assert_eq!(Cursor::new(&bytes).f32().unwrap(), v);
-        let w: f64 = 1.0 / 3.0;
-        let wb = w.to_le_bytes();
-        assert_eq!(Cursor::new(&wb).f64().unwrap(), w);
+        // Compare BITS, and pick values that a lossy route would damage.
+        //
+        // A first draft used -1.5, which is exactly representable in f32,
+        // f64 and decimal — so it survives a detour through any of them and
+        // the assertion could not distinguish `from_le_bytes` from the very
+        // thing its comment warned against. It passed for an uninteresting
+        // reason.
+        let third = f32::from_bits(0x3EAA_AAAB); // nearest f32 to 1/3
+        assert_eq!(
+            Cursor::new(&third.to_le_bytes()).f32().unwrap().to_bits(),
+            0x3EAA_AAAB
+        );
+
+        // A subnormal. An implementation that normalises on conversion —
+        // or runs with flush-to-zero — turns this into 0.0, and comparing
+        // bits is what catches it. Comparing values would too, but only
+        // because 0.0 != this; comparing bits also catches a sign or
+        // payload change that compares equal as a float.
+        let subnormal = f32::from_bits(0x0000_0001);
+        assert_eq!(
+            Cursor::new(&subnormal.to_le_bytes())
+                .f32()
+                .unwrap()
+                .to_bits(),
+            0x0000_0001
+        );
+
+        let w = f64::from_bits(0x3FD5_5555_5555_5555); // nearest f64 to 1/3
+        assert_eq!(
+            Cursor::new(&w.to_le_bytes()).f64().unwrap().to_bits(),
+            0x3FD5_5555_5555_5555
+        );
     }
 }
