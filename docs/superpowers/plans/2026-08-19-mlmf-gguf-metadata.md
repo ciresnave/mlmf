@@ -849,7 +849,18 @@ cargo clippy -p mlmf-gguf --all-targets -- -D warnings
 1. Add `use std::{fs, path::Path};` and `pub fn r(p:&Path)->Vec<u8>{fs::read(p).unwrap()}` to `src/lib.rs`. The consolidated purity gate must go red **naming `mlmf-gguf`** — this crate is new, so this is the first proof the Task 2 loop actually reaches it. Restore.
 2. Add `byteorder = "1"` to `[dependencies]`. The deps gate must go red naming it. Restore.
 3. In `take`, change the bounds check to `if n > self.remaining() + 8`. `a_short_read_reports_what_it_needed_and_what_was_there` must go red. Restore.
-4. In `take`, leave the bounds check but move the position update before the slice. Confirm `a_short_read...` still asserts `c.pos() == 0` — **this is the assertion that catches a cursor which advances on failure**, and without it a caller's reported error offset would be wrong.
+4. In `take`, make the **failure path itself** consume the remainder before returning:
+
+   ```rust
+   if n > self.remaining() {
+       self.pos = self.bytes.len(); // wrongly consume on failure
+       return Err(Truncated { needed: n, available: self.remaining() });
+   }
+   ```
+
+   `a_short_read_reports_what_it_needed_and_what_was_there` must go red on its `assert_eq!(c.pos(), 0)` assertion. Restore.
+
+   **A first draft of this plan named the wrong mutation here** — "move the position update before the slice" — and an implementer correctly refused to fudge it when the suite stayed green. The bounds check is an *early return*, so the failure path never touches `self.pos`, and reordering the statements after the guard is invisible to a failing read. The assertion was right; the control named a mutation that could not reach it. The version above does reach it, and "consume what is available, then error" is a plausible thing someone writes on purpose — which is what a control should target.
 
 - [ ] **Step 7: Commit**
 
