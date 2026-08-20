@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
-use crate::{MetaValue, Result, TensorDescriptor};
+use crate::{Declaration, MetaValue, Result, TensorDescriptor};
 
 /// A contiguous region of bytes obtained from somewhere.
 ///
@@ -135,6 +135,55 @@ pub trait MetadataSource {
 
     /// Every key declared, in unspecified order.
     fn keys(&self) -> Vec<&str>;
+
+    /// What this source knows about `key` — three states, not two.
+    ///
+    /// The default reports [`Declaration::Declared`] or
+    /// [`Declaration::Absent`] and **never** [`Declaration::Unreadable`],
+    /// because a source that has not overridden this has no undecodable
+    /// values to report: everything it holds is already a [`MetaValue`].
+    /// Claiming a decode failure that did not happen would be worse than
+    /// not reporting one.
+    fn declaration(&self, key: &str) -> Declaration<'_> {
+        match self.get(key) {
+            Some(v) => Declaration::Declared(v),
+            None => Declaration::Absent,
+        }
+    }
+
+    /// Number of elements in the array declared under `key`.
+    ///
+    /// `None` means the key is absent **or** its value is not an array.
+    /// A scalar deliberately has no length rather than length 1 — reporting
+    /// 1 would let a caller index a string as though it were a vocabulary.
+    ///
+    /// Provided so a caller can distinguish "index out of range" from
+    /// "there is no array here", which consumer R4 needs to tell apart
+    /// three different ways a token-id lookup fails.
+    fn array_len(&self, key: &str) -> Option<u64> {
+        match self.get(key) {
+            Some(MetaValue::Array(items)) => Some(items.len() as u64),
+            _ => None,
+        }
+    }
+
+    /// One element of the array declared under `key`, by index.
+    ///
+    /// Returns owned, because a format crate should be able to decode a
+    /// single element out of bytes without materializing the array — see
+    /// consumer R5. The default walks an already-decoded value, which is
+    /// the honest answer for a source that has one; **a format crate
+    /// reading a 500,000-element vocabulary must override this.**
+    fn array_get(&self, key: &str, index: u64) -> Option<MetaValue> {
+        let items = match self.get(key) {
+            Some(MetaValue::Array(items)) => items,
+            _ => return None,
+        };
+        usize::try_from(index)
+            .ok()
+            .and_then(|i| items.get(i))
+            .cloned()
+    }
 }
 
 #[cfg(test)]
@@ -385,5 +434,111 @@ mod tests {
         // Compared as addresses rather than via pointer arithmetic: the
         // crate is `#![forbid(unsafe_code)]`, and a test is not exempt.
         assert_eq!(bytes.as_ptr() as usize, f.blob.as_ptr() as usize + header);
+    }
+
+    #[test]
+    fn a_declaration_separates_absent_from_unreadable_from_declared() {
+        // R2. A single Option collapses "this file has no chat template"
+        // with "this file has one and we could not decode it", and those
+        // send an operator in opposite directions.
+        struct Partial {
+            good: MetaValue,
+            bad: crate::Unrecognized,
+        }
+        impl MetadataSource for Partial {
+            fn get(&self, key: &str) -> Option<&MetaValue> {
+                (key == "good").then_some(&self.good)
+            }
+            fn keys(&self) -> Vec<&str> {
+                vec!["good", "bad"]
+            }
+            fn declaration(&self, key: &str) -> crate::Declaration<'_> {
+                match key {
+                    "good" => crate::Declaration::Declared(&self.good),
+                    "bad" => crate::Declaration::Unreadable(&self.bad),
+                    _ => crate::Declaration::Absent,
+                }
+            }
+        }
+        let p = Partial {
+            good: MetaValue::String("ok".into()),
+            bad: crate::Unrecognized {
+                kind: crate::UnrecognizedKind::MetadataKey {
+                    key: "bad".into(),
+                    value: MetaValue::U32(7),
+                },
+                origin: "model.gguf".into(),
+            },
+        };
+
+        assert!(matches!(
+            p.declaration("good"),
+            crate::Declaration::Declared(MetaValue::String(s)) if s == "ok"
+        ));
+        // The distinction that matters: `get` returns None for BOTH of
+        // these, and `declaration` does not.
+        assert!(p.get("bad").is_none());
+        assert!(p.get("missing").is_none());
+        match p.declaration("bad") {
+            crate::Declaration::Unreadable(u) => assert_eq!(u.origin, "model.gguf"),
+            other => panic!("expected Unreadable, got {other:?}"),
+        }
+        assert!(matches!(
+            p.declaration("missing"),
+            crate::Declaration::Absent
+        ));
+    }
+
+    #[test]
+    fn the_default_declaration_never_invents_an_unreadable_state() {
+        // An implementor that has not overridden `declaration` must report
+        // Declared or Absent and never Unreadable — claiming a decode
+        // failure that did not happen is worse than not reporting one.
+        let f = fake();
+        assert!(matches!(
+            f.declaration("general.architecture"),
+            Declaration::Declared(_)
+        ));
+        assert!(matches!(f.declaration("absent"), Declaration::Absent));
+    }
+
+    #[test]
+    fn array_accessors_default_to_walking_the_materialized_value() {
+        // The default impls are correct-but-slow, which is the honest
+        // answer for a source that has already decoded everything. A format
+        // crate that can index bytes overrides them; Task 7 does exactly
+        // that, and this pins the semantics both must satisfy.
+        struct WithArray(MetaValue);
+        impl MetadataSource for WithArray {
+            fn get(&self, key: &str) -> Option<&MetaValue> {
+                (key == "toks").then_some(&self.0)
+            }
+            fn keys(&self) -> Vec<&str> {
+                vec!["toks"]
+            }
+        }
+        let w = WithArray(MetaValue::Array(vec![
+            MetaValue::String("a".into()),
+            MetaValue::String("b".into()),
+            MetaValue::String("c".into()),
+        ]));
+
+        assert_eq!(w.array_len("toks"), Some(3));
+        assert_eq!(w.array_get("toks", 1), Some(MetaValue::String("b".into())));
+        // Out of range is None, and is distinguishable from "not an array"
+        // and "absent" by consulting array_len first — which is exactly how
+        // R4's three id-resolution failures get told apart.
+        assert_eq!(w.array_get("toks", 3), None);
+        assert_eq!(w.array_len("absent"), None);
+        assert_eq!(w.array_get("absent", 0), None);
+    }
+
+    #[test]
+    fn a_non_array_value_has_no_length_rather_than_length_one() {
+        // A scalar is not a one-element array. Reporting Some(1) would let
+        // a consumer index a string as though it were a vocabulary.
+        let f = fake();
+        assert_eq!(f.array_len("general.architecture"), None);
+        assert_eq!(f.array_get("general.architecture", 0), None);
     }
 }
