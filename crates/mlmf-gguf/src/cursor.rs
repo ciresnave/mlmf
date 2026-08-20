@@ -37,8 +37,14 @@ impl<'a> Cursor<'a> {
         self.pos as u64
     }
 
-    /// Bytes remaining.
-    fn remaining(&self) -> u64 {
+    /// Bytes remaining from the current position.
+    ///
+    /// `pub` because a caller that must bound a declared count against what
+    /// the file could possibly hold — an array's element count, say — needs
+    /// this before it can decide the count is impossible rather than merely
+    /// large.
+    #[must_use]
+    pub fn remaining(&self) -> u64 {
         (self.bytes.len() - self.pos) as u64
     }
 
