@@ -1759,8 +1759,16 @@ mod tests {
         // count of 1. That is how cheaply a file can ask for unbounded
         // recursion, and why the depth bound exists — a stack overflow
         // aborts the process instead of returning an error.
+        // A literal depth, deliberately NOT `MAX_ARRAY_DEPTH + 5`. Writing
+        // it in terms of the constant means raising the constant to
+        // `u32::MAX` — the obvious sabotage — overflows the addition at
+        // COMPILE time and rustc's `arithmetic_overflow` lint rejects the
+        // crate before a test binary exists. The control could then never
+        // run. A fixture that depends on the value it is testing cannot
+        // survive that value being mutated.
+        const NESTED: usize = 200;
         let mut b = Vec::new();
-        for _ in 0..(MAX_ARRAY_DEPTH + 5) {
+        for _ in 0..NESTED {
             b.extend_from_slice(&9u32.to_le_bytes()); // element type: Array
             b.extend_from_slice(&1u64.to_le_bytes());
         }
@@ -2026,11 +2034,21 @@ fn decode_at_depth(
         ValueType::Array => {
             let (elem, count) = read_array_prefix(cursor)?;
             // Bound the declared count by what the file could possibly
-            // contain before using it for anything. Every element occupies
-            // at least one byte, so a count exceeding the bytes remaining
-            // describes a file that cannot exist. Checking here is what
-            // makes the reservation below safe to attempt rather than a
-            // denial of service triggered by twelve bytes of header.
+            // contain: every element occupies at least one byte, so a count
+            // exceeding the bytes remaining describes a file that cannot
+            // exist.
+            //
+            // What this actually buys, stated accurately — an earlier draft
+            // of this comment claimed it prevents an allocation-driven
+            // abort, and a sabotage showed otherwise. For an absurd count
+            // like 2^40, `try_reserve` below already refuses, so removing
+            // this check still yields an error rather than a crash. The
+            // real gap is the MIDDLE of the range: a count of ten million
+            // against a one-kilobyte file passes `try_reserve` happily,
+            // allocates hundreds of megabytes, and only then fails on
+            // truncation partway through the loop. This bound refuses that
+            // before a byte is allocated, and names the invariant actually
+            // violated instead of the allocator's capacity.
             if count > cursor.remaining() {
                 return Err(GgufError::Malformed {
                     stage: Stage::Metadata,
@@ -2134,7 +2152,9 @@ These defend against input nobody publishes, so nothing but an authored control 
 
 5. **Remove the bytes-remaining bound** from `decode_value`'s `Array` arm. `an_array_claiming_more_elements_than_the_file_has_bytes_is_refused` must go red — and note *how*: without the bound the call reaches `try_reserve(1_099_511_627_776)`, so the failure is either a `Malformed` for a different reason or an allocation failure, not the specific "cannot exist" complaint. Record which. Restore.
 
-6. **Set `MAX_ARRAY_DEPTH` to `u32::MAX`.** `nesting_deeper_than_the_limit_is_refused_rather_than_overflowing_the_stack` must go red. **It will not panic cleanly — expect a stack overflow or an abort**, which is the point: that is the failure mode the bound exists to prevent, and seeing it once is worth more than reading about it. If the test instead fails with an ordinary assertion, say so, because it would mean 69 levels is not deep enough to reach the hazard and the fixture needs to be deeper. Restore.
+6. **Set `MAX_ARRAY_DEPTH` to `u32::MAX`.** `nesting_deeper_than_the_limit_is_refused_rather_than_overflowing_the_stack` must go red on its `matches!` assertion: with no effective bound, 200 levels decode successfully and no `Malformed` is returned. That proves the bound is what causes the refusal. Restore.
+
+   **This does not demonstrate the stack overflow itself, and it should not try to.** Reaching an actual overflow needs on the order of 100,000 levels — a 1.2 MB fixture — and a test that crashes the process is not a test. The hazard is the *reason* for the bound; the control's job is to show the bound is load-bearing, which a 200-level fixture does at 2.4 kB.
 
 7. **Restore `try_reserve(n.min(1024))`** in place of `try_reserve(n)`. **Every test stays green** — that is the finding, not a failure. A 1024-element reservation protects only the first 1024 pushes; every push after that grows the `Vec` through `Vec::push`, which aborts on allocation failure rather than returning an error. The guard is decorative for exactly the 514,906-element arrays this crate exists to read, and no test can show that, because the failure it fails to prevent is a process abort. Record it as a case where the suite cannot distinguish a real guard from a decorative one, and restore.
 
