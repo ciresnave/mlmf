@@ -11,6 +11,19 @@
         "-Clink-arg=/NODEFAULTLIB:stdc++.lib",
     ]
 
-[build]
-    # Explicitly target MSVC toolchain
-    target = "x86_64-pc-windows-msvc"
+# NO `[build] target` HERE, DELIBERATELY.
+#
+# It used to say `target = "x86_64-pc-windows-msvc"`, which is not a
+# Windows-only setting — it is unconditional. Every Linux CI run tried to
+# cross-compile to a Windows target that is not installed and died with
+#
+#     error[E0463]: can't find crate for `core`
+#     note: the `x86_64-pc-windows-msvc` target may not be installed
+#
+# on the first dependency it reached. CI was red on every commit for as
+# long as anyone had been pushing, while every local `cargo test` passed.
+#
+# The `[target.x86_64-pc-windows-msvc]` block above is conditional by
+# nature: it applies only when that target is actually being built, which
+# on a Windows host is the default anyway. So removing the forced target
+# changes nothing locally and lets every other host build natively.
