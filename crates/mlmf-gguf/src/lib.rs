@@ -27,8 +27,10 @@
 pub mod cursor;
 pub mod error;
 pub mod header;
+pub mod metadata;
 pub mod value;
 
 pub use error::{GgufError, Stage};
 pub use header::{Header, parse_header};
+pub use metadata::GgufMetadata;
 pub use value::ValueType;

@@ -1,9 +1,4 @@
 # mlmf-gguf parses bytes.
-#
-# NOTE: `sync` is deliberately ABSENT until Task 6 needs it. Granting a
-# permission before any code uses it means no red-then-green cycle ever
-# proves the gate would catch its misuse, and an entry nothing needs can
-# outlive the design that asked for it.
 cmp
 error
 fmt
@@ -14,6 +9,7 @@ result
 slice
 str
 string
+sync
 u32
 u64
 usize
