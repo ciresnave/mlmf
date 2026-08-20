@@ -7,7 +7,7 @@ use mlmf_core::{Declaration, MetaValue, MetadataSource, Report, Unrecognized, Un
 use crate::cursor::Cursor;
 use crate::error::{GgufError, Stage};
 use crate::header::{Header, parse_header};
-use crate::value::{ValueType, decode_value, skip_value};
+use crate::value::{ValueType, decode_value, read_array_prefix, skip_value};
 
 /// GGUF's documented default when `general.alignment` is absent.
 const DEFAULT_ALIGNMENT: u64 = 32;
@@ -237,6 +237,30 @@ impl<'a> GgufMetadata<'a> {
         self.entries.iter().find(|e| e.key == key)
     }
 
+    /// Position a cursor on an array's first element.
+    ///
+    /// Returns the element type, the declared count, and a cursor sitting
+    /// at element 0. `None` when the key is absent, unreadable, or not an
+    /// array.
+    ///
+    /// The prefix — element type code, then count — is read by
+    /// `value::read_array_prefix`, the function `skip_value` and
+    /// `decode_value` already use, instead of being re-read here. Task 5
+    /// cost a day to the case where two functions walked one grammar and
+    /// drifted apart; `array_len` and `array_get` would have been the third
+    /// and fourth walkers of this particular grammar, so they go through
+    /// the same door instead of each opening their own.
+    fn array_at(&self, key: &str) -> Option<(ValueType, u64, Cursor<'a>)> {
+        let e = self.entry(key)?;
+        if e.ty != ValueType::Array || e.unreadable.is_some() {
+            return None;
+        }
+        let mut c = Cursor::new(self.bytes);
+        c.seek(e.start).ok()?;
+        let (elem, count) = read_array_prefix(&mut c).ok()?;
+        Some((elem, count, c))
+    }
+
     /// Decode an entry's value, caching it.
     fn value_of<'e>(&self, e: &'e Entry) -> Option<&'e MetaValue> {
         if e.unreadable.is_some() {
@@ -323,6 +347,47 @@ impl MetadataSource for GgufMetadata<'_> {
                 None => Declaration::Absent,
             },
         }
+    }
+
+    fn array_len(&self, key: &str) -> Option<u64> {
+        self.array_at(key).map(|(_, count, _)| count)
+    }
+
+    /// Decode one element without materializing the array.
+    ///
+    /// **Cost, because a caller cannot guess it:** constant time for
+    /// fixed-width elements, whose offset is arithmetic. `O(index)` for
+    /// `String` and nested `Array` elements, whose widths are only knowable
+    /// by walking — so a loop calling this at every index of a
+    /// 500,000-element token list is quadratic and will not finish. This
+    /// method is for reading a few elements out of many. A caller who wants
+    /// the whole array should call `get` once and pay once.
+    fn array_get(&self, key: &str, index: u64) -> Option<MetaValue> {
+        let (elem, count, mut c) = self.array_at(key)?;
+        if index >= count {
+            return None;
+        }
+        match elem.fixed_width() {
+            // Constant time: the element's offset is arithmetic.
+            Some(w) => {
+                let skip = index.checked_mul(w)?;
+                c.seek(c.pos().checked_add(skip)?).ok()?;
+            }
+            // Variable width: walk, but skip rather than decode. Still O(n)
+            // in the index, and O(1) in allocations — which is the cost that
+            // actually hurt.
+            None => {
+                for _ in 0..index {
+                    skip_value(&mut c, elem).ok()?;
+                }
+            }
+        }
+        // Nesting depth restarts at 0 here, so a nested element is walked
+        // with the full budget again rather than the remainder indexing had
+        // left. That direction is the safe one: this can never REJECT a
+        // subtree the index accepted, and a key that survived indexing must
+        // stay readable. It cannot accept anything the file does not hold.
+        decode_value(&mut c, elem).ok()
     }
 }
 
@@ -543,6 +608,98 @@ mod tests {
         let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
         // 24 header + 8 keylen + 1 key + 4 type + 8 strlen + 1 str
         assert_eq!(m.kv_end(), 46);
+    }
+
+    #[test]
+    fn array_access_does_not_decode_the_array() {
+        // The R5 case. If this went through `get`, it would decode all
+        // 100,000 elements to return one.
+        let items: Vec<String> = (0..100_000).map(|i| format!("tok{i}")).collect();
+        let refs: Vec<&str> = items.iter().map(String::as_str).collect();
+        let bytes = gguf(&[("tokenizer.ggml.tokens", 9, str_array(&refs))]);
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+
+        assert_eq!(m.array_len("tokenizer.ggml.tokens"), Some(100_000));
+        assert_eq!(
+            m.array_get("tokenizer.ggml.tokens", 0),
+            Some(MetaValue::String("tok0".into()))
+        );
+        assert_eq!(
+            m.array_get("tokenizer.ggml.tokens", 99_999),
+            Some(MetaValue::String("tok99999".into()))
+        );
+        assert_eq!(m.array_get("tokenizer.ggml.tokens", 100_000), None);
+
+        // And the proof it stayed lazy: nothing decoded the whole array, so
+        // the entry's cache is still empty. If `array_get` had gone through
+        // `get`, this would hold a 100,000-element MetaValue::Array.
+        let e = m.entry("tokenizer.ggml.tokens").unwrap();
+        assert!(
+            e.value.get().is_none(),
+            "array access must not populate the whole-value cache"
+        );
+    }
+
+    #[test]
+    fn a_fixed_width_array_is_indexed_by_arithmetic_not_by_walking() {
+        let mut v = 4u32.to_le_bytes().to_vec(); // U32 elements
+        v.extend_from_slice(&5u64.to_le_bytes());
+        for i in 0..5u32 {
+            v.extend_from_slice(&(i * 11).to_le_bytes());
+        }
+        // A second key AFTER the array, and it is load-bearing.
+        //
+        // The out-of-range assertion below is the control for `array_get`'s
+        // `index >= count` bound. With the array last in the file — which is
+        // how this fixture was first written — index 5 lands exactly on the
+        // end of the buffer, `decode_value` fails on truncation, and
+        // `array_get` answers `None`: the right answer for the wrong reason.
+        // Deleting the bound left that assertion green (measured, not
+        // reasoned), so it was proving `Cursor`'s bounds check rather than
+        // this function's.
+        //
+        // With a key following, index 5 reads that key's bytes instead.
+        // Measured with the bound deleted: `Some(U32(5))` — the low half of
+        // the 8-byte length prefix of "after" — and `Some(U32(1702127201))`
+        // at index 7, which is "afte" read as a little-endian integer. A
+        // token id of 5 is a number a caller would have accepted without
+        // blinking, which is the whole reason the bound is worth a control.
+        let bytes = gguf(&[
+            ("nums", 9, v),
+            ("after", 4, 0xDEAD_BEEFu32.to_le_bytes().to_vec()),
+        ]);
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        assert_eq!(m.array_len("nums"), Some(5));
+        assert_eq!(m.array_get("nums", 3), Some(MetaValue::U32(33)));
+        assert_eq!(m.array_get("nums", 5), None);
+    }
+
+    #[test]
+    fn array_accessors_agree_with_the_decoded_value() {
+        // The two paths must not drift. Whatever `array_get(k, i)` returns
+        // must equal `get(k)`'s i-th element — otherwise a consumer sees a
+        // different vocabulary depending on which accessor it used.
+        let bytes = gguf(&[("toks", 9, str_array(&["alpha", "beta", "gamma"]))]);
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        let MetaValue::Array(all) = m.get("toks").unwrap().clone() else {
+            panic!("expected an array");
+        };
+        for (i, want) in all.iter().enumerate() {
+            assert_eq!(
+                m.array_get("toks", i as u64).as_ref(),
+                Some(want),
+                "index {i}"
+            );
+        }
+        assert_eq!(m.array_len("toks"), Some(all.len() as u64));
+    }
+
+    #[test]
+    fn a_scalar_has_no_array_length_and_no_elements() {
+        let bytes = gguf(&[("k", 8, s("scalar"))]);
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        assert_eq!(m.array_len("k"), None);
+        assert_eq!(m.array_get("k", 0), None);
     }
 
     #[test]
