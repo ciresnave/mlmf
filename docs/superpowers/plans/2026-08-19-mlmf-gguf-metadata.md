@@ -2334,6 +2334,22 @@ mod tests {
             "a walk that stopped early must say so, or Absent lies"
         );
         assert!(!report.is_empty(), "the unknown type must be reported");
+
+        // The WHOLE key set, not membership of three chosen names.
+        //
+        // Every assertion above is satisfied by a parse that desynchronises
+        // instead of stopping: changing `break` to `continue` leaves the
+        // cursor inside the unreadable value, and the next read lands on
+        // its tail — here producing a phantom key "unreachable" that is
+        // valid UTF-8, carrying a garbage `I32(0)`. `first` still decodes,
+        // `broken` is still Unreadable, `third` is still Absent, the index
+        // still reports incomplete, the report is still non-empty. Five
+        // assertions, none of which can see an invented key.
+        //
+        // Asserting the set closes it, and the principle is the collection
+        // form of this crate's whole-value rule: check what IS there, not
+        // that the things you thought of are among it.
+        assert_eq!(m.keys(), ["first", "broken"]);
     }
 
     #[test]
