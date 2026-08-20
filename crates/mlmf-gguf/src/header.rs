@@ -115,11 +115,18 @@ mod tests {
     fn reads_a_well_formed_v3_header() {
         let b = header_bytes(3, 291, 42);
         let mut c = Cursor::new(&b);
-        let h = parse_header(&mut c).expect("valid header");
-        assert_eq!(h.version, 3);
-        assert_eq!(h.tensor_count, 291);
-        assert_eq!(h.kv_count, 42);
-        assert_eq!(h.end, 24, "magic 4 + version 4 + two i64 = 24");
+        // Whole-value comparison: a transposition of `tensor_count` and
+        // `kv_count` in the constructor would otherwise trip the first
+        // assertion and leave the second unproven.
+        assert_eq!(
+            parse_header(&mut c).expect("valid header"),
+            Header {
+                version: 3,
+                tensor_count: 291,
+                kv_count: 42,
+                end: 24, // magic 4 + version 4 + two i64
+            }
+        );
     }
 
     #[test]
