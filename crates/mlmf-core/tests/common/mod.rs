@@ -1,14 +1,15 @@
 //! Shared workspace-member discovery for the C2/C3 gates.
 //!
 //! `workspace_root()` and `gated_members()` used to be duplicated, byte for
-//! byte, in `purity.rs` and `deps.rs` (and `workspace_root()` a third time
-//! in `workspace.rs`, for its own, differently-scoped `member_manifests()`).
-//! `gated_members()` decides which crates are enforced at all, so a fix
-//! landing in one copy and not another — say, excluding a non-crate
-//! directory that appears under `crates/` — would silently desynchronize
-//! which crates each gate covers. That is the same failure this whole task
-//! exists to eliminate, at smaller scale but with a sharper consequence
-//! than a diverged comment.
+//! byte, in `purity.rs` and `deps.rs` (and `workspace_root()` alone, again
+//! byte-identical apart from its own `pub`, in `workspace.rs` and
+//! `transitive_deps.rs` — four copies of `workspace_root()` in total, two of
+//! them also carrying a copy of `gated_members()`). `gated_members()`
+//! decides which crates are enforced at all, so a fix landing in one copy
+//! and not another — say, excluding a non-crate directory that appears
+//! under `crates/` — would silently desynchronize which crates each gate
+//! covers. That is the same failure this whole task exists to eliminate, at
+//! smaller scale but with a sharper consequence than a diverged comment.
 //!
 //! Included via `#[path = "common/mod.rs"] mod common;` in each integration
 //! test file rather than pulled in as a dev-dependency: a shared
@@ -19,8 +20,8 @@
 //! — not a dependency edge, so it costs nothing against C2.
 //!
 //! Not every test binary that includes this module uses every item in it
-//! (`workspace.rs` wants only `workspace_root`), so dead-code analysis is
-//! silenced here rather than per call site.
+//! (`workspace.rs` and `transitive_deps.rs` want only `workspace_root`), so
+//! dead-code analysis is silenced here rather than per call site.
 
 #![allow(dead_code)]
 
