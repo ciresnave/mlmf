@@ -1077,10 +1077,9 @@ mod tests {
         let b = header_bytes(4, 0, 0);
         let mut c = Cursor::new(&b);
         assert!(matches!(
-            parse_header(&mut Cursor::new(&b)).unwrap_err(),
+            parse_header(&mut c).unwrap_err(),
             GgufError::UnsupportedVersion { version: 4 }
         ));
-        let _ = c;
     }
 
     #[test]
