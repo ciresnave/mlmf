@@ -1123,6 +1123,7 @@ mod tests {
                 available: 1,
             }
         );
+    }
 
     #[test]
     fn an_empty_slice_is_not_gguf_rather_than_a_panic() {
