@@ -5,6 +5,7 @@
 # proves the gate would catch its misuse, and an entry nothing needs can
 # outlive the design that asked for it.
 cmp
+error
 fmt
 iter
 option
