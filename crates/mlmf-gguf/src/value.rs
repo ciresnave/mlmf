@@ -580,11 +580,16 @@ mod tests {
 
     #[test]
     fn an_array_claiming_more_elements_than_the_file_has_bytes_is_refused() {
-        // Twelve bytes of prefix claiming 2^40 elements. Without the
-        // bytes-remaining bound this reaches `try_reserve` and asks the
-        // allocator for terabytes; with it, the file is refused for the
-        // reason it is actually wrong — it describes a file that cannot
-        // exist.
+        // Twelve bytes of prefix claiming 2^40 elements.
+        //
+        // This fixture proves the bound NAMES the right thing, not that it
+        // prevents a crash — a sabotage established that `try_reserve`
+        // already refuses a request this large, so removing the bound still
+        // errors, just citing allocator capacity instead of the invariant
+        // actually violated. The case the bound uniquely catches is milder
+        // and untestable here without a large fixture: a count of ten
+        // million against a small file, which allocates hundreds of
+        // megabytes before failing on truncation partway through the loop.
         let mut b = 4u32.to_le_bytes().to_vec(); // U32 elements
         b.extend_from_slice(&(1u64 << 40).to_le_bytes());
         let mut c = Cursor::new(&b);
