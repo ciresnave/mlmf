@@ -23,8 +23,15 @@
 //!   `[target.'cfg(unix)'.dependencies]`, and `--edges normal` deliberately
 //!   excludes build edges, which is exactly the C5 codegen vector.
 
-use std::path::{Path, PathBuf};
 use std::process::Command;
+
+// `workspace_root` lives once, in `tests/common/mod.rs`, shared with
+// `purity.rs`, `deps.rs` and `workspace.rs` rather than duplicated per
+// file. See that module's doc comment for why a `#[path]` include, not a
+// dev-dependency.
+#[path = "common/mod.rs"]
+mod common;
+use common::workspace_root;
 
 /// C1, reset from the retired placeholder of 50 to *measured + 5* as spec
 /// §3.3 requires once `mlmf-core` exists and is measured. It is a backstop,
@@ -32,14 +39,6 @@ use std::process::Command;
 const CEILING: usize = 13;
 
 const SNAPSHOT: &str = include_str!("transitive-deps.snapshot");
-
-fn workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("crates/mlmf-core has a workspace root two levels up")
-        .to_path_buf()
-}
 
 /// `mlmf-core`'s transitive set right now, as `name vX.Y.Z` lines.
 ///
