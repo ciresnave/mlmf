@@ -1,0 +1,11 @@
+# mlmf-ggml is a pure table: geometry in, geometry out. Deliberately narrow.
+cmp
+fmt
+iter
+option
+primitive
+result
+slice
+u32
+u64
+usize

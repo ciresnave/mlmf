@@ -1,6 +1,6 @@
-//! C2 (direct half) and the manifest half of C3/C5: `mlmf-core`'s direct
-//! dependencies are pinned to an allow-list, and no table other than a plain
-//! `[dependencies]` may introduce one.
+//! C2 (direct half) and the manifest half of C3/C5: every gated workspace
+//! member's direct dependencies are pinned to its own allow-list, and no
+//! table other than a plain `[dependencies]` may introduce one.
 //!
 //! The first version of this test matched section headers with
 //! `line == "[dependencies]"`, which silently switched collection **off**
@@ -18,9 +18,15 @@
 //! segment is a dependency table is rejected outright unless it is the one
 //! plain `[dependencies]`. An unanticipated form fails loudly instead of
 //! being skipped.
+//!
+//! It used to be one copy of this file per crate, byte-identical apart from
+//! which manifest and allow-list it read. Nothing forced them to stay that
+//! way, so there is now one gate, iterating every `crates/*/` member (the
+//! same `gated_members` used by the C3 purity gate), with each member's own
+//! policy read from its own `Cargo.toml` and `tests/direct-deps.allow`.
 
-const MANIFEST: &str = include_str!("../Cargo.toml");
-const ALLOW: &str = include_str!("direct-deps.allow");
+use std::fs;
+use std::path::{Path, PathBuf};
 
 /// Crate names that are I/O or networking. C3 is a property of the whole
 /// crate, not only of its `src/`: a dependency edge is how the capability
@@ -138,9 +144,59 @@ fn parse_manifest(text: &str) -> Facts {
     facts
 }
 
-fn allow_list() -> Vec<String> {
-    ALLOW
-        .lines()
+// ---------------------------------------------------------------------------
+// Workspace member discovery
+// ---------------------------------------------------------------------------
+
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("crates/mlmf-core has a workspace root two levels up")
+        .to_path_buf()
+}
+
+/// Every workspace member that must satisfy C2/C3/C5 at the manifest level,
+/// with its own allow-list. Mirrors `purity.rs`'s `gated_members` — same
+/// crates, same discovery, so the two gates cannot silently drift apart on
+/// which crates they cover.
+fn gated_members() -> Vec<PathBuf> {
+    let root = workspace_root();
+    let mut out = Vec::new();
+    for entry in fs::read_dir(root.join("crates")).expect("crates/ is readable") {
+        let dir = entry.expect("readable entry").path();
+        if dir.join("Cargo.toml").is_file() {
+            out.push(dir);
+        }
+    }
+    out.sort();
+    assert!(
+        out.len() >= 2,
+        "expected at least two gated crates, found {out:?}"
+    );
+    out
+}
+
+fn crate_name(dir: &Path) -> String {
+    dir.file_name()
+        .expect("crate dir has a name")
+        .to_string_lossy()
+        .to_string()
+}
+
+fn read_manifest(dir: &Path) -> String {
+    let path = dir.join("Cargo.toml");
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("{} is readable: {e}", path.display()))
+}
+
+/// A crate's permitted direct dependencies, from its own
+/// tests/direct-deps.allow. A missing file is a loud panic, not a silently
+/// empty (and therefore trivially-satisfied) allow-list.
+fn allow_list(dir: &Path) -> Vec<String> {
+    let path = dir.join("tests/direct-deps.allow");
+    let raw = fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{} must declare its C2 allow-list: {e}", path.display()));
+    raw.lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .map(str::to_string)
@@ -149,29 +205,36 @@ fn allow_list() -> Vec<String> {
 
 #[test]
 fn direct_dependencies_match_allowlist() {
-    let facts = parse_manifest(MANIFEST);
-    assert_eq!(
-        facts.deps,
-        allow_list(),
-        "mlmf-core's direct dependencies changed.\n\
-         If this is intended, update crates/mlmf-core/tests/direct-deps.allow \
-         and re-bless the transitive snapshot (scripts/check-deps.sh --bless)."
-    );
+    for dir in gated_members() {
+        let name = crate_name(&dir);
+        let facts = parse_manifest(&read_manifest(&dir));
+        assert_eq!(
+            facts.deps,
+            allow_list(&dir),
+            "{name}'s direct dependencies changed.\n\
+             If this is intended, update crates/{name}/tests/direct-deps.allow \
+             and re-bless any transitive-dependency snapshot that depends on \
+             it (scripts/check-deps.sh --bless)."
+        );
+    }
 }
 
 #[test]
 fn no_table_other_than_plain_dependencies_may_declare_an_edge() {
-    let facts = parse_manifest(MANIFEST);
-    assert!(
-        facts.offending_tables.is_empty(),
-        "mlmf-core's manifest declares dependencies through a table that is \
-         not `[dependencies]`: {:?}.\n\
-         `[build-dependencies]` violates C5 (no build-script codegen), and a \
-         `[target.'cfg(...)'.dependencies]` table is invisible to a \
-         host-only `cargo tree`, so it would reach every consumer on another \
-         platform with every gate green.",
-        facts.offending_tables
-    );
+    for dir in gated_members() {
+        let name = crate_name(&dir);
+        let facts = parse_manifest(&read_manifest(&dir));
+        assert!(
+            facts.offending_tables.is_empty(),
+            "{name}'s manifest declares dependencies through a table that is \
+             not `[dependencies]`: {:?}.\n\
+             `[build-dependencies]` violates C5 (no build-script codegen), and a \
+             `[target.'cfg(...)'.dependencies]` table is invisible to a \
+             host-only `cargo tree`, so it would reach every consumer on another \
+             platform with every gate green.",
+            facts.offending_tables
+        );
+    }
 }
 
 #[test]
@@ -179,23 +242,27 @@ fn the_manifest_names_no_io_crate_anywhere() {
     // C3 is a property of the crate, not only of `src/`. This catches a
     // forbidden crate arriving under a renamed key
     // (`foo = { package = "memmap2" }`) as well as under its own name.
-    let mut found = Vec::new();
-    for line in MANIFEST.lines() {
-        let line = line.trim();
-        if line.starts_with('#') {
-            continue;
-        }
-        for c in FORBIDDEN_CRATES {
-            if line.contains(c) {
-                found.push(format!("{line}  (names `{c}`)"));
+    for dir in gated_members() {
+        let name = crate_name(&dir);
+        let manifest = read_manifest(&dir);
+        let mut found = Vec::new();
+        for line in manifest.lines() {
+            let line = line.trim();
+            if line.starts_with('#') {
+                continue;
+            }
+            for c in FORBIDDEN_CRATES {
+                if line.contains(c) {
+                    found.push(format!("{line}  (names `{c}`)"));
+                }
             }
         }
+        assert!(
+            found.is_empty(),
+            "{name}'s manifest names an I/O or codegen crate (C3/C5):\n  {}",
+            found.join("\n  ")
+        );
     }
-    assert!(
-        found.is_empty(),
-        "mlmf-core's manifest names an I/O or codegen crate (C3/C5):\n  {}",
-        found.join("\n  ")
-    );
 }
 
 #[test]
