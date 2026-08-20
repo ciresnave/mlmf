@@ -79,6 +79,30 @@ pub struct Unrecognized {
     pub origin: String,
 }
 
+/// What a source knows about one metadata key (spec §5, consumer R2).
+///
+/// [`MetadataSource::get`] returns `Option`, which collapses two facts an
+/// operator must be able to tell apart: a file that **declares nothing**
+/// under this key, and a file that declares something the parse **could not
+/// decode**. Those carry opposite remedies — supply the value, versus repair
+/// the file — and a consumer given only `None` cannot say which it is
+/// looking at.
+///
+/// `get` stays as the ergonomic path. This is the honest one.
+///
+/// [`MetadataSource::get`]: crate::MetadataSource::get
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum Declaration<'a> {
+    /// The key is not declared. Never a default.
+    Absent,
+    /// The key is declared and the value could not be decoded. Carries the
+    /// report entry, so the complaint can name the key and what was seen.
+    Unreadable(&'a Unrecognized),
+    /// The key is declared and decoded.
+    Declared(&'a MetaValue),
+}
+
 /// Everything a parse did not understand.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Report {
