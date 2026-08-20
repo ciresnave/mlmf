@@ -1585,13 +1585,18 @@ mod tests {
         b.extend_from_slice(&99u32.to_le_bytes());
         b.extend_from_slice(&1u64.to_le_bytes());
         let mut c = Cursor::new(&b);
-        match skip_value(&mut c, ValueType::Array).unwrap_err() {
-            GgufError::Malformed { stage, detail, .. } => {
-                assert_eq!(stage, Stage::Metadata);
-                assert!(detail.contains("99"), "must name the code: {detail}");
+        // One comparison over the whole error, against a fully-specified
+        // literal, rather than chaining `stage` then `detail`: chaining
+        // means a `stage` mismatch fires first and the `detail` assertion
+        // — the one that actually proves the code was named — never runs.
+        assert_eq!(
+            skip_value(&mut c, ValueType::Array).unwrap_err(),
+            GgufError::Malformed {
+                stage: Stage::Metadata,
+                offset: 0,
+                detail: "array declares unknown element type 99".to_string(),
             }
-            other => panic!("expected Malformed, got {other:?}"),
-        }
+        );
     }
 
     #[test]
