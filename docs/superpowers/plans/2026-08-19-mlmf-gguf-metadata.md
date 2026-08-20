@@ -3363,6 +3363,31 @@ git commit -m "test(gguf): adversarial fixtures for the paths no published model
 
 ## Task 9: Corpus differential, the measurement, and CI
 
+**Carried in from Task 6's review and the CI audit that followed it:**
+
+1. `UnrecognizedKind::MetadataKey` documents its `value` field as "value
+   exactly as declared", and two of the three `mlmf-gguf` call sites put a
+   human-readable explanation there instead — "duplicate key; first
+   occurrence kept", "must be UINT32; using the default of 32". The
+   variant's own doc is also too narrow: it says "a metadata key this build
+   has no canonical name for", which describes none of the new uses.
+   Fixing it properly means widening a core enum — a `reason` field, and
+   `value` becoming optional, because the duplicate case must not decode a
+   26 MB array in order to report a duplicate. That is a core API change
+   with its own tests and its own sabotage, which is why it is here and not
+   folded into a `mlmf-gguf` fix wave.
+
+2. The C2 TRANSITIVE dependency snapshot covers `mlmf-core` only, while
+   every other gate iterates `gated_members()`. It is currently sound, but
+   by construction rather than by design: `mlmf-ggml` and `mlmf-gguf`
+   declare no external dependencies at all, so `mlmf-core`'s transitive set
+   IS theirs, and the direct-deps gate enforces each crate's manifest
+   against its own `tests/direct-deps.allow` — so an external dependency
+   cannot appear in a format crate without failing a gate first. Write that
+   reasoning into `transitive_deps.rs` as a comment, or extend the snapshot
+   to every member. What must not survive is the present state, where the
+   scope is correct for a reason nobody recorded.
+
 **Files:**
 - Create: `crates/mlmf-gguf/tests/corpus-metadata.tsv`
 - Create: `crates/mlmf-gguf/tests/corpus.rs`
