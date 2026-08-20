@@ -1,0 +1,16 @@
+# mlmf-gguf parses bytes. `sync` is here for OnceLock, which backs the
+# lazy KV index (D1) and is not a way out of the process.
+cmp
+fmt
+iter
+option
+primitive
+result
+slice
+str
+string
+sync
+u32
+u64
+usize
+vec
