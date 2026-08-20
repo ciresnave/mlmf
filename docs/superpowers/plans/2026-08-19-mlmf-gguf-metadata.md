@@ -1289,7 +1289,28 @@ cargo clippy -p mlmf-gguf --all-targets -- -D warnings
 
 1. Move the `SUPPORTED.contains` check **above** the byte-swap check. `a_byte_swapped_file_is_named_rather_than_reported_as_a_huge_version` must go red — it now reports `UnsupportedVersion { version: 50331648 }`. **This ordering is the whole point of that test**; record the number you see. Restore.
 2. Change `read_count` to `Ok(raw as u64)`. `a_negative_count_is_malformed_rather_than_a_huge_unsigned_one` must go red. Restore.
-3. Change the magic comparison to `magic[0] == b'G'`. `a_file_that_is_not_a_gguf...` must **stay green** with `PK\x03\x04` — then change the fixture's first byte to `G` and confirm it goes red. This demonstrates that a prefix check is not a magic check, and why the fixture uses a realistic wrong magic rather than random bytes. Restore both.
+3. Change the magic comparison to `magic[0] == b'G'` — a prefix check rather than a magic check. This one needs **two distinct fixtures**, not one fixture edited between phases: a single test name asserted to both stay green and go red is a claim whose only discriminator is a sentence, and nothing executes a sentence.
+
+   Add this second test alongside the first, permanently:
+
+   ```rust
+    #[test]
+    fn a_wrong_magic_sharing_gguf_s_first_byte_is_still_not_a_gguf() {
+        // The positive control for the magic check, kept as its own test so
+        // that the claim and its control are two names rather than one name
+        // in two states. "GGJT" is the real legacy ggml magic, so this is
+        // the file a user actually holds when they hit this path.
+        let mut b = header_bytes(3, 0, 0);
+        b[0..4].copy_from_slice(b"GGJT");
+        let mut c = Cursor::new(&b);
+        match parse_header(&mut c).unwrap_err() {
+            GgufError::NotGguf { found } => assert_eq!(&found, b"GGJT"),
+            other => panic!("expected NotGguf, got {other:?}"),
+        }
+    }
+   ```
+
+   Under the sabotage `a_file_that_is_not_a_gguf_says_so_rather_than_reporting_corruption` stays green, because `PK` fails on byte 0 either way, and `a_wrong_magic_sharing_gguf_s_first_byte_is_still_not_a_gguf` goes red. Two names, two outcomes, no prose in between. Restore.
 
 - [ ] **Step 7: Commit**
 
@@ -2801,8 +2822,8 @@ Expected: PASS.
 
 - [ ] **Step 4: Prove the two that matter can fail (AD-2)**
 
-1. In `decode_string`, use `String::from_utf8_lossy`. `a_non_utf8_value_survives_byte_for_byte` and `an_array_element_that_is_not_utf8_survives_indexed_access` must **both** go red. **Then run the corpus test from Task 9 under the same sabotage and confirm it stays green** — that contrast is the entire argument for this file's existence, and it should be recorded in the task report as a measured fact rather than a claim.
-2. Add `.trim_end_matches('\0')`. `a_trailing_nul_is_kept` must go red while every corpus test stays green.
+1. In `decode_string`, use `String::from_utf8_lossy`. `a_non_utf8_value_survives_byte_for_byte` and `an_array_element_that_is_not_utf8_survives_indexed_access` must **both** go red. **Then run `measured_headers_parse_to_their_measured_values` (Task 9) under the same sabotage and confirm it stays green** — that contrast is the entire argument for this file's existence, and it should be recorded in the task report as a measured fact rather than a claim.
+2. Add `.trim_end_matches('\0')`. `a_trailing_nul_is_kept` must go red while `measured_headers_parse_to_their_measured_values` stays green — both named, so the discriminator is a string rather than a category.
 
 - [ ] **Step 5: Commit**
 
