@@ -692,11 +692,19 @@ mod tests {
         // what let an operator tell a truncated download from a corrupt one.
         let bytes = [0x01u8, 0x02];
         let mut c = Cursor::new(&bytes);
-        let e = c.u32().unwrap_err();
-        assert_eq!(e.needed, 4);
-        assert_eq!(e.available, 2);
-        // And the cursor must not have moved, so the caller can report the
-        // offset the failure happened at.
+        // One comparison over the whole error. Chaining `needed` then
+        // `available` means a transposition in the construction — the two
+        // sit adjacent, so it is a plausible slip — trips the first
+        // assertion and the second never runs, blaming the wrong field.
+        assert_eq!(
+            c.u32().unwrap_err(),
+            Truncated {
+                needed: 4,
+                available: 2
+            }
+        );
+        // Position is a property of the cursor rather than of the error, so
+        // it cannot fold into the comparison above and stays its own check.
         assert_eq!(c.pos(), 0);
     }
 
@@ -719,9 +727,13 @@ mod tests {
         // triggered by four bytes of a header.
         let bytes = [0u8; 8];
         let mut c = Cursor::new(&bytes);
-        let e = c.take(u64::MAX).unwrap_err();
-        assert_eq!(e.needed, u64::MAX);
-        assert_eq!(e.available, 8);
+        assert_eq!(
+            c.take(u64::MAX).unwrap_err(),
+            Truncated {
+                needed: u64::MAX,
+                available: 8
+            }
+        );
         // The same guarantee its sibling short-read test pins: a refused
         // read must not move the cursor, or every later error reports an
         // offset that is wrong by however much the failed read consumed.
@@ -1007,11 +1019,18 @@ mod tests {
     fn reads_a_well_formed_v3_header() {
         let b = header_bytes(3, 291, 42);
         let mut c = Cursor::new(&b);
-        let h = parse_header(&mut c).expect("valid header");
-        assert_eq!(h.version, 3);
-        assert_eq!(h.tensor_count, 291);
-        assert_eq!(h.kv_count, 42);
-        assert_eq!(h.end, 24, "magic 4 + version 4 + two i64 = 24");
+        // Whole-value comparison: a transposition of `tensor_count` and
+        // `kv_count` in the constructor would otherwise trip the first
+        // assertion and leave the second unproven.
+        assert_eq!(
+            parse_header(&mut c).expect("valid header"),
+            Header {
+                version: 3,
+                tensor_count: 291,
+                kv_count: 42,
+                end: 24, // magic 4 + version 4 + two i64
+            }
+        );
     }
 
     #[test]
