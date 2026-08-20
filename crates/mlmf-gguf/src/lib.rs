@@ -25,3 +25,8 @@
 #![warn(missing_docs)]
 
 pub mod cursor;
+pub mod error;
+pub mod header;
+
+pub use error::{GgufError, Stage};
+pub use header::{Header, parse_header};
