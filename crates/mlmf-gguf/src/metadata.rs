@@ -244,9 +244,20 @@ impl<'a> GgufMetadata<'a> {
         }
         Some(e.value.get_or_init(|| {
             let mut c = Cursor::new(self.bytes);
-            // Both operations succeeded during indexing, so neither can fail
-            // here; a failure would mean the byte slice changed underneath us,
-            // which is impossible for a shared borrow.
+            // Every *structural* check `decode_value` makes was already made
+            // by `skip_value` at this offset during indexing, against these
+            // same bytes — which a shared borrow cannot have changed. So no
+            // truncation, unknown type code, depth or overflow failure can
+            // appear here that did not appear then.
+            //
+            // One check is not structural. The array branch calls
+            // `Vec::try_reserve`, and the allocator's answer on first access
+            // is not the answer it gave at parse time, because parse never
+            // allocated at all. Under genuine memory exhaustion this
+            // `expect` can fire. That is not a new exposure: the string and
+            // nested-vector allocations inside `decode_value` abort the
+            // process on the same condition without passing through a
+            // `Result` at any point.
             c.seek(e.start).expect("indexed offset is in range");
             decode_value(&mut c, e.ty).expect("indexed value decoded during parse")
         }))
@@ -285,6 +296,15 @@ impl MetadataSource for GgufMetadata<'_> {
         self.entry(key).and_then(|e| self.value_of(e))
     }
 
+    /// The declared keys, in the order the file declares them.
+    ///
+    /// [`MetadataSource::keys`] documents its order as unspecified, and it
+    /// stays unspecified for backends that cannot cheaply do better. This
+    /// implementation promises more because it costs nothing to: the index
+    /// is one forward walk, so file order is simply what the walk produces.
+    ///
+    /// A caller holding a concrete `GgufMetadata` may rely on that. A
+    /// caller holding `&dyn MetadataSource` may not, and should not.
     fn keys(&self) -> Vec<&str> {
         self.entries.iter().map(|e| e.key.as_str()).collect()
     }
@@ -356,7 +376,7 @@ mod tests {
             m.get("general.architecture"),
             Some(&MetaValue::String("llama".into()))
         );
-        assert_eq!(m.keys().len(), 2);
+        assert_eq!(m.keys(), ["general.architecture", "tokenizer.ggml.tokens"]);
     }
 
     #[test]
@@ -450,7 +470,7 @@ mod tests {
         let (m, report) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
         assert!(m.index_complete());
         assert!(report.is_empty());
-        assert_eq!(m.keys().len(), 2);
+        assert_eq!(m.keys(), ["a", "b"]);
     }
 
     #[test]
@@ -462,6 +482,13 @@ mod tests {
         let (m, report) = GgufMetadata::parse(&bytes, "t.gguf").expect("parses");
         assert_eq!(m.get("k"), Some(&MetaValue::String("first".into())));
         assert!(!report.is_empty(), "the duplicate must be reported");
+        // Dropping the `continue` after the report is a one-line regression
+        // that reads like a tidy-up, and every assertion above survives it:
+        // the duplicate is still reported, and `get` still answers "first"
+        // because `entry()` returns the first match either way. The only
+        // visible damage is a key set of ["k", "k"] — an EXTRA element,
+        // which is precisely what a membership assertion cannot see.
+        assert_eq!(m.keys(), ["k"], "the second occurrence must not be indexed");
     }
 
     #[test]

@@ -119,7 +119,7 @@ impl ValueType {
 /// unknown type code. Nesting is the one that could still take the process
 /// down, so it gets a bound too. 64 is far past anything a real writer
 /// emits and far short of anything that threatens the stack.
-const MAX_ARRAY_DEPTH: u32 = 64;
+pub const MAX_ARRAY_DEPTH: u32 = 64;
 
 /// Advance past one value without decoding it.
 ///
