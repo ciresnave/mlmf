@@ -183,12 +183,11 @@ mod tests {
     #[test]
     fn a_future_version_is_refused_with_its_number() {
         let b = header_bytes(4, 0, 0);
-        let c = Cursor::new(&b);
+        let mut c = Cursor::new(&b);
         assert!(matches!(
-            parse_header(&mut Cursor::new(&b)).unwrap_err(),
+            parse_header(&mut c).unwrap_err(),
             GgufError::UnsupportedVersion { version: 4 }
         ));
-        let _ = c;
     }
 
     #[test]
