@@ -251,6 +251,16 @@ impl<'a> GgufMetadata<'a> {
     /// and fourth walkers of this particular grammar, so they go through
     /// the same door instead of each opening their own.
     fn array_at(&self, key: &str) -> Option<(ValueType, u64, Cursor<'a>)> {
+        // Four of the five early-outs below are DEFENCE IN DEPTH, not
+        // coverage — each was mutated in isolation and the suite stayed
+        // green, because none can be reached. `unreadable` is shadowed by
+        // the type check: the only site that sets it hardcodes
+        // `ty: ValueType::U8`, so an unreadable entry is never an Array.
+        // `seek` cannot fail on an offset the parse walk produced, and
+        // `read_array_prefix` cannot fail on a prefix `skip_value` already
+        // accepted. They stay because the alternative is `unwrap`, and a
+        // reachability argument is a worse thing to bet a panic on than a
+        // `?`. Only the `ty != Array` guard is live, and it is tested.
         let e = self.entry(key)?;
         if e.ty != ValueType::Array || e.unreadable.is_some() {
             return None;
@@ -349,19 +359,43 @@ impl MetadataSource for GgufMetadata<'_> {
         }
     }
 
+    /// The number of elements the array DECLARES.
+    ///
+    /// Declared, not counted — nothing re-walks the elements here. The
+    /// number is trustworthy for a different reason: indexing already ran
+    /// `skip_value` over this value, which walks a variable-width array
+    /// element by element and bounds a fixed-width one by
+    /// `count * width <= bytes remaining`, so a count larger than the file
+    /// can hold fails the OPEN. A file whose array claims nine elements and
+    /// carries five is refused with `truncated in the metadata`, and never
+    /// reaches this function.
+    ///
+    /// An understating count is not refused and is not a hazard: this
+    /// under-reports and [`Self::array_get`]'s bound stays conservative.
     fn array_len(&self, key: &str) -> Option<u64> {
         self.array_at(key).map(|(_, count, _)| count)
     }
 
     /// Decode one element without materializing the array.
     ///
-    /// **Cost, because a caller cannot guess it:** constant time for
-    /// fixed-width elements, whose offset is arithmetic. `O(index)` for
-    /// `String` and nested `Array` elements, whose widths are only knowable
-    /// by walking — so a loop calling this at every index of a
-    /// 500,000-element token list is quadratic and will not finish. This
-    /// method is for reading a few elements out of many. A caller who wants
-    /// the whole array should call `get` once and pay once.
+    /// **Cost, because a caller cannot guess it from the signature:**
+    ///
+    /// - Fixed-width elements: the offset is arithmetic, so one seek.
+    /// - `String` elements: `O(index)` — each skip reads a length and
+    ///   advances, so the walk is proportional to the index alone.
+    /// - Nested `Array` elements: `O(elements walked before index)`, which
+    ///   is NOT `O(index)`. Skipping one nested element costs that
+    ///   element's whole subtree, so the total is the sum of the inner
+    ///   counts before `index` and is unbounded in `index`.
+    ///
+    /// Every call also pays a linear scan of the key list to find the
+    /// entry — immaterial at the 42 keys real files carry, but it means a
+    /// loop over one array is `O(n * keys)` before the walking cost.
+    ///
+    /// So a loop calling this at every index of a 500,000-element token
+    /// list is quadratic and will not finish. This method is for reading a
+    /// few elements out of many. A caller who wants the whole array should
+    /// call `get` once and pay for it once.
     fn array_get(&self, key: &str, index: u64) -> Option<MetaValue> {
         let (elem, count, mut c) = self.array_at(key)?;
         if index >= count {
@@ -384,9 +418,19 @@ impl MetadataSource for GgufMetadata<'_> {
         }
         // Nesting depth restarts at 0 here, so a nested element is walked
         // with the full budget again rather than the remainder indexing had
-        // left. That direction is the safe one: this can never REJECT a
-        // subtree the index accepted, and a key that survived indexing must
-        // stay readable. It cannot accept anything the file does not hold.
+        // left. This can never REJECT a subtree the index accepted, which
+        // is the direction that matters: a key that survived the open must
+        // stay readable.
+        //
+        // The reset is not what makes that true, and it would be wrong to
+        // credit it. Safety comes from Task 5's `depth + 1` accounting in
+        // `skip_at_depth`: indexing already refuses anything the decode
+        // could refuse. A decode that CONTINUED from indexing's depth would
+        // be equally safe. What the reset buys is slack — measured at two
+        // levels, since indexing reaches an element one level down and the
+        // limit is 64 — and slack is what hides an accounting error rather
+        // than what prevents one. `deep_nesting_is_readable_by_both_paths`
+        // sits at exactly the depth where that slack runs out.
         decode_value(&mut c, elem).ok()
     }
 }
@@ -420,13 +464,44 @@ mod tests {
         b
     }
 
-    fn str_array(items: &[&str]) -> Vec<u8> {
-        let mut b = 8u32.to_le_bytes().to_vec(); // String elements
+    /// Encode an array: element type code, count, then the element bytes.
+    ///
+    /// One builder for every array fixture in this file. The nested cases
+    /// are built by feeding this function its own output, which is the only
+    /// way a nested fixture is guaranteed to agree with a flat one.
+    fn array_of(elem_code: u32, items: &[Vec<u8>]) -> Vec<u8> {
+        let mut b = elem_code.to_le_bytes().to_vec();
         b.extend_from_slice(&(items.len() as u64).to_le_bytes());
         for i in items {
-            b.extend_from_slice(&s(i));
+            b.extend_from_slice(i);
         }
         b
+    }
+
+    fn str_array(items: &[&str]) -> Vec<u8> {
+        array_of(8, &items.iter().map(|i| s(i)).collect::<Vec<_>>())
+    }
+
+    /// `depth` levels of single-element array nesting around a string leaf.
+    fn nest(depth: u32) -> Vec<u8> {
+        let mut v = s("leaf");
+        let mut code = 8u32; // the leaf is a String; every wrap above is an Array
+        for _ in 0..depth {
+            v = array_of(code, &[v]);
+            code = 9;
+        }
+        v
+    }
+
+    /// A key that follows an array, so an out-of-range read has real bytes
+    /// to land on instead of the end of the buffer.
+    ///
+    /// Without one, an out-of-range assertion proves `Cursor`'s bounds
+    /// check rather than `array_get`'s: the array is last, the read hits
+    /// EOF, and `None` comes back for the wrong reason. Measured, twice, in
+    /// two different fixtures in this file.
+    fn trailer() -> (&'static str, u32, Vec<u8>) {
+        ("after", 4, 0xDEAD_BEEFu32.to_le_bytes().to_vec())
     }
 
     #[test]
@@ -616,7 +691,14 @@ mod tests {
         // 100,000 elements to return one.
         let items: Vec<String> = (0..100_000).map(|i| format!("tok{i}")).collect();
         let refs: Vec<&str> = items.iter().map(String::as_str).collect();
-        let bytes = gguf(&[("tokenizer.ggml.tokens", 9, str_array(&refs))]);
+        // The trailing key is load-bearing for the out-of-range assertion
+        // below — see `trailer`. Without it, deleting `array_get`'s
+        // `index >= count` bound left THIS test green while the fixed-width
+        // test three down went red, and the value a caller would have
+        // received is worse here: `Some(String("after"))`, the next key's
+        // NAME handed back as a vocabulary token. A string that looks like
+        // a real token, for an id past the end of the vocabulary.
+        let bytes = gguf(&[("tokenizer.ggml.tokens", 9, str_array(&refs)), trailer()]);
         let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
 
         assert_eq!(m.array_len("tokenizer.ggml.tokens"), Some(100_000));
@@ -679,19 +761,103 @@ mod tests {
         // The two paths must not drift. Whatever `array_get(k, i)` returns
         // must equal `get(k)`'s i-th element — otherwise a consumer sees a
         // different vocabulary depending on which accessor it used.
-        let bytes = gguf(&[("toks", 9, str_array(&["alpha", "beta", "gamma"]))]);
-        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
-        let MetaValue::Array(all) = m.get("toks").unwrap().clone() else {
-            panic!("expected an array");
-        };
-        for (i, want) in all.iter().enumerate() {
+        // `array_get`'s own doc names three element shapes with different
+        // costs: fixed-width, String, and nested Array. A flat string array
+        // pins one of them. The fixed-width arm is a different branch —
+        // arithmetic rather than walking — and the nested arm was exercised
+        // by NOTHING: hardcoding `ValueType::String` in place of `elem` in
+        // the variable-width walk passed all 46 tests, while genuinely
+        // breaking nested access. Agreement has to cover every shape the
+        // function branches on, or it is agreement about one branch.
+        for (name, payload) in [
+            (
+                "fixed",
+                array_of(
+                    4,
+                    &(0..5u32)
+                        .map(|i| (i * 11).to_le_bytes().to_vec())
+                        .collect::<Vec<_>>(),
+                ),
+            ),
+            ("strings", str_array(&["alpha", "beta", "gamma"])),
+            (
+                "nested",
+                array_of(
+                    9,
+                    &[
+                        str_array(&["a", "b"]),
+                        str_array(&["c"]),
+                        str_array(&["d", "e", "f"]),
+                    ],
+                ),
+            ),
+        ] {
+            let bytes = gguf(&[("toks", 9, payload), trailer()]);
+            let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+            let MetaValue::Array(all) = m.get("toks").unwrap().clone() else {
+                panic!("{name}: expected an array");
+            };
+            for (i, want) in all.iter().enumerate() {
+                assert_eq!(
+                    m.array_get("toks", i as u64).as_ref(),
+                    Some(want),
+                    "{name} index {i}"
+                );
+            }
+            assert_eq!(m.array_len("toks"), Some(all.len() as u64), "{name} len");
+            // Past the end, with a real key's bytes sitting there to be
+            // misread. Inside the loop because each shape reaches it by a
+            // different branch.
             assert_eq!(
-                m.array_get("toks", i as u64).as_ref(),
-                Some(want),
-                "index {i}"
+                m.array_get("toks", all.len() as u64),
+                None,
+                "{name}: past the end"
             );
         }
-        assert_eq!(m.array_len("toks"), Some(all.len() as u64));
+    }
+
+    #[test]
+    fn deep_nesting_is_readable_by_both_paths_or_neither() {
+        // `array_get` restarts the nesting-depth budget at 0, while indexing
+        // spent one level reaching the same element. The comment on that
+        // code claims the asymmetry can never make `array_get` REJECT a
+        // subtree indexing accepted — the direction that matters, because a
+        // key that survives the open must stay readable.
+        //
+        // Nothing pinned it, and all 46 tests passed with the decode started
+        // at depth 2 instead of 0. This is the Task 5 lesson again: when two
+        // paths walk one grammar, assert that THEY AGREE rather than that
+        // each works alone.
+        //
+        // 64 is not an arbitrary depth, it is the ONLY one that works. The
+        // reset buys slack, and the slack is what hides an accounting error,
+        // so the test has to sit where there is least of it. Measured, by
+        // starting the decode at each shift and finding the first that
+        // fails:
+        //
+        //     nest(60) parses, no shift up to 5 breaks it
+        //     nest(61) parses, breaks at shift 5
+        //     nest(62) parses, breaks at shift 4
+        //     nest(63) parses, breaks at shift 3
+        //     nest(64) parses, breaks at shift 2   <-- here
+        //     nest(65) REFUSED at parse
+        //
+        // This test was written at 63 first. The off-by-one regression it
+        // exists to catch is a shift of 2, so at 63 it passed under the very
+        // mutation it was written for — an eighth control in this plan that
+        // could not reach the assertion it named. One level deeper and it
+        // fires. Do not lower this number.
+        let bytes = gguf(&[("deep", 9, nest(64)), trailer()]);
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").expect("64 levels parses");
+        let MetaValue::Array(all) = m.get("deep").unwrap().clone() else {
+            panic!("expected an array");
+        };
+        assert_eq!(all.len(), 1, "each level wraps exactly one element");
+        assert_eq!(
+            m.array_get("deep", 0).as_ref(),
+            Some(&all[0]),
+            "the deepest element indexing accepted must stay readable"
+        );
     }
 
     #[test]
