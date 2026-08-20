@@ -853,12 +853,15 @@ cargo clippy -p mlmf-gguf --all-targets -- -D warnings
 
    ```rust
    if n > self.remaining() {
-       self.pos = self.bytes.len(); // wrongly consume on failure
-       return Err(Truncated { needed: n, available: self.remaining() });
+       let available = self.remaining(); // captured BEFORE the mutation
+       self.pos = self.bytes.len();      // wrongly consume on failure
+       return Err(Truncated { needed: n, available });
    }
    ```
 
    `a_short_read_reports_what_it_needed_and_what_was_there` must go red on its `assert_eq!(c.pos(), 0)` assertion. Restore.
+
+   **Capturing `available` first is what makes this mutation isolating, and that detail is load-bearing.** Without it, `self.pos = self.bytes.len()` changes what `self.remaining()` returns, so the test trips its `assert_eq!(e.available, 2)` assertion — which sits *above* the `pos` one — and panics before `pos` is ever checked. The test goes red either way, which looks like success and proves nothing about the assertion you were trying to exercise. **An earlier assertion in the same test can shadow a later one, so "the test went red" is not evidence that a particular assertion works.** Check which assertion fires, not merely that one did.
 
    **A first draft of this plan named the wrong mutation here** — "move the position update before the slice" — and an implementer correctly refused to fudge it when the suite stayed green. The bounds check is an *early return*, so the failure path never touches `self.pos`, and reordering the statements after the guard is invisible to a failing read. The assertion was right; the control named a mutation that could not reach it. The version above does reach it, and "consume what is available, then error" is a plausible thing someone writes on purpose — which is what a control should target.
 
