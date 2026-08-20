@@ -840,8 +840,14 @@ impl<'a> Cursor<'a> {
         self.pos as u64
     }
 
-    /// Bytes remaining.
-    fn remaining(&self) -> u64 {
+    /// Bytes remaining from the current position.
+    ///
+    /// Public because a parser needs it to bound a *declared* count before
+    /// trusting it: no container can hold more elements than it has bytes,
+    /// since every element occupies at least one. That check is what turns
+    /// an absurd declared length into an error instead of an allocation.
+    #[must_use]
+    pub fn remaining(&self) -> u64 {
         (self.bytes.len() - self.pos) as u64
     }
 
@@ -1642,6 +1648,139 @@ mod tests {
     }
 
     #[test]
+    fn decode_value_round_trips_every_type() {
+        // `decode_value` had tests for exactly two of thirteen types, and
+        // none at all for its Array arm — the branch carrying this crate's
+        // whole 500,000-element rationale. A copy-paste width slip in any
+        // scalar arm (`I16` reaching for `cursor.u32()`, say) would
+        // desynchronise the cursor and no test would have noticed.
+        //
+        // Each case asserts the decoded value AND the bytes consumed,
+        // because a reader that returns the right value after eating the
+        // wrong number of bytes breaks the NEXT key rather than this one.
+        let cases: Vec<(ValueType, Vec<u8>, MetaValue, u64)> = vec![
+            (ValueType::U8, vec![0xFE], MetaValue::U8(0xFE), 1),
+            (ValueType::I8, vec![0xFE], MetaValue::I8(-2), 1),
+            (ValueType::U16, vec![0x01, 0x02], MetaValue::U16(0x0201), 2),
+            (ValueType::I16, vec![0xFE, 0xFF], MetaValue::I16(-2), 2),
+            (
+                ValueType::U32,
+                vec![0x01, 0x02, 0x03, 0x04],
+                MetaValue::U32(0x0403_0201),
+                4,
+            ),
+            (
+                ValueType::I32,
+                vec![0xFE, 0xFF, 0xFF, 0xFF],
+                MetaValue::I32(-2),
+                4,
+            ),
+            (
+                ValueType::U64,
+                vec![1, 2, 3, 4, 5, 6, 7, 8],
+                MetaValue::U64(0x0807_0605_0403_0201),
+                8,
+            ),
+            (
+                ValueType::I64,
+                vec![0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+                MetaValue::I64(-2),
+                8,
+            ),
+            (
+                ValueType::F32,
+                (-1.5f32).to_le_bytes().to_vec(),
+                MetaValue::F32(-1.5),
+                4,
+            ),
+            (
+                ValueType::F64,
+                (0.25f64).to_le_bytes().to_vec(),
+                MetaValue::F64(0.25),
+                8,
+            ),
+            (ValueType::Bool, vec![0], MetaValue::Bool(false), 1),
+        ];
+        for (ty, bytes, want, width) in cases {
+            let mut c = Cursor::new(&bytes);
+            assert_eq!(decode_value(&mut c, ty).unwrap(), want, "{ty:?} value");
+            assert_eq!(c.pos(), width, "{ty:?} consumed the wrong width");
+        }
+    }
+
+    #[test]
+    fn decoding_an_array_yields_its_elements_and_consumes_it_exactly() {
+        // The Array arm, which had no test at all — not even a happy path.
+        let mut b = 4u32.to_le_bytes().to_vec(); // U32 elements
+        b.extend_from_slice(&3u64.to_le_bytes());
+        for v in [10u32, 20, 30] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        b.extend_from_slice(b"SENTINEL");
+        let mut c = Cursor::new(&b);
+        assert_eq!(
+            decode_value(&mut c, ValueType::Array).unwrap(),
+            MetaValue::Array(vec![
+                MetaValue::U32(10),
+                MetaValue::U32(20),
+                MetaValue::U32(30)
+            ])
+        );
+        // Landing point, so a decode that over- or under-runs is caught
+        // here rather than at whatever key follows it in a real file.
+        assert_eq!(c.take(8).unwrap(), b"SENTINEL");
+    }
+
+    #[test]
+    fn an_array_claiming_more_elements_than_the_file_has_bytes_is_refused() {
+        // Twelve bytes of prefix claiming 2^40 elements. Without the
+        // bytes-remaining bound this reaches `try_reserve` and asks the
+        // allocator for terabytes; with it, the file is refused for the
+        // reason it is actually wrong — it describes a file that cannot
+        // exist.
+        let mut b = 4u32.to_le_bytes().to_vec(); // U32 elements
+        b.extend_from_slice(&(1u64 << 40).to_le_bytes());
+        let mut c = Cursor::new(&b);
+        let err = decode_value(&mut c, ValueType::Array).unwrap_err();
+        match err {
+            GgufError::Malformed { detail, .. } => {
+                assert!(
+                    detail.contains("1099511627776") && detail.contains("bytes remain"),
+                    "must name the count and the bound: {detail}"
+                );
+            }
+            other => panic!("expected Malformed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nesting_deeper_than_the_limit_is_refused_rather_than_overflowing_the_stack() {
+        // Each level is twelve bytes: a 4-byte element type and an 8-byte
+        // count of 1. That is how cheaply a file can ask for unbounded
+        // recursion, and why the depth bound exists — a stack overflow
+        // aborts the process instead of returning an error.
+        let mut b = Vec::new();
+        for _ in 0..(MAX_ARRAY_DEPTH + 5) {
+            b.extend_from_slice(&9u32.to_le_bytes()); // element type: Array
+            b.extend_from_slice(&1u64.to_le_bytes());
+        }
+        b.extend_from_slice(&4u32.to_le_bytes()); // innermost: U32
+        b.extend_from_slice(&1u64.to_le_bytes());
+        b.extend_from_slice(&7u32.to_le_bytes());
+
+        let mut c = Cursor::new(&b);
+        assert!(matches!(
+            skip_value(&mut c, ValueType::Array).unwrap_err(),
+            GgufError::Malformed { .. }
+        ));
+        let mut c = Cursor::new(&b);
+        assert!(matches!(
+            decode_value(&mut c, ValueType::Array).unwrap_err(),
+            GgufError::Malformed { .. }
+        ));
+    }
+
+    #[test]
     fn a_bool_is_false_only_for_zero() {
         for (byte, want) in [(0u8, false), (1, true), (2, true), (255, true)] {
             let b = [byte];
@@ -1772,6 +1911,21 @@ impl ValueType {
     }
 }
 
+/// Maximum nesting depth for arrays of arrays.
+///
+/// GGUF permits an array whose elements are arrays; real files use depth 1
+/// at most. Each level costs only 12 bytes on the wire — a 4-byte element
+/// type and an 8-byte count — so a few hundred kilobytes of crafted input
+/// drives recursion tens of thousands of frames deep and overflows the
+/// stack, which **aborts the process** rather than returning an error.
+///
+/// Every other adversarial input in this crate becomes a `Result`: a
+/// declared length larger than the file, a count that overflows, an
+/// unknown type code. Nesting is the one that could still take the process
+/// down, so it gets a bound too. 64 is far past anything a real writer
+/// emits and far short of anything that threatens the stack.
+const MAX_ARRAY_DEPTH: u32 = 64;
+
 /// Advance past one value without decoding it.
 ///
 /// This is what makes opening a file O(keys) rather than O(vocabulary):
@@ -1783,6 +1937,17 @@ impl ValueType {
 /// [`GgufError::Malformed`] if an array declares an element type this build
 /// does not know.
 pub fn skip_value(cursor: &mut Cursor<'_>, ty: ValueType) -> Result<(), GgufError> {
+    skip_at_depth(cursor, ty, 0)
+}
+
+fn skip_at_depth(cursor: &mut Cursor<'_>, ty: ValueType, depth: u32) -> Result<(), GgufError> {
+    if depth > MAX_ARRAY_DEPTH {
+        return Err(GgufError::Malformed {
+            stage: Stage::Metadata,
+            offset: cursor.pos(),
+            detail: format!("array nesting deeper than {MAX_ARRAY_DEPTH}"),
+        });
+    }
     if let Some(w) = ty.fixed_width() {
         let at = cursor.pos();
         cursor.take(w).map_err(|t| trunc(at, t))?;
@@ -1811,7 +1976,7 @@ pub fn skip_value(cursor: &mut Cursor<'_>, ty: ValueType) -> Result<(), GgufErro
                 }
                 None => {
                     for _ in 0..count {
-                        skip_value(cursor, elem)?;
+                        skip_at_depth(cursor, elem, depth + 1)?;
                     }
                 }
             }
@@ -1827,6 +1992,21 @@ pub fn skip_value(cursor: &mut Cursor<'_>, ty: ValueType) -> Result<(), GgufErro
 ///
 /// As [`skip_value`].
 pub fn decode_value(cursor: &mut Cursor<'_>, ty: ValueType) -> Result<MetaValue, GgufError> {
+    decode_at_depth(cursor, ty, 0)
+}
+
+fn decode_at_depth(
+    cursor: &mut Cursor<'_>,
+    ty: ValueType,
+    depth: u32,
+) -> Result<MetaValue, GgufError> {
+    if depth > MAX_ARRAY_DEPTH {
+        return Err(GgufError::Malformed {
+            stage: Stage::Metadata,
+            offset: cursor.pos(),
+            detail: format!("array nesting deeper than {MAX_ARRAY_DEPTH}"),
+        });
+    }
     let at = cursor.pos();
     let v = match ty {
         ValueType::U8 => MetaValue::U8(cursor.u8().map_err(|t| trunc(at, t))?),
@@ -1845,19 +2025,42 @@ pub fn decode_value(cursor: &mut Cursor<'_>, ty: ValueType) -> Result<MetaValue,
         ValueType::String => decode_string(cursor)?,
         ValueType::Array => {
             let (elem, count) = read_array_prefix(cursor)?;
+            // Bound the declared count by what the file could possibly
+            // contain before using it for anything. Every element occupies
+            // at least one byte, so a count exceeding the bytes remaining
+            // describes a file that cannot exist. Checking here is what
+            // makes the reservation below safe to attempt rather than a
+            // denial of service triggered by twelve bytes of header.
+            if count > cursor.remaining() {
+                return Err(GgufError::Malformed {
+                    stage: Stage::Metadata,
+                    offset: at,
+                    detail: format!(
+                        "array declares {count} elements but only {} bytes remain",
+                        cursor.remaining()
+                    ),
+                });
+            }
             let n = usize::try_from(count).map_err(|_| GgufError::Malformed {
                 stage: Stage::Metadata,
                 offset: at,
                 detail: format!("array of {count} elements cannot be held on this platform"),
             })?;
             let mut items = Vec::new();
-            items.try_reserve(n.min(1024)).map_err(|_| GgufError::Malformed {
+            // Reserve the whole thing, not a token 1024. A partial
+            // reservation protects only the first 1024 elements: every push
+            // after that grows the Vec through `Vec::push`, which is NOT
+            // fallible — on allocation failure it aborts the process rather
+            // than returning an error this function could report. For the
+            // 514,906-element `tokenizer.ggml.merges` this crate exists to
+            // handle, a 1024-element guard protects nothing at all.
+            items.try_reserve(n).map_err(|_| GgufError::Malformed {
                 stage: Stage::Metadata,
                 offset: at,
                 detail: format!("cannot allocate {n} elements"),
             })?;
             for _ in 0..count {
-                items.push(decode_value(cursor, elem)?);
+                items.push(decode_at_depth(cursor, elem, depth + 1)?);
             }
             MetaValue::Array(items)
         }
@@ -1924,6 +2127,16 @@ cargo clippy -p mlmf-gguf --all-targets -- -D warnings
 2. Change `decode_string` to use `String::from_utf8_lossy(raw).into_owned()` wrapped in `MetaValue::String`. `decoding_preserves_bytes_exactly_including_invalid_utf8` must go red. **This is the single most important sabotage in the crate**: no file in the 29-file corpus can produce this failure, so this authored case is the only thing standing between the crate and a silent tokenizer mismatch.
 3. Add `.trim_end_matches('\0')` to the decoded string. `a_trailing_nul_is_part_of_the_string_not_a_terminator` must go red. Same reasoning: zero corpus files have one.
 4. In `skip_value`'s `Array` arm, replace the fixed-width fast path with the element-wise loop. **All tests must stay green** — the two paths are semantically identical, and that is the point: the fast path is an optimization whose correctness is pinned by the sentinel tests either way. Restore.
+
+- [ ] **Step 5b: Prove the three adversarial guards (AD-2)**
+
+These defend against input nobody publishes, so nothing but an authored control can exercise them.
+
+5. **Remove the bytes-remaining bound** from `decode_value`'s `Array` arm. `an_array_claiming_more_elements_than_the_file_has_bytes_is_refused` must go red — and note *how*: without the bound the call reaches `try_reserve(1_099_511_627_776)`, so the failure is either a `Malformed` for a different reason or an allocation failure, not the specific "cannot exist" complaint. Record which. Restore.
+
+6. **Set `MAX_ARRAY_DEPTH` to `u32::MAX`.** `nesting_deeper_than_the_limit_is_refused_rather_than_overflowing_the_stack` must go red. **It will not panic cleanly — expect a stack overflow or an abort**, which is the point: that is the failure mode the bound exists to prevent, and seeing it once is worth more than reading about it. If the test instead fails with an ordinary assertion, say so, because it would mean 69 levels is not deep enough to reach the hazard and the fixture needs to be deeper. Restore.
+
+7. **Restore `try_reserve(n.min(1024))`** in place of `try_reserve(n)`. **Every test stays green** — that is the finding, not a failure. A 1024-element reservation protects only the first 1024 pushes; every push after that grows the `Vec` through `Vec::push`, which aborts on allocation failure rather than returning an error. The guard is decorative for exactly the 514,906-element arrays this crate exists to read, and no test can show that, because the failure it fails to prevent is a process abort. Record it as a case where the suite cannot distinguish a real guard from a decorative one, and restore.
 
 - [ ] **Step 6: Commit**
 
