@@ -3523,10 +3523,25 @@ use mlmf_gguf::GgufMetadata;
 #[test]
 fn the_fixture_is_intact() {
     let rows = rows();
-    assert!(rows.len() >= 25, "expected the full corpus, found {}", rows.len());
-    // v2 and v3 must both be represented, or the version branch is untested.
-    assert!(rows.iter().any(|r| r.version == 2), "no v2 file in the fixture");
-    assert!(rows.iter().any(|r| r.version == 3), "no v3 file in the fixture");
+    // EXACT, not a floor. `>= 25` — which this was — passes on a file
+    // truncated from 29 rows to 25, and a truncated fixture is exactly what
+    // a fixture-integrity test exists to catch. Use whatever Step 1 actually
+    // produced, and change it deliberately if it ever changes.
+    assert_eq!(rows.len(), 29, "the fixture is not the corpus that was measured");
+
+    // The WHOLE version distribution, not "at least one of each". A
+    // membership assertion cannot see the fixture losing every v2 row but
+    // one, and the v2 arm is the only thing the header test below really
+    // proves. Counts come from Step 1's output.
+    let mut by_version: Vec<(u32, usize)> = Vec::new();
+    for r in &rows {
+        match by_version.iter_mut().find(|(v, _)| *v == r.version) {
+            Some((_, n)) => *n += 1,
+            None => by_version.push((r.version, 1)),
+        }
+    }
+    by_version.sort_unstable();
+    assert_eq!(by_version, vec![(2, 1), (3, 28)], "version mix changed");
 }
 
 struct Row {
@@ -3559,9 +3574,16 @@ fn rows() -> Vec<Row> {
         .collect()
 }
 
-/// Rebuild a file's header from its measured facts. This is not the real
-/// file — it is a header carrying the same numbers, which is all the header
-/// stage can be checked against without shipping gigabytes.
+/// Rebuild a file's header from its measured facts.
+///
+/// **Be honest about what this proves: it is a ROUND TRIP, not a
+/// differential.** It writes a header from the measured numbers and checks
+/// that parsing gives them back, so it cannot catch a parser that misreads
+/// a real file — it never opens one. Its value is narrow and real: it is
+/// the only test in the crate that exercises the v2 version arm, and it is
+/// the control that must stay GREEN under Task 8's string-decoding
+/// sabotages, which is what shows the authored fixtures measure something
+/// the corpus cannot.
 #[test]
 fn measured_headers_parse_to_their_measured_values() {
     for r in rows() {
@@ -3573,9 +3595,20 @@ fn measured_headers_parse_to_their_measured_values() {
         let mut c = mlmf_gguf::cursor::Cursor::new(&b);
         let h = mlmf_gguf::parse_header(&mut c)
             .unwrap_or_else(|e| panic!("{}: {e}", r.file));
-        assert_eq!(h.version, r.version, "{}", r.file);
-        assert_eq!(h.tensor_count, r.n_tensors, "{}", r.file);
-        assert_eq!(h.kv_count, r.n_kv, "{}", r.file);
+        // One comparison of the whole triple, not three chained ones. A
+        // chain has ordering bias: if `version` differs the other two are
+        // never proven, and a transposition of tensor_count and kv_count is
+        // blamed on whichever fires first. Found five times in Task 4.
+        assert_eq!(
+            (h.version, h.tensor_count, h.kv_count),
+            (r.version, r.n_tensors, r.n_kv),
+            "{}",
+            r.file
+        );
+        // arch, first_key and kv_end are NOT checked here and cannot be:
+        // this test never opens a real file. See
+        // `the_corpus_agrees_or_says_it_was_not_there`, which is the only
+        // place those columns become evidence.
         let _ = (&r.arch, &r.first_key, r.kv_end);
     }
 }
@@ -3583,15 +3616,97 @@ fn measured_headers_parse_to_their_measured_values() {
 
 **Note:** `Cursor` must be `pub` for this test to construct one; it is already `pub` inside `pub mod cursor`.
 
+Add the differential itself. The TSV carries `arch`, `first_key` and
+`kv_end`, which nothing above checks — three of seven measured columns
+sitting in the fixture as decoration. This is where they become evidence:
+
+```rust
+/// Parse the real corpus and compare against the independent measurements.
+///
+/// Skipped when the corpus is not on this machine — it is 1.13 GiB and is
+/// not in the repository. **It says so loudly when it skips**, because a
+/// test that silently passes when its subject is absent is an empty result
+/// reading as a finding, which this project has now hit from three
+/// different directions.
+#[test]
+fn the_corpus_agrees_or_says_it_was_not_there() {
+    let root = std::path::Path::new(CORPUS_ROOT);
+    if !root.is_dir() {
+        eprintln!(
+            "SKIPPED: no corpus at {CORPUS_ROOT}. The header round-trip above \
+             still ran; the byte-level differential did NOT. Do not read this \
+             run as corpus-verified."
+        );
+        return;
+    }
+    let mut checked = 0usize;
+    for r in rows() {
+        let path = root.join(&r.file);
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("fixture names {} but: {e}", r.file));
+        let (m, _) = GgufMetadata::parse(&bytes, &r.file)
+            .unwrap_or_else(|e| panic!("{}: {e}", r.file));
+        assert_eq!(
+            (
+                m.header().version,
+                m.header().tensor_count,
+                m.header().kv_count,
+                m.kv_end()
+            ),
+            (r.version, r.n_tensors, r.n_kv, r.kv_end),
+            "{}",
+            r.file
+        );
+        assert_eq!(
+            m.keys().first().copied(),
+            Some(r.first_key.as_str()),
+            "{}",
+            r.file
+        );
+        checked += 1;
+    }
+    // The corpus was present, so every row must have been reached. Without
+    // this, a loop that skipped every file passes as loudly as one that
+    // verified all 29.
+    assert_eq!(checked, rows().len(), "corpus present but not fully walked");
+}
+```
+
+`arch` stays unchecked deliberately: reading `general.architecture` and
+deciding what it means is interpretation, and this crate does not interpret.
+It is carried so a human can see which models the corpus covers. Say that in
+a comment rather than leaving it looking forgotten.
+
 - [ ] **Step 3: Run**
 
 ```bash
 cargo test -p mlmf-gguf --test corpus
 ```
 
-- [ ] **Step 4: Prove it can fail (AD-2)**
+- [ ] **Step 4: Prove they can fail (AD-2)**
 
-Change `SUPPORTED` in `header.rs` to `&[3]`. `measured_headers_parse_to_their_measured_values` must go red naming the v2 file (`ggml-vocab-aquila.gguf`). Restore. This is the only test that would catch dropping v2 support, since every authored fixture defaults to v3.
+For each, name the expected kill set BEFORE running, then report the
+SHORTFALL rather than the count. A sabotage that kills only some of what it
+should is the only signal separating a live suite from one whose fixtures
+carry no information.
+
+1. Change `SUPPORTED` in `header.rs` to `&[3]`.
+   Expect: `measured_headers_parse_to_their_measured_values` red naming the
+   v2 file (`ggml-vocab-aquila.gguf`), and — if the corpus is present —
+   `the_corpus_agrees_or_says_it_was_not_there` red on the same file.
+   Nothing else: every authored fixture defaults to v3.
+2. Delete one data row from the TSV.
+   Expect: `the_fixture_is_intact` red on the row count, and on the version
+   mix if the deleted row was the v2 one. **If the count assertion is still
+   a `>=` floor this stays green** — that is the check on the check.
+3. In `the_corpus_agrees_or_says_it_was_not_there`, replace the loop body
+   with `continue`.
+   Expect: red on `checked == rows().len()`. If it passes, the test can
+   report success having verified nothing, which is what it exists to
+   prevent.
+4. Rename the corpus directory so the path does not exist.
+   Expect: PASSES, and prints the SKIPPED line. Read the output and confirm
+   the line is there. A skip nobody can see is indistinguishable from a run.
 
 - [ ] **Step 5: Record the measurement Lightbulb was promised**
 
@@ -3612,28 +3727,55 @@ Add to `crates/mlmf-gguf/src/lib.rs` after the crate docs:
 //! element without materializing its array.
 ```
 
-- [ ] **Step 6: Wire CI**
+- [x] **Step 6: Wire CI** — DONE EARLY, 2026-08-20, commit `58fdf93`.
 
-`.github/workflows/ci.yml` names crates explicitly and does not use `--workspace`, so a new crate is invisible until named. Add, mirroring the existing `mlmf-ggml` steps exactly including the `env: RUSTDOCFLAGS` block:
+Not deferred to this task in the end, because the reason for doing it
+arrived first: `mlmf-gguf` had existed since Task 3 with 42 tests and the
+workflow named `mlmf-core` and `mlmf-ggml` only. Six tasks of work behind a
+green check that did not cover the crate. `cargo fmt --all` covered it;
+nothing else did.
 
-```yaml
-      - name: cargo test -p mlmf-gguf
-        run: cargo test -p mlmf-gguf
+The three steps are in `.github/workflows/ci.yml` now, and verified in the
+run logs to have executed on both runners rather than inferred from the
+badge. The first thing the doc step found was a six-task-old defect —
+`skip_value` documenting a link to `MAX_ARRAY_DEPTH`, which was private, and
+`cargo doc` exits 0 on that without `RUSTDOCFLAGS=-D warnings`. The constant
+is now `pub`, which it should always have been: it is the documented
+boundary between a file this build accepts and one it refuses.
 
-      - name: cargo doc -p mlmf-gguf --no-deps
-        run: cargo doc -p mlmf-gguf --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
+- [x] **Step 6b: Make the CI crate list self-enforcing** — DONE EARLY, same
+commit, as `crates/mlmf-core/tests/ci_coverage.rs`.
 
-      - name: cargo clippy -p mlmf-gguf
-        run: cargo clippy -p mlmf-gguf --all-targets -- -D warnings
-```
+**The `--workspace` rationale below is still correct and still worth
+keeping** — it is why the enumeration stays. But the landed test differs
+from the sketch that was here in three ways, all of which matter, and a
+future reader must not reimplement the weaker form:
 
-- [ ] **Step 6b: Make the CI crate list self-enforcing**
+1. **It strips comment lines before matching.** The sketch called
+   `workflow.contains(&needle)` on the raw file, so `# run: cargo clippy -p
+   mlmf-gguf ...` would have satisfied it. Commenting a step out is the
+   single most likely way a step disappears, which makes it the one case the
+   gate must not accept.
+2. **It requires `--all-targets` on the clippy needle.** Clippy without it
+   never sees test code, which is where most of this crate's assertions
+   live, so a step lacking the flag would pass a check for `cargo clippy -p
+   <name>` while covering much less than the reader assumes.
+3. **It checks per step that every `cargo doc` carries
+   `RUSTDOCFLAGS: -D warnings`.** A doc step without it cannot fail on a
+   broken intra-doc link — measured, that is exactly how the
+   `MAX_ARRAY_DEPTH` defect survived six tasks. This check is written by
+   splitting on step boundaries rather than counting occurrences across the
+   file: a first version counted `--no-deps` against `RUSTDOCFLAGS` and got
+   6 versus 3, because `--no-deps` appears in both the `name:` and `run:`
+   lines. Loose arithmetic over a whole file can also pair two flags with
+   one step and none with another.
 
-The workflow names crates one by one. That is a maintenance obligation nobody is assigned, and this task is itself the proof — a new crate needs three lines added by hand or it is silently uncovered while the gate stays green.
+Three sabotages fired against the landed version: deleting the `mlmf-gguf`
+steps (named all three), commenting one out (named it), and dropping one
+`RUSTDOCFLAGS` env (named the step).
 
-**`--workspace` is not the fix here, and it is worth recording why so nobody re-proposes it.** `cargo doc --workspace --no-deps` fails today:
+**Why `--workspace` is not the fix, recorded so nobody re-proposes it:**
+`cargo doc --workspace --no-deps` fails today:
 
 ```
 error: unknown lint: `rustdoc::missing_doc_code_examples`
@@ -3641,46 +3783,11 @@ error: unknown lint: `rustdoc::missing_doc_code_examples`
 error: could not document `mlmf`
 ```
 
-That is the **legacy root crate**, which uses a nightly-only lint name and is scheduled for deletion. Switching to `--workspace` would break CI for a crate we are removing anyway. `clippy --workspace` fails on the same crate for its own reasons.
-
-So keep the enumeration and make forgetting it impossible instead. Add to `crates/mlmf-core/tests/workspace.rs`:
-
-```rust
-#[path = "common/mod.rs"]
-mod common;
-
-/// Every gated crate appears in the CI workflow, for every gate.
-///
-/// The workflow enumerates crates by name because `--workspace` cannot be
-/// used while the legacy root crate remains: it declares a nightly-only
-/// lint and fails `cargo doc`. An enumerated list is a standing obligation
-/// nobody owns, and the failure mode is silent — a crate omitted here is
-/// simply never checked, and every gate stays green while not covering it.
-///
-/// This test converts that into a loud one. It reads the workflow as text
-/// rather than parsing YAML, which is enough: the question is only whether
-/// a crate's name appears next to each gate.
-#[test]
-fn ci_names_every_gated_crate_in_every_gate() {
-    let workflow = std::fs::read_to_string(
-        common::workspace_root().join(".github/workflows/ci.yml"),
-    )
-    .expect("the CI workflow is readable");
-
-    for dir in common::gated_members() {
-        let name = dir.file_name().unwrap().to_string_lossy().to_string();
-        for gate in ["cargo test -p", "cargo doc -p", "cargo clippy -p"] {
-            let needle = format!("{gate} {name}");
-            assert!(
-                workflow.contains(&needle),
-                "CI does not run `{needle}` — the crate exists but this gate                  does not cover it, and nothing else would say so"
-            );
-        }
-    }
-}
-```
-
-**Prove it can fail:** delete the `cargo clippy -p mlmf-ggml` step from the workflow. The test must go red naming that exact command. Restore. Then delete the `cargo doc -p mlmf-gguf` step you added in Step 6 and confirm it names that one — two different crates and two different gates, so a single hardcoded needle cannot pass both.
+That is the **legacy root crate**, which uses a nightly-only lint name and
+is scheduled for deletion. Switching to `--workspace` would break CI for a
+crate that is being removed anyway. `clippy --workspace` fails on the same
+crate for its own reasons. When the legacy crate goes, `--workspace` becomes
+the right answer and `ci_coverage.rs` can be deleted with it.
 
 - [ ] **Step 7: Update the spec**
 

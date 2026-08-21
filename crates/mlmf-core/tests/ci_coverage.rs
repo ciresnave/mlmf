@@ -13,6 +13,15 @@
 //! think you are reading. The only way to catch it is to make the set
 //! itself the thing under test.
 //!
+//! **`--workspace` is not the fix, and this is why, so nobody re-proposes
+//! it.** `cargo doc --workspace --no-deps` fails today with
+//! `error: unknown lint: rustdoc::missing_doc_code_examples` in the legacy
+//! root `mlmf` crate, which names a nightly-only lint and is scheduled for
+//! deletion rather than repair; `clippy --workspace` fails on the same
+//! crate for its own reasons. Switching would break CI for a crate that is
+//! being removed. When it goes, `--workspace` becomes the right answer and
+//! this file can go with it.
+//!
 //! So: the crate list is derived from the filesystem, not repeated here.
 //! Adding a crate to `crates/` and forgetting the workflow is a red test
 //! rather than a silent hole, and it fails on the crate that was added
