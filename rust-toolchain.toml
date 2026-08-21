@@ -1,0 +1,19 @@
+# The compiler this project is built and gated with.
+#
+# Pinned because a ref names the code and does not name the compiler, and on
+# at least one developer machine those diverged badly: the repo had no
+# toolchain file, the local default resolved `1.99.0-nightly`, and CI ran
+# `dtolnay/rust-toolchain@stable` — "stable on the day the job ran", a moving
+# target. Every "all gates green" this project reported was therefore true of
+# two different unnamed compilers, and reproducible from neither.
+#
+# Portfolio ruling, 2026-08-21: explicit version, every Rust repo, no
+# aliases. `stable` is an alias and resolves differently by machine and by
+# day, which is the property being removed.
+#
+# Verified before pinning rather than after: the full gate set — tests,
+# clippy at -D warnings, rustdoc at -D warnings, and fmt --check — passes on
+# 1.98.0 for mlmf-core, mlmf-ggml and mlmf-gguf.
+[toolchain]
+channel = "1.98.0"
+components = ["clippy", "rustfmt"]
