@@ -133,6 +133,39 @@ would have been the finding.
 Filter to a single test to read one failure's detail. Never to decide
 whether a sabotage worked.
 
+**A sabotage applied by search-and-replace can neutralise itself, and the
+green it produces reads as a finding about your test.** Task 3's sabotage 4
+changes `family: "ggml"` to `"gguf"` in the implementation. A naive
+`sed s/"ggml"/"gguf"/g` over the file rewrites the implementation AND the
+test's expected literal. Both sides of the comparison move together, the
+assertion still holds, the suite goes green — and the correct-looking
+conclusion, "this control does not fire, so the whole-entry assertion is not
+doing work", is the exact opposite of the truth.
+
+This is the execution-time counterpart of the two-sided rule: at design time
+you want controls that perturb both sides across DIFFERENT sabotages; at
+application time you want each single sabotage to perturb exactly ONE side.
+**Before running a text-substitution sabotage, check what it changed** —
+`git diff` and read it. If the expected literal moved, the sabotage is
+inert.
+
+**And when Step 2's tests call a function that does not exist yet, the crate
+does not compile and ZERO tests run.** That is the phantom-green shape at
+the red-before-green step: 20 compile errors and no test result line at all.
+Task 3's implementer solved it correctly and it is now the standard
+practice — **add a stub that returns the trivial wrong answer** (`None`, an
+empty vec, `0`), run the tests, and confirm they fail at named ASSERTIONS
+rather than at a compile error or a panic. Only then implement. The stub
+stage is what proves the assertions can be reached at all; without it, "it
+failed" means "it did not build".
+
+Note also what that stage revealed on this plan: with the stub in, six tests
+failed at assertions and one failed by PANIC at an `.expect()`, proving
+nothing about the comparison it contained. That test's real proof came from
+a later sabotage. A panic at the red step is not evidence the assertion
+works.
+
+
 
 ---
 
