@@ -104,6 +104,30 @@ pub(crate) fn read_info(cursor: &mut Cursor<'_>) -> Result<RawInfo, GgufError> {
     })
 }
 
+/// Where the tensor data region begins: `dir_end` rounded up to `alignment`.
+///
+/// `None` on overflow rather than a wrapped value, which would place the
+/// data region BEFORE the directory that describes it.
+///
+/// **The padding is `(alignment - dir_end % alignment) % alignment`, and
+/// the outer `%` is the part that matters.** A writer emits no padding at
+/// all when the directory already ends on a boundary — measured on
+/// `SmolLM2-135M-Instruct-f16.gguf`, where `dir_end == data_start ==
+/// 1785664`. The naive `dir_end + alignment - (dir_end % alignment)` adds a
+/// full block in that case and shifts every tensor in the file.
+///
+/// `alignment` is a power of two and at least 1: `GgufMetadata::alignment`
+/// guarantees it, falling back to 32 for a file that declares otherwise.
+// See `RawInfo`: the directory walk that will call this lands in a later
+// task, so there is no in-crate consumer yet. `expect` is wrong for the
+// same reason it is wrong there — under `cfg(test)` the tests DO call it.
+#[allow(dead_code)]
+pub(crate) fn data_start(dir_end: u64, alignment: u64) -> Option<u64> {
+    debug_assert!(alignment.is_power_of_two(), "caller guarantees this");
+    let pad = (alignment - dir_end % alignment) % alignment;
+    dir_end.checked_add(pad)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,5 +262,51 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn padding_is_zero_when_the_directory_already_lands_on_a_boundary() {
+        // Measured, not assumed. `SmolLM2-135M-Instruct-f16.gguf` has
+        // dir_end == data_start == 1785664 with alignment 32: the writer
+        // emits NO padding when none is needed. A formula of
+        // `dir_end + align - (dir_end % align)` adds a phantom 32 bytes
+        // when the directory happens to land on a boundary, and shifts
+        // every tensor in the file by one alignment block.
+        assert_eq!(data_start(1785664, 32), Some(1785664));
+        // And the same file's siblings, which do need padding:
+        assert_eq!(data_start(1785944, 32), Some(1785952));
+        // The whole table, so an off-by-one in either direction is visible:
+        assert_eq!(
+            (0..=8).map(|d| data_start(d, 4)).collect::<Vec<_>>(),
+            vec![
+                Some(0),
+                Some(4),
+                Some(4),
+                Some(4),
+                Some(4),
+                Some(8),
+                Some(8),
+                Some(8),
+                Some(8)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_data_start_that_overflows_is_none_rather_than_wrapping() {
+        // `dir_end` comes from a walk over real bytes so it cannot be near
+        // u64::MAX in practice, but the addition is still an addition and
+        // a wrap would produce a data region BEFORE the directory.
+        assert_eq!(data_start(u64::MAX, 32), None);
+        // A second alignment with a DIFFERENT residue, so this is not the
+        // line above in disguise: `u64::MAX - 1` is 2 short of a multiple
+        // of 4, and those 2 bytes of padding are what run off the end.
+        assert_eq!(data_start(u64::MAX - 1, 4), None);
+        // The other side of the comparison. `u64::MAX - 1` is EVEN, so at
+        // alignment 2 it is already on a boundary, needs no padding, and
+        // must come back unchanged — a `None` here would mean the overflow
+        // guard is refusing values that do not overflow, and the two
+        // assertions above cannot tell that apart from a correct refusal.
+        assert_eq!(data_start(u64::MAX - 1, 2), Some(u64::MAX - 1));
     }
 }
