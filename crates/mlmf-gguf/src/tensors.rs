@@ -310,6 +310,55 @@ pub fn parse_tensors<'a>(
         descriptors.push(d);
     }
 
+    // Sort by start once and compare neighbours, rather than comparing every
+    // pair. At 272 tensors the quadratic form is 37,000 comparisons and at a
+    // thousand it is half a million, for a check that runs on every open.
+    //
+    // Zero-length ranges are dropped BEFORE the sweep rather than handled
+    // inside it, and that `filter` is a correction to this task's brief
+    // rather than a flourish. A tensor occupying no bytes cannot share a
+    // byte with anything, so it is neither the subject nor the witness of
+    // an overlap -- and leaving it in the sweep breaks the sweep in both
+    // directions. Measured, not reasoned:
+    //
+    //   - `sort_unstable_by_key` does not specify the order of equal keys,
+    //     so an empty tensor sharing a start with a real one lands second
+    //     whenever the file declares it second, and `64 > 0` then reports
+    //     the EMPTY tensor as overlapping. That is a false positive on a
+    //     tensor that occupies nothing.
+    //   - An empty range strictly inside another tensor's range is the same
+    //     false positive without any tie to blame.
+    //   - Worse, an empty range interposed between two genuinely
+    //     overlapping ones splits the neighbour chain and HIDES the real
+    //     overlap -- a false negative, which is the direction that costs a
+    //     consumer something.
+    //
+    // What is deliberately NOT fixed here: two NON-empty tensors declared
+    // at the same offset do overlap and are reported either way, but which
+    // of the two is named depends on the unspecified tie order. Reporting
+    // the overlap is the contract; the choice of subject within a tie is
+    // not asserted anywhere, and a secondary sort key would be code no test
+    // can distinguish.
+    let mut order: Vec<usize> = (0..descriptors.len())
+        .filter(|i| !descriptors[*i].bytes.is_empty())
+        .collect();
+    order.sort_unstable_by_key(|i| descriptors[*i].bytes.start);
+    for w in order.windows(2) {
+        let (a, b) = (&descriptors[w[0]], &descriptors[w[1]]);
+        // Strictly greater: `a.end == b.start` is adjacency, which is how
+        // every real file is laid out. An empty range has start == end and
+        // cannot exceed the next start.
+        if a.bytes.end > b.bytes.start {
+            report.push(Unrecognized {
+                kind: UnrecognizedKind::TensorDeclined {
+                    name: b.name.clone(),
+                    reason: format!("byte range overlaps {}", a.name),
+                },
+                origin: origin.to_string(),
+            });
+        }
+    }
+
     Ok((
         GgufTensors {
             bytes,
@@ -869,5 +918,144 @@ mod tests {
             "the second occurrence must not be indexed"
         );
         assert!(!report.is_empty(), "and it must be reported");
+    }
+
+    #[test]
+    fn overlapping_tensors_are_reported_and_both_stay_readable() {
+        // Refusing the open would make one bad tensor cost the whole file,
+        // which is R1's argument one stage over. A consumer that cares can
+        // read the report; a consumer that wants the other 271 tensors gets
+        // them.
+        let bytes = gguf_with_tensors(&[("a", &[16], 0, 0), ("b", &[16], 0, 32)], &[0u8; 128]);
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        let (t, report) = parse_tensors(&bytes, &m, "t.gguf").expect("the open survives");
+        assert_eq!(t.tensors().len(), 2, "both are still declared");
+        assert!(t.tensor_bytes(t.tensor("a").unwrap()).is_ok());
+        assert!(t.tensor_bytes(t.tensor("b").unwrap()).is_ok());
+        // The whole entry: `!report.is_empty()` cannot see the wrong
+        // tensor blamed, and the overlap names TWO tensors of which only
+        // one is the subject.
+        assert_eq!(
+            report.entries(),
+            [Unrecognized {
+                kind: UnrecognizedKind::TensorDeclined {
+                    name: "b".into(),
+                    reason: "byte range overlaps a".into(),
+                },
+                origin: "t.gguf".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn adjacent_tensors_are_not_an_overlap() {
+        // The off-by-one that would make this test necessary is the whole
+        // reason it exists: `a` ends at 64 and `b` starts at 64, which is
+        // the NORMAL layout of every real file. A `>=` where a `>` belongs
+        // reports every tensor in the corpus as overlapping.
+        let bytes = gguf_with_tensors(&[("a", &[16], 0, 0), ("b", &[16], 0, 64)], &[0u8; 128]);
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        let (_, report) = parse_tensors(&bytes, &m, "t.gguf").unwrap();
+        assert!(report.is_empty(), "touching is not overlapping");
+    }
+
+    #[test]
+    fn a_zero_length_tensor_never_overlaps() {
+        // A rank-0 or empty tensor has start == end. Under a naive interval
+        // test an empty range at the same offset as another tensor's start
+        // reads as contained-in and reports a false overlap.
+        let bytes = gguf_with_tensors(&[("empty", &[0], 0, 0), ("real", &[16], 0, 0)], &[0u8; 128]);
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        let (_, report) = parse_tensors(&bytes, &m, "t.gguf").unwrap();
+        assert!(report.is_empty(), "an empty range overlaps nothing");
+    }
+
+    #[test]
+    fn the_overlapping_pair_is_found_by_offset_not_by_declaration_order() {
+        // Added because the sabotage that was supposed to prove the sort
+        // was inert: the fixture above declares `a` at 0 and `b` at 32, so
+        // declaration order ALREADY equals start order and deleting the
+        // sort produced a byte-identical comparison and a green suite.
+        // Here the directory is declared in DESCENDING offset order, which
+        // GGUF does not forbid, so the unsorted neighbour comparison pairs
+        // `b` against `a` the wrong way round and blames the wrong tensor.
+        let bytes = gguf_with_tensors(&[("b", &[16], 0, 32), ("a", &[16], 0, 0)], &[0u8; 128]);
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        let (t, report) = parse_tensors(&bytes, &m, "t.gguf").expect("the open survives");
+        assert_eq!(t.tensors().len(), 2, "both are still declared");
+        // The whole entry, and the NAMES are the point: unsorted this same
+        // file reports `a` overlapping `b`, which is the wrong subject.
+        assert_eq!(
+            report.entries(),
+            [Unrecognized {
+                kind: UnrecognizedKind::TensorDeclined {
+                    name: "b".into(),
+                    reason: "byte range overlaps a".into(),
+                },
+                origin: "t.gguf".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_zero_length_tensor_never_overlaps_whichever_order_it_is_declared_in() {
+        // The same file as `a_zero_length_tensor_never_overlaps` with the
+        // two records swapped. Both tensors start at the data region's
+        // first byte, so sorting by `start` ALONE leaves their order
+        // unspecified and the empty one can land second -- where
+        // `real.end > empty.start` is `64 > 0` and a tensor occupying no
+        // bytes at all is reported as overlapping.
+        let bytes = gguf_with_tensors(&[("real", &[16], 0, 0), ("empty", &[0], 0, 0)], &[0u8; 128]);
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        let (_, report) = parse_tensors(&bytes, &m, "t.gguf").unwrap();
+        assert!(report.is_empty(), "an empty range overlaps nothing");
+    }
+
+    #[test]
+    fn an_empty_tensor_inside_another_tensors_range_is_not_an_overlap() {
+        // `empty` occupies no bytes at all, so there is no byte it can
+        // share with `real` -- and no tie to blame either: sorted by start
+        // it lands second unconditionally, where a sweep that keeps empty
+        // ranges reports `64 > 32` and blames a tensor of zero bytes.
+        let bytes = gguf_with_tensors(
+            &[("real", &[16], 0, 0), ("empty", &[0], 0, 32)],
+            &[0u8; 128],
+        );
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        let (_, report) = parse_tensors(&bytes, &m, "t.gguf").unwrap();
+        assert!(report.is_empty(), "an empty range overlaps nothing");
+    }
+
+    #[test]
+    fn an_empty_tensor_between_two_overlapping_ones_does_not_hide_the_overlap() {
+        // The false-NEGATIVE direction, which is the one that costs a
+        // consumer something. `a` is 0..64 and `b` is 32..96 and they
+        // genuinely overlap, but `empty` sorts between them, and a
+        // neighbour sweep that keeps it compares `a` against `empty` and
+        // `empty` against `b` -- neither of which overlaps -- and never
+        // compares the pair that does. The whole entry is asserted because
+        // `!report.is_empty()` would be satisfied by the spurious `empty`
+        // entry that the same defect also produces.
+        let bytes = gguf_with_tensors(
+            &[
+                ("a", &[16], 0, 0),
+                ("empty", &[0], 0, 32),
+                ("b", &[16], 0, 32),
+            ],
+            &[0u8; 128],
+        );
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        let (t, report) = parse_tensors(&bytes, &m, "t.gguf").expect("the open survives");
+        assert_eq!(t.tensors().len(), 3, "all three are still declared");
+        assert_eq!(
+            report.entries(),
+            [Unrecognized {
+                kind: UnrecognizedKind::TensorDeclined {
+                    name: "b".into(),
+                    reason: "byte range overlaps a".into(),
+                },
+                origin: "t.gguf".into(),
+            }]
+        );
     }
 }
