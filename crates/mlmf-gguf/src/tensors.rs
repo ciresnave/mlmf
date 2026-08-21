@@ -343,19 +343,47 @@ pub fn parse_tensors<'a>(
         .filter(|i| !descriptors[*i].bytes.is_empty())
         .collect();
     order.sort_unstable_by_key(|i| descriptors[*i].bytes.start);
-    for w in order.windows(2) {
-        let (a, b) = (&descriptors[w[0]], &descriptors[w[1]]);
-        // Strictly greater: `a.end == b.start` is adjacency, which is how
-        // every real file is laid out. An empty range has start == end and
-        // cannot exceed the next start.
-        if a.bytes.end > b.bytes.start {
-            report.push(Unrecognized {
-                kind: UnrecognizedKind::TensorDeclined {
-                    name: b.name.clone(),
-                    reason: format!("byte range overlaps {}", a.name),
-                },
-                origin: origin.to_string(),
-            });
+    // Compare against the FURTHEST END SEEN SO FAR, not against the
+    // immediately preceding tensor.
+    //
+    // An earlier version walked `order.windows(2)`, which only ever
+    // compares neighbours. Measured against a file declaring one 256-byte
+    // tensor and three small ones entirely inside it:
+    //
+    //     big 192..448
+    //     in1 208..212   reported
+    //     in2 224..228   NOT reported
+    //     in3 240..244   NOT reported
+    //
+    // Once `in1` sorts between `big` and `in2`, the pair (`in1`, `in2`) is
+    // adjacent and does not overlap, so `in2` and `in3` are silently
+    // cleared while sitting wholly inside `big`. The report was non-empty,
+    // so "this file has overlaps" was still signalled — but D4's whole
+    // argument for reporting rather than refusing is that a consumer may
+    // want the tensors that DO NOT overlap, and that consumer was being
+    // told two corrupt ones were safe.
+    //
+    // Carrying the maximum end forward fixes it in the direction that
+    // matters: a tensor starting before anything already seen ends is
+    // reported, whichever earlier tensor it collides with.
+    let mut furthest: Option<usize> = None;
+    for &i in &order {
+        if let Some(h) = furthest {
+            // Strictly greater: `a.end == b.start` is adjacency, which is
+            // how every real file is laid out. Empty ranges were filtered
+            // above and cannot appear on either side.
+            if descriptors[h].bytes.end > descriptors[i].bytes.start {
+                report.push(Unrecognized {
+                    kind: UnrecognizedKind::TensorDeclined {
+                        name: descriptors[i].name.clone(),
+                        reason: format!("byte range overlaps {}", descriptors[h].name),
+                    },
+                    origin: origin.to_string(),
+                });
+            }
+        }
+        if furthest.is_none_or(|h| descriptors[i].bytes.end > descriptors[h].bytes.end) {
+            furthest = Some(i);
         }
     }
 
@@ -944,6 +972,54 @@ mod tests {
                 },
                 origin: "t.gguf".into(),
             }]
+        );
+    }
+
+    #[test]
+    fn a_tensor_inside_an_earlier_one_is_reported_even_when_it_is_not_adjacent() {
+        // The neighbour-only sweep this replaced reported `in1` and cleared
+        // `in2` and `in3`, which sit wholly inside `big`. Measured, on the
+        // exact fixture below, before the fix:
+        //
+        //     overlaps reported: 1   -> TensorDeclined { name: "in1", .. }
+        //
+        // The report was non-empty, so a test asserting `!report.is_empty()`
+        // stayed green while two corrupt tensors were reported clean. That
+        // is the whole reason this asserts the WHOLE report rather than its
+        // emptiness — and the reason the fixture needs THREE intruders
+        // rather than one, since a single intruder is adjacent to `big` and
+        // the old sweep catches it.
+        let bytes = gguf_with_tensors(
+            &[
+                ("big", &[64], 0, 0),
+                ("in1", &[1], 0, 16),
+                ("in2", &[1], 0, 32),
+                ("in3", &[1], 0, 48),
+            ],
+            &[0u8; 512],
+        );
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        let (t, report) = parse_tensors(&bytes, &m, "t.gguf").expect("the open survives");
+        assert_eq!(t.tensors().len(), 4, "every tensor is still declared");
+
+        let named: Vec<(&str, &str)> = report
+            .entries()
+            .iter()
+            .map(|e| match &e.kind {
+                UnrecognizedKind::TensorDeclined { name, reason } => {
+                    (name.as_str(), reason.as_str())
+                }
+                other => panic!("wrong kind: {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            named,
+            [
+                ("in1", "byte range overlaps big"),
+                ("in2", "byte range overlaps big"),
+                ("in3", "byte range overlaps big"),
+            ],
+            "each intruder must be named, and blamed on the tensor it is inside"
         );
     }
 
