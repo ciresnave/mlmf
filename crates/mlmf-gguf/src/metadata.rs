@@ -97,7 +97,10 @@ impl<'a> GgufMetadata<'a> {
                 let complaint = Unrecognized {
                     kind: UnrecognizedKind::MetadataKey {
                         key: key.clone(),
-                        value: MetaValue::U32(code),
+                        // The code IS the finding here: an unrecognised
+                        // value type has nothing else to say about itself.
+                        value: Some(MetaValue::U32(code)),
+                        reason: None,
                     },
                     origin: origin.to_string(),
                 };
@@ -122,7 +125,13 @@ impl<'a> GgufMetadata<'a> {
                 report.push(Unrecognized {
                     kind: UnrecognizedKind::MetadataKey {
                         key: key.clone(),
-                        value: MetaValue::String("duplicate key; first occurrence kept".into()),
+                        // Deliberately not captured: decoding the value to
+                        // say "this appeared twice" would cost roughly
+                        // 26 MB for the corpus's largest single key.
+                        value: None,
+                        reason: Some(
+                            "declared more than once; the first occurrence is kept".into(),
+                        ),
                     },
                     origin: origin.to_string(),
                 });
@@ -210,24 +219,33 @@ impl<'a> GgufMetadata<'a> {
         let Some(v) = self.get("general.alignment") else {
             return DEFAULT_ALIGNMENT;
         };
-        let complain = |report: &mut Report, why: &str| {
+        // Captured HERE, before the `u64::from` below shadows the `u32`
+        // binding. A report built after that conversion would name a type
+        // the file did not declare — the same lie in a new field.
+        let declared = v.clone();
+        let complain = |report: &mut Report, declared: MetaValue, why: &str| {
             report.push(Unrecognized {
                 kind: UnrecognizedKind::MetadataKey {
                     key: "general.alignment".to_string(),
-                    value: MetaValue::String(why.to_string()),
+                    value: Some(declared),
+                    reason: Some(why.to_string()),
                 },
                 origin: origin.to_string(),
             });
         };
         // llama.cpp requires UINT32 specifically (gguf.cpp:614).
         let MetaValue::U32(a) = v else {
-            complain(report, "must be UINT32; using the default of 32");
+            complain(report, declared, "must be UINT32; using the default of 32");
             return DEFAULT_ALIGNMENT;
         };
         let a = u64::from(*a);
         // And a power of two (gguf.cpp:623).
         if a == 0 || !a.is_power_of_two() {
-            complain(report, "must be a power of two; using the default of 32");
+            complain(
+                report,
+                declared,
+                "must be a power of two; using the default of 32",
+            );
             return DEFAULT_ALIGNMENT;
         }
         a
@@ -621,7 +639,23 @@ mod tests {
         let bytes = gguf(&[("k", 8, s("first")), ("k", 8, s("second"))]);
         let (m, report) = GgufMetadata::parse(&bytes, "t.gguf").expect("parses");
         assert_eq!(m.get("k"), Some(&MetaValue::String("first".into())));
-        assert!(!report.is_empty(), "the duplicate must be reported");
+        // The WHOLE entry, not `!report.is_empty()`. Non-emptiness cannot
+        // see the wrong key named, the reason missing, or the explanation
+        // sentence sitting back in `value` — which is the exact defect the
+        // `reason` field was added to end. `value` is `None` on purpose
+        // here: reporting a duplicate must not cost a value decode.
+        assert_eq!(
+            report.entries(),
+            &[Unrecognized {
+                kind: UnrecognizedKind::MetadataKey {
+                    key: "k".into(),
+                    value: None,
+                    reason: Some("declared more than once; the first occurrence is kept".into()),
+                },
+                origin: "t.gguf".into(),
+            }],
+            "the duplicate must be reported, as a reason and not as a value"
+        );
         // Dropping the `continue` after the report is a one-line regression
         // that reads like a tidy-up, and every assertion above survives it:
         // the duplicate is still reported, and `get` still answers "first"
@@ -638,22 +672,53 @@ mod tests {
         assert_eq!(m.alignment(), 32, "no key declared: the documented default");
 
         let declared = gguf(&[("general.alignment", 4, 64u32.to_le_bytes().to_vec())]);
-        let (m, _) = GgufMetadata::parse(&declared, "t.gguf").unwrap();
+        let (m, report) = GgufMetadata::parse(&declared, "t.gguf").unwrap();
         assert_eq!(m.alignment(), 64);
+        assert!(report.is_empty(), "a valid declaration is not a finding");
 
         // Not a power of two: llama.cpp refuses (gguf.cpp:623). Report and
         // fall back rather than fail the open — this is metadata, and R1
         // says metadata reading survives.
+        //
+        // The whole entry, because `!report.is_empty()` cannot see the
+        // parser's substituted default of 32 standing in `value` where the
+        // file's declared 63 belongs.
         let bad = gguf(&[("general.alignment", 4, 63u32.to_le_bytes().to_vec())]);
         let (m, report) = GgufMetadata::parse(&bad, "t.gguf").unwrap();
         assert_eq!(m.alignment(), 32);
-        assert!(!report.is_empty());
+        assert_eq!(
+            report.entries(),
+            &[Unrecognized {
+                kind: UnrecognizedKind::MetadataKey {
+                    key: "general.alignment".into(),
+                    value: Some(MetaValue::U32(63)),
+                    reason: Some("must be a power of two; using the default of 32".into()),
+                },
+                origin: "t.gguf".into(),
+            }]
+        );
 
         // Wrong type: llama.cpp requires UINT32 (gguf.cpp:614).
+        //
+        // `U64(64)` is the point of the whole task: the file declared type
+        // code 10, and the report must say so. `resolve_alignment` reaches
+        // this branch before the `u64::from` conversion exists, but the
+        // sibling branch above runs after it, so a value captured late
+        // there would report a U64 for a file that declared a U32.
         let wrong = gguf(&[("general.alignment", 10, 64u64.to_le_bytes().to_vec())]);
         let (m, report) = GgufMetadata::parse(&wrong, "t.gguf").unwrap();
         assert_eq!(m.alignment(), 32);
-        assert!(!report.is_empty());
+        assert_eq!(
+            report.entries(),
+            &[Unrecognized {
+                kind: UnrecognizedKind::MetadataKey {
+                    key: "general.alignment".into(),
+                    value: Some(MetaValue::U64(64)),
+                    reason: Some("must be UINT32; using the default of 32".into()),
+                },
+                origin: "t.gguf".into(),
+            }]
+        );
     }
 
     #[test]
