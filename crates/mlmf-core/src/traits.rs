@@ -465,7 +465,8 @@ mod tests {
             bad: crate::Unrecognized {
                 kind: crate::UnrecognizedKind::MetadataKey {
                     key: "bad".into(),
-                    value: MetaValue::U32(7),
+                    value: Some(MetaValue::U32(7)),
+                    reason: None,
                 },
                 origin: "model.gguf".into(),
             },
