@@ -265,6 +265,21 @@ fn decode_at_depth(
                 offset: at,
                 detail: format!("array of {count} elements cannot be held on this platform"),
             })?;
+            // Charge the level BEFORE the loop, not inside it. `skip_value`'s
+            // fixed-width fast path charges `depth + 1` unconditionally, so a
+            // declared count of ZERO charged nothing here and the two
+            // functions disagreed at exactly 64 levels with an empty leaf:
+            // skip refused, decode accepted. Measured. That is the same
+            // divergence Task 5 fixed for non-empty arrays, surviving in the
+            // one case the agreement test's fixture could not construct,
+            // because it hardcoded a count of 1 at every level.
+            if depth + 1 > MAX_ARRAY_DEPTH {
+                return Err(GgufError::Malformed {
+                    stage: Stage::Metadata,
+                    offset: cursor.pos(),
+                    detail: format!("array nesting deeper than {MAX_ARRAY_DEPTH}"),
+                });
+            }
             let mut items = Vec::new();
             // Reserve the whole thing, not a token 1024. A partial
             // reservation protects only the first 1024 elements: every push
@@ -671,22 +686,35 @@ mod tests {
         // fast path elided a descent the decode path still made, so skip
         // accepted 64 levels that decode refused. This pins the agreement
         // rather than the individual behaviours.
-        for nested in [1usize, 2, 63, 64, 65, 70] {
-            let mut b = Vec::new();
-            for _ in 0..nested {
-                b.extend_from_slice(&9u32.to_le_bytes()); // element type: Array
-                b.extend_from_slice(&1u64.to_le_bytes());
-            }
-            b.extend_from_slice(&4u32.to_le_bytes()); // a fixed-width leaf,
-            b.extend_from_slice(&1u64.to_le_bytes()); // which is the case
-            b.extend_from_slice(&7u32.to_le_bytes()); // the fast path takes
+        // The leaf count is a loop variable, and that is the whole point.
+        // This fixture hardcoded `1` and therefore could not see the SECOND
+        // divergence, which lived only at a count of ZERO: decode charged
+        // the nesting level inside its element loop, so an empty array
+        // charged nothing, while skip's fast path charged it always. At 64
+        // levels skip refused and decode accepted. Measured — the test
+        // written to pin this exact invariant was blind to half of it for
+        // three tasks.
+        for leaf_count in [0u64, 1] {
+            for nested in [1usize, 2, 63, 64, 65, 70] {
+                let mut b = Vec::new();
+                for _ in 0..nested {
+                    b.extend_from_slice(&9u32.to_le_bytes()); // element type: Array
+                    b.extend_from_slice(&1u64.to_le_bytes());
+                }
+                b.extend_from_slice(&4u32.to_le_bytes()); // a fixed-width leaf,
+                b.extend_from_slice(&leaf_count.to_le_bytes()); // which is the case
+                for _ in 0..leaf_count {
+                    b.extend_from_slice(&7u32.to_le_bytes()); // the fast path takes
+                }
 
-            let skipped = skip_value(&mut Cursor::new(&b), ValueType::Array).is_ok();
-            let decoded = decode_value(&mut Cursor::new(&b), ValueType::Array).is_ok();
-            assert_eq!(
-                skipped, decoded,
-                "{nested} levels: skip accepted {skipped}, decode accepted {decoded}"
-            );
+                let skipped = skip_value(&mut Cursor::new(&b), ValueType::Array).is_ok();
+                let decoded = decode_value(&mut Cursor::new(&b), ValueType::Array).is_ok();
+                assert_eq!(
+                    skipped, decoded,
+                    "{nested} levels, leaf count {leaf_count}: \
+                     skip accepted {skipped}, decode accepted {decoded}"
+                );
+            }
         }
     }
 
