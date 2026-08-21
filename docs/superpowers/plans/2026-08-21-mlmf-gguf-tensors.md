@@ -179,6 +179,22 @@ application time you want each single sabotage to perturb exactly ONE side.
 `git diff` and read it. If the expected literal moved, the sabotage is
 inert.
 
+**And `git add -N` first if the file is untracked, because `git diff` shows
+NOTHING for a file git has never seen.** Measured:
+
+```
+$ git diff --stat <untracked file>
+                                     <- empty
+$ git add -N <untracked file> && git diff --stat <untracked file>
+ crates/mlmf-gguf/tests/probe.txt | 1 +
+```
+
+Empty output is exactly what "the mutation did not apply" looks like, so a
+sabotage that applied perfectly reads as inert and an inert one reads the
+same. **This is the phantom-green shape inside the rule written to prevent
+phantom greens** — a task that CREATES a fixture and then sabotages it hits
+it immediately, which is how it was found.
+
 **And when Step 2's tests call a function that does not exist yet, the crate
 does not compile and ZERO tests run.** That is the phantom-green shape at
 the red-before-green step: 20 compile errors and no test result line at all.
