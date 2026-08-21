@@ -405,6 +405,15 @@ Implemented ahead of `mlmf-gguf` (§12 step 2), as the type-geometry half of tha
 1. **The type space is 35 live codes plus 8 retired, not the ~15 a straight port of Fuel's table would have produced.** The corpus evidence for the wider space is concrete — 540 `IQ4_NL`, 30 `IQ3_S`, 30 `IQ4_XS` tensors in ordinary Hub downloads that a 15-type table cannot read at all.
 2. **§7's fatal/loud rule is amended** (see §7 above): the split is a property of whether an unknown poisons other addressing, not a property of the unknown itself. This was found while building `mlmf-ggml`, because GGUF's explicit per-tensor offsets are the concrete case that falsifies "unknown type code ⇒ always fatal."
 
+### `mlmf-gguf` — metadata path landed
+
+The metadata half of §12 step 2: magic, version, counts, and the key-value block, indexed at open and decoded on demand. The tensor directory is a later stage and is not here. Two decisions this plan made that the spec above did not anticipate:
+
+1. **GGUF v1 is refused, not parsed.** llama.cpp refuses it too, so its reader is not a reference for the layout, and the one v1 file in the corpus did not parse under a v2-shaped reader with only the integer widths substituted. Deriving the layout from that file is a separate plan. The consequence is visible in the corpus fixture: 29 `.gguf` files on disk produce 28 measured rows, and the missing one — `legacy/tinyllamas-stories-260k-f32.gguf` — is refused by version rather than misparsed into plausible-looking garbage.
+2. **An unknown metadata value type stops the index but not the open.** Its width is unknown, so the parse cannot find the next key — but every key already indexed stays readable, and the failure is reported. This is R1's guarantee applied within the metadata stage, and it is the reason the tensor directory is a separate stage rather than a separate concern. `GgufMetadata::index_complete` is what makes the difference legible to a caller: with an incomplete index, `Declaration::Absent` means only *not found in the part that could be read*, so it can support a positive finding and never a negative one.
+
+**On what the corpus can and cannot prove, measured rather than assumed.** The reference corpus is 1.13 GiB across 29 files. Scanning every key, string value and string array element in the 28 readable ones — **4,686,500 strings** — finds zero non-UTF-8, zero trailing-NUL and zero embedded-NUL strings. So the R3 byte-exactness guarantee is **not falsifiable against real files**: substituting `from_utf8_lossy` for the byte-exact decode is a no-op on every published model in the corpus. That is why `mlmf-gguf` carries authored fixtures alongside corpus-derived ones, and the split is not redundancy — it is the only instrument that can see the path. Verified by sabotage: lossy decoding turns three authored tests red and leaves all three corpus tests green.
+
 ---
 
 ## 12. Migration and sequencing

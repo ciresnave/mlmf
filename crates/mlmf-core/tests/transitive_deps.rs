@@ -114,6 +114,35 @@ fn transitive_node_count_is_under_the_ceiling() {
     );
 }
 
+/// C2, over `mlmf-core` **only** — deliberately, for a reason that is
+/// recorded here because it was not recorded anywhere.
+///
+/// Every other C2/C3 gate iterates `gated_members()`. This one snapshots a
+/// single crate, which looks like an oversight and is not. It is sound
+/// because of a fact about the other two members, verified against their
+/// manifests rather than assumed:
+///
+/// * `mlmf-ggml` declares exactly one dependency, `mlmf-core` (path).
+/// * `mlmf-gguf` declares exactly two, `mlmf-core` and `mlmf-ggml` (path).
+///
+/// Neither declares a single external crate, so `mlmf-core`'s transitive
+/// set **is** theirs — snapshotting all three would pin the same lines
+/// three times.
+///
+/// And that fact cannot silently stop being true. `deps.rs`'s
+/// `direct_dependencies_match_allowlist` iterates `gated_members()` and
+/// checks each crate's own manifest against its own
+/// `tests/direct-deps.allow`, so an external dependency cannot appear in a
+/// format crate without failing that gate first — before it could ever
+/// reach a transitive set this test does not look at.
+///
+/// **So the scope is correct by construction, not by design, and the
+/// construction is load-bearing.** If a format crate ever gains an external
+/// dependency of its own, this test's scope becomes wrong at that moment,
+/// and the thing that will catch it is `deps.rs`, not this file. The other
+/// acceptable resolution is to extend the snapshot to every member; what
+/// must not happen is that the narrow scope survives with nobody able to
+/// say why it is safe.
 #[test]
 fn transitive_dependency_set_matches_the_snapshot() {
     let now = current();

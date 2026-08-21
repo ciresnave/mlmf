@@ -1,0 +1,46 @@
+# Metadata facts measured from real GGUF files.
+#
+# Method: parse each file's header and KV block with an independent
+# Python reader and record what it found. The test replays these
+# expectations against mlmf-gguf without reading any model file, so
+# it passes on a machine that has never downloaded one.
+#
+# Corpus: C:\Models\gguf-corpus (see its MANIFEST.json). The `file`
+# column is the path RELATIVE to that root, because the corpus is not
+# flat: a bare basename cannot be reopened.
+#
+# 29 .gguf files were scanned and 28 rows are here. The missing one is
+# legacy/tinyllamas-stories-260k-f32.gguf, which is GGUF v1 -- 32-bit
+# counts, a different layout below the magic. This build refuses v1 by
+# version rather than misparsing it, so there is nothing to measure.
+#
+# Columns are TAB separated.
+file	version	n_tensors	n_kv	kv_end	arch	first_key
+llamacpp-vocab/ggml-vocab-aquila.gguf	2	0	18	4825676	llama	general.architecture
+llamacpp-vocab/ggml-vocab-baichuan.gguf	3	0	18	1340998	baichuan	general.architecture
+llamacpp-vocab/ggml-vocab-bert-bge.gguf	3	0	20	627549	bert	general.architecture
+llamacpp-vocab/ggml-vocab-command-r.gguf	3	0	27	10874545	command-r	general.architecture
+llamacpp-vocab/ggml-vocab-deepseek-coder.gguf	3	0	25	1156067	llama	general.architecture
+llamacpp-vocab/ggml-vocab-deepseek-llm.gguf	3	0	23	3970167	llama	general.architecture
+llamacpp-vocab/ggml-vocab-falcon.gguf	3	0	18	2287728	falcon	general.architecture
+llamacpp-vocab/ggml-vocab-gemma-4.gguf	3	0	42	15776467	gemma4	general.architecture
+llamacpp-vocab/ggml-vocab-gpt-2.gguf	3	0	16	1766807	gpt2	general.architecture
+llamacpp-vocab/ggml-vocab-gpt-neox.gguf	3	0	17	1771431	gptneox	general.architecture
+llamacpp-vocab/ggml-vocab-llama-bpe.gguf	3	0	20	7818140	llama	general.architecture
+llamacpp-vocab/ggml-vocab-llama-spm.gguf	3	0	22	723869	llama	general.architecture
+llamacpp-vocab/ggml-vocab-mpt.gguf	3	0	17	1771393	mpt	general.architecture
+llamacpp-vocab/ggml-vocab-nomic-bert-moe.gguf	3	0	37	6821877	nomic-bert-moe	general.architecture
+llamacpp-vocab/ggml-vocab-phi-3.gguf	3	0	26	726019	phi3	general.architecture
+llamacpp-vocab/ggml-vocab-qwen2.gguf	3	0	20	5928681	qwen2	general.architecture
+llamacpp-vocab/ggml-vocab-qwen35.gguf	3	0	20	5928682	qwen2	general.architecture
+llamacpp-vocab/ggml-vocab-refact.gguf	3	0	18	1720710	refact	general.architecture
+llamacpp-vocab/ggml-vocab-starcoder.gguf	3	0	19	1719346	starcoder2	general.architecture
+quants/SmolLM2-135M-Instruct-IQ3_XS.gguf	3	272	37	1769787	llama	general.architecture
+quants/SmolLM2-135M-Instruct-IQ4_XS.gguf	3	272	37	1769787	llama	general.architecture
+quants/SmolLM2-135M-Instruct-Q2_K.gguf	3	272	37	1769787	llama	general.architecture
+quants/SmolLM2-135M-Instruct-Q4_0.gguf	3	272	37	1769787	llama	general.architecture
+quants/SmolLM2-135M-Instruct-Q4_K_M.gguf	3	272	37	1769787	llama	general.architecture
+quants/SmolLM2-135M-Instruct-Q5_K_S.gguf	3	272	37	1769787	llama	general.architecture
+quants/SmolLM2-135M-Instruct-Q6_K.gguf	3	272	37	1769787	llama	general.architecture
+quants/SmolLM2-135M-Instruct-Q8_0.gguf	3	272	37	1769787	llama	general.architecture
+quants/SmolLM2-135M-Instruct-f16.gguf	3	272	33	1769507	llama	general.architecture
