@@ -726,6 +726,25 @@ mod tests {
     fn a_fixed_width_array_is_indexed_by_arithmetic_not_by_walking() {
         let mut v = 4u32.to_le_bytes().to_vec(); // U32 elements
         v.extend_from_slice(&5u64.to_le_bytes());
+        // `i * 11` gives 0, 11, 22, 33, 44. THE DISTINCTNESS IS LOAD-BEARING
+        // and this is not a style preference. Measured, in a worktree:
+        //
+        //   these values          + off-by-one in the indexing arithmetic
+        //                           -> 2 tests RED
+        //   every element 0u32    + the same off-by-one
+        //                           -> 47 passed, 0 failed
+        //
+        // `array_get(k, 3)` returning element 2 is invisible when elements
+        // 2 and 3 are the same bytes. The assertions stay true, the tests
+        // stay honest, and the suite reports success over data that cannot
+        // tell a right answer from a wrong one. Reproduce before changing
+        // these values: replace them with a constant, apply
+        // `index.checked_mul(w)` -> `index.saturating_sub(1).checked_mul(w)`,
+        // and watch two red tests turn green.
+        //
+        // The shape came from Fuel, where an integer cast of a [-0.5, 0.5)
+        // fill made every integer probe tensor all zeros; every comparison
+        // passed honestly against 0 vs 0.
         for i in 0..5u32 {
             v.extend_from_slice(&(i * 11).to_le_bytes());
         }
