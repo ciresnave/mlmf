@@ -143,6 +143,26 @@ would have been the finding.
 Filter to a single test to read one failure's detail. Never to decide
 whether a sabotage worked.
 
+**And a TARGET filter hides more than a test filter does. Run sabotages with
+`--no-fail-fast`.** A crate has several test targets — lib, each integration
+file, doc-tests — and by default cargo stops after the first target that
+fails. Measured, with one lib test forced red:
+
+```
+cargo test -p mlmf-gguf                    ->  1 `test result:` line
+cargo test -p mlmf-gguf --no-fail-fast     ->  4 `test result:` lines
+```
+
+**So a sabotage that reddens the lib target never runs the authored or
+corpus tests at all**, and their 23 tests are silently excluded from the
+shortfall. The output does not say they were skipped; it simply stops. Every
+shortfall computed from a plain `cargo test -p <crate>` whose lib target went
+red was computed over a subset, and any authored or corpus test that should
+have died and did not was invisible.
+
+This is the filter finding one level up: not a filter over tests, but a
+filter over TARGETS, imposed by fail-fast and absent from the output.
+
 **A sabotage applied by search-and-replace can neutralise itself, and the
 green it produces reads as a finding about your test.** Task 3's sabotage 4
 changes `family: "ggml"` to `"gguf"` in the implementation. A naive
