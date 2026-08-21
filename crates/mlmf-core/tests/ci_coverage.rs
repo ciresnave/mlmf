@@ -122,3 +122,40 @@ fn rustdoc_warnings_are_fatal_for_every_documented_crate() {
   ")
     );
 }
+
+#[test]
+fn toolchain_pin_matches_ci() {
+    // The compiler version now lives in two files, which is one more than
+    // one. `rust-toolchain.toml` is what a developer's `cargo` obeys;
+    // `.github/workflows/ci.yml` is what the runner installs. They can
+    // disagree silently and the symptom is the worst kind — CI green on a
+    // compiler nobody develops on, or the reverse.
+    //
+    // This exists because the project ran for its whole history with
+    // NEITHER pinned: the local default resolved 1.99.0-nightly and CI ran
+    // `@stable`, so every reported green was true of two different unnamed
+    // compilers.
+    let root = common::workspace_root();
+    let toml = fs::read_to_string(root.join("rust-toolchain.toml"))
+        .expect("rust-toolchain.toml exists — the pin is not optional");
+
+    let channel = toml
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("channel = "))
+        .map(|v| v.trim().trim_matches('"').to_string())
+        .expect("rust-toolchain.toml declares a channel");
+
+    // An alias defeats the entire point: `stable` resolves to a different
+    // compiler on a different day and on a different machine.
+    assert!(
+        channel.chars().next().is_some_and(|c| c.is_ascii_digit()),
+        "the channel must be an explicit version, not the alias {channel:?}"
+    );
+
+    let workflow = workflow_without_comments();
+    let needle = format!("dtolnay/rust-toolchain@{channel}");
+    assert!(
+        workflow.contains(&needle),
+        "rust-toolchain.toml pins {channel} but the workflow does not use          `{needle}` — CI would build with a different compiler than every          developer, and both would report green"
+    );
+}

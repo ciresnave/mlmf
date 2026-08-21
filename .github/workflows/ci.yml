@@ -24,7 +24,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned, not `@stable`. `stable` is an alias that resolves to a
+      # different compiler on a different day, so a green run named no
+      # compiler at all. Must match rust-toolchain.toml — enforced by
+      # `toolchain_pin_matches_ci` in crates/mlmf-core/tests/ci_coverage.rs,
+      # because two places holding one version is exactly how they drift.
+      - uses: dtolnay/rust-toolchain@1.98.0
         with:
           components: rustfmt
 
