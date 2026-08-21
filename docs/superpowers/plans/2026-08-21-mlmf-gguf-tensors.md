@@ -102,6 +102,38 @@ counts, not the word `ok`:
 Report the counts in the task report, not the verdict. "It failed as
 expected" is not evidence; "1 failed, 52 filtered out, at assertion X" is.
 
+**And reading the counts is not enough, because a PARTIAL match looks
+normal.** Measured, on this plan's own Task 2 brief:
+
+```
+$ cargo test -p mlmf-gguf --lib data_start      # the brief's own Step 2 command
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 54 filtered out
+```
+
+The task introduces TWO tests. The filter matches one. A zero-match run
+announces itself in the counts — `0 passed` is hard to misread. A partial
+match reports `1 passed` and a plausible filtered-out number, and there is
+nothing in the output to compare it against unless you already know how many
+should have run.
+
+The consequence is precise and it is worse than a cosmetic one. **Sabotage 1
+of that task exists to kill the test the filter excludes.** Run under the
+brief's own command, the sabotage would have reported green, and the correct
+reading of that green — "this control does not fire" — would have been
+wrong.
+
+**So: run every sabotage against the UNFILTERED suite.** A filter is an
+optimisation for the green path. On the red path it is a way to not see
+things. More sharply: the measurement a sabotage produces is the SHORTFALL
+against the expected kill set, and **a filtered run makes the shortfall
+uncomputable** — the filter has already removed the tests whose survival
+would have been the finding.
+
+Filter to a single test to read one failure's detail. Never to decide
+whether a sabotage worked.
+
+
 ---
 
 ---
