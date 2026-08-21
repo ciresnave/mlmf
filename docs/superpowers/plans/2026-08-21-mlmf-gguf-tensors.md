@@ -72,6 +72,38 @@ Plan 3 produced one number worth more than any single finding: **eleven controls
 
 Plan 3 added controls in response — expected-kill-sets, whole-value assertions, the standing rule about trailing keys. **If plan 4's rate does not improve, the controls are not the binding constraint and the next plan should try something else rather than adding more of the same.** Record the count in the ledger as each task closes. The whole-branch pass at the end (Task 8) is not optional for the same reason: every Important finding in plan 3 lived in the last third, in the seams between tasks that per-task review structurally cannot see.
 
+## The red-before-green step has a hole in it, and it is at the entry point
+
+**`cargo test <filter>` reports `ok` and exits 0 when the filter matches
+nothing.** Measured:
+
+```
+$ cargo test -p mlmf-gguf --lib this_test_does_not_exist_anywhere
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 53 filtered out
+$ echo $?
+0
+```
+
+Every task in every plan here opens with "Step 2: run the test and watch it
+fail". That step is the control proving a test CAN fail — the entry point of
+the whole AD-2 discipline. And it is satisfied by a run in which the test
+does not exist: a module never registered in `lib.rs`, a name misspelled in
+the filter, a `#[test]` attribute forgotten. Task 1 of this plan hit exactly
+that: the brief predicted a compile error for an unregistered module, and
+the real outcome was a green run with zero tests.
+
+**So Step 2 is not done until you have confirmed the test RAN.** Read the
+counts, not the word `ok`:
+
+- `N passed; M failed` with `M > 0` and your test named in the failure list — good.
+- `0 passed; 0 failed; ...; K filtered out` — **your test did not run.** The
+  filter matched nothing. Fix that before reading anything into the result.
+
+Report the counts in the task report, not the verdict. "It failed as
+expected" is not evidence; "1 failed, 52 filtered out, at assertion X" is.
+
+---
+
 ---
 
 ## Task 0: A report entry for a tensor this build declined
@@ -522,7 +554,10 @@ git commit -m "feat(gguf): the tensor-info record, bounds-checked before allocat
 cargo test -p mlmf-gguf --lib data_start
 ```
 
-Expected: FAIL, `data_start` not defined.
+Expected: a COMPILE error naming `data_start`, because the tests call a
+function that does not exist yet. If instead you see `0 passed; 0 failed`
+with a filtered-out count, the tests were not compiled into the binary and
+you are reading a filter that matched nothing — see the note above.
 
 - [ ] **Step 3: Implement**
 
