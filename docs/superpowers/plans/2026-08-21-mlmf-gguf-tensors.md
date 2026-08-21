@@ -1326,8 +1326,21 @@ The row count assertion must be EXACT and the version mix must be exact, for the
 ## Deliberately not in this plan
 
 - **Writing GGUF.** The builder emits malformed output on request; a writer must not.
-- **GGUF v1.** Still refused by number. Supporting it means deriving the layout from the one v1 file in the corpus, which is its own plan.
+- **GGUF v1.** Still refused by number. **The premise was measured, not assumed, and the measurement belongs here rather than only in plan 3:** current llama.cpp refuses v1 outright (`gguf.cpp:502`), so its reader is not a reference for the layout, AND the one v1 file in the corpus did not parse under a v2-shaped reader with only the integer widths substituted. Supporting v1 therefore means deriving the layout from that single file, which is a separate plan with its own evidence problem.
+
+  Restated here with its evidence because the first version of this line
+  dropped it. A deferral that carries only its conclusion cannot be
+  re-examined by anyone who did not watch it being made, and it is
+  indistinguishable from a guess.
 - **Any interpretation of tensor names.** No layer indices, no `blk.N` parsing, no architecture inference. A name is an opaque key.
 - **Streaming or ranged reads.** `mlmf-core`'s `RangedSource` exists for it; this crate takes `&[u8]`.
 - **Validating that a tensor's data is well-formed.** MLMF hands out a byte range. What the bytes mean is the consumer's.
-- **`mlmf-safetensors`.** Its `F8_E4M3`/`F8_E5M2` mapping must be pinned arm-by-arm when it is written — same width, same kind, mutually byte-incompatible.
+- **`mlmf-safetensors`.** Its `F8_E4M3`/`F8_E5M2` mapping must be pinned arm-by-arm when it is written — same width, same kind, mutually byte-incompatible. This is a forward-looking precaution about a crate that does not exist, not a deferral with a premise, so there is nothing to measure first; the thing to check is that the mapping's tests pin identity rather than width when it is written.
+
+**On deferrals generally, from a Fuel lane that disconfirmed its own an hour
+after stating it:** *a deferral whose first step is a measurement will
+discover its own bad premises; one whose first step is work will not.* Every
+item above is either a charter decision, a design decision, or — in v1's
+case — a premise that was measured. Any future item added here should say
+which of the three it is, because "we are not doing X" and "we measured and
+X is not available" look identical once written down.
