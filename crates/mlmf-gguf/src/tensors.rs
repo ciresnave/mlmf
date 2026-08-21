@@ -945,6 +945,22 @@ mod tests {
             ["t"],
             "the second occurrence must not be indexed"
         );
+        // WHICH occurrence survived, not just that one did. Both records
+        // declare `[16]` and differ only in offset, so the name list above
+        // is byte-identical under "keep the first" and "keep the last" —
+        // the test named for that distinction could not make it. Found by
+        // an authored fixture that used differing SHAPES and so could.
+        //
+        // `data_start()` rather than a literal: the first occurrence sits at
+        // offset 0 of the data region, the second at 64. The sabotage that
+        // proves this line is a keep-LAST (overwrite the indexed entry), not
+        // a keep-BOTH — keeping both reddens the name list above and leaves
+        // this assertion unreached.
+        assert_eq!(
+            t.tensor("t").expect("declared").bytes.start,
+            t.data_start(),
+            "the FIRST occurrence must be the one kept"
+        );
         assert!(!report.is_empty(), "and it must be reported");
     }
 
