@@ -130,11 +130,37 @@ pub trait TensorContainer {
 pub trait MetadataSource {
     /// The value declared under `key`, if any.
     ///
-    /// Absent means **not declared**. It never means a default (spec §5).
+    /// `None` means **not declared**. It never means a default (spec §5) —
+    /// but see [`Self::index_complete`] for when "not declared" is a fact
+    /// about the source and when it only means "not found in the part that
+    /// could be read".
     fn get(&self, key: &str) -> Option<&MetaValue>;
 
     /// Every key declared, in unspecified order.
     fn keys(&self) -> Vec<&str>;
+
+    /// Whether this source saw every key its container declared.
+    ///
+    /// **Required rather than defaulted, deliberately.** A default of
+    /// `true` lets a source that CAN stop early claim a completeness it
+    /// does not have, which is a false negative delivered silently — the
+    /// exact failure this method exists to prevent. A default of `false`
+    /// would make every eager source useless for negative findings. Having
+    /// no default fails at compile time instead, which is the only one of
+    /// the three that cannot be got wrong quietly.
+    ///
+    /// Return `true` if the source reads its whole input or fails: a JSON
+    /// sidecar either parses or does not. Return `false` when a walk
+    /// stopped before the end — GGUF's key-value block is walked
+    /// sequentially, and a value type this build does not know has an
+    /// unknown width, so the parse cannot find the key after it.
+    ///
+    /// This lives on the trait, not on a concrete type, because it is
+    /// exactly the caller holding `&dyn MetadataSource` who cannot
+    /// otherwise ask. It changes the meaning of every negative answer this
+    /// trait gives — [`Declaration::Absent`] and `get`'s `None` alike —
+    /// so it has to travel with them.
+    fn index_complete(&self) -> bool;
 
     /// What this source knows about `key` — three states, not two.
     ///
@@ -250,6 +276,10 @@ mod tests {
     }
 
     impl MetadataSource for Fake {
+        fn index_complete(&self) -> bool {
+            true
+        }
+
         fn get(&self, key: &str) -> Option<&MetaValue> {
             self.meta.get(key)
         }
@@ -446,6 +476,10 @@ mod tests {
             bad: crate::Unrecognized,
         }
         impl MetadataSource for Partial {
+            fn index_complete(&self) -> bool {
+                true
+            }
+
             fn get(&self, key: &str) -> Option<&MetaValue> {
                 (key == "good").then_some(&self.good)
             }
@@ -511,6 +545,10 @@ mod tests {
         // that, and this pins the semantics both must satisfy.
         struct WithArray(MetaValue);
         impl MetadataSource for WithArray {
+            fn index_complete(&self) -> bool {
+                true
+            }
+
             fn get(&self, key: &str) -> Option<&MetaValue> {
                 (key == "toks").then_some(&self.0)
             }

@@ -38,8 +38,10 @@ pub enum UnrecognizedKind {
         /// `None` when it deliberately did not. Reporting a duplicate key
         /// must not cost a value decode: the reference corpus's largest
         /// single key declares 514,906 strings, so decoding one to
-        /// describe it would cost roughly 26 MB to say "this appeared
-        /// twice". A reader that needs the value can seek it; a report
+        /// describe it would cost roughly 17 MB to say "this appeared
+        /// twice" — that is the ONE key; the ~26 MB quoted elsewhere is the
+        /// whole file's 777,056 strings, two quantities that were briefly
+        /// given the same number. A reader that needs the value can seek it; a report
         /// entry exists to be cheap.
         value: Option<MetaValue>,
         /// Why this entry exists, when the key and value do not say.
@@ -114,7 +116,21 @@ pub struct Unrecognized {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Declaration<'a> {
-    /// The key is not declared. Never a default.
+    /// The key was not found. Never a default.
+    ///
+    /// **Whether this is a fact about the file depends on
+    /// [`MetadataSource::index_complete`].** With a complete view it means
+    /// the key is not declared. With an incomplete one it means only *not
+    /// found in the part that could be read* — a walk that stopped early
+    /// cannot distinguish "absent" from "past the point where we stopped",
+    /// and a key may sit immediately beyond it.
+    ///
+    /// So a positive finding is always safe to act on and a negative one
+    /// is not, until `index_complete()` says otherwise. Those are different
+    /// claims: "this model declares no chat template" versus "we could not
+    /// get far enough to tell".
+    ///
+    /// [`MetadataSource::index_complete`]: crate::MetadataSource::index_complete
     Absent,
     /// The key is declared and the value could not be decoded. Carries the
     /// report entry, so the complaint can name the key and what was seen.

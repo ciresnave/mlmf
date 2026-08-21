@@ -63,7 +63,11 @@ impl<'a> GgufMetadata<'a> {
     /// # Errors
     ///
     /// [`GgufError::NotGguf`] if the magic is wrong, which is a different
-    /// fact from a malformed GGUF (R7). [`GgufError::Truncated`] or
+    /// fact from a malformed GGUF (R7). [`GgufError::ByteSwapped`] if the
+    /// magic matches but the version reads byte-reversed, and
+    /// [`GgufError::UnsupportedVersion`] if it is a GGUF this build does
+    /// not read — both reach a caller through this function, so both
+    /// belong here. [`GgufError::Truncated`] or
     /// [`GgufError::Malformed`] with `Stage::Metadata` if the KV block ends
     /// early or contains something structurally impossible.
     pub fn parse(bytes: &'a [u8], origin: &str) -> Result<(Self, Report), GgufError> {
@@ -239,8 +243,13 @@ impl<'a> GgufMetadata<'a> {
             return DEFAULT_ALIGNMENT;
         };
         let a = u64::from(*a);
-        // And a power of two (gguf.cpp:623).
-        if a == 0 || !a.is_power_of_two() {
+        // And a power of two (gguf.cpp:623). No separate zero check: a
+        // leading `a == 0 ||` stood here and is a no-op, because
+        // `0u64.is_power_of_two()` is already false. Measured — deleting it
+        // left every test green, including the authored alignment-0 case.
+        // A clause that reads as a guard and guards nothing is worse than
+        // none, because the next reader budgets trust for it.
+        if !a.is_power_of_two() {
             complain(
                 report,
                 declared,
@@ -269,7 +278,7 @@ impl<'a> GgufMetadata<'a> {
     /// and fourth walkers of this particular grammar, so they go through
     /// the same door instead of each opening their own.
     fn array_at(&self, key: &str) -> Option<(ValueType, u64, Cursor<'a>)> {
-        // Four of the five early-outs below are DEFENCE IN DEPTH, not
+        // THREE of the five early-outs below are defence in depth, not
         // coverage — each was mutated in isolation and the suite stayed
         // green, because none can be reached. `unreadable` is shadowed by
         // the type check: the only site that sets it hardcodes
@@ -278,7 +287,18 @@ impl<'a> GgufMetadata<'a> {
         // `read_array_prefix` cannot fail on a prefix `skip_value` already
         // accepted. They stay because the alternative is `unwrap`, and a
         // reachability argument is a worse thing to bet a panic on than a
-        // `?`. Only the `ty != Array` guard is live, and it is tested.
+        // `?`.
+        //
+        // The other TWO are live: `entry(key)?` and the `ty != Array`
+        // guard. An earlier version of this comment said four and named
+        // only the type check as live, which was wrong in the direction
+        // that matters — replacing `entry(key)` with "find the first array
+        // in this file" left all 63 tests green while `array_len` answered
+        // `Some(3)` for a key that does not exist and `array_get` handed
+        // back a plausible token from a different key. That is R4's
+        // absent-vocabulary failure mode answering as though the array
+        // were present. Both live guards are pinned in
+        // `array_accessors_agree_with_the_decoded_value`.
         let e = self.entry(key)?;
         if e.ty != ValueType::Array || e.unreadable.is_some() {
             return None;
@@ -344,6 +364,15 @@ fn read_key(cursor: &mut Cursor<'_>) -> Result<String, GgufError> {
 }
 
 impl MetadataSource for GgufMetadata<'_> {
+    /// Delegates to the inherent [`GgufMetadata::index_complete`], whose
+    /// doc carries the full argument. Present on the trait as well because
+    /// a consumer holding `&dyn MetadataSource` is precisely the one who
+    /// cannot reach an inherent method, and is precisely the one whose
+    /// `Absent` results are worthless without it.
+    fn index_complete(&self) -> bool {
+        self.index_complete
+    }
+
     fn get(&self, key: &str) -> Option<&MetaValue> {
         self.entry(key).and_then(|e| self.value_of(e))
     }
@@ -444,9 +473,10 @@ impl MetadataSource for GgufMetadata<'_> {
         // credit it. Safety comes from Task 5's `depth + 1` accounting in
         // `skip_at_depth`: indexing already refuses anything the decode
         // could refuse. A decode that CONTINUED from indexing's depth would
-        // be equally safe. What the reset buys is slack — measured at two
-        // levels, since indexing reaches an element one level down and the
-        // limit is 64 — and slack is what hides an accounting error rather
+        // be equally safe. What the reset buys is slack — ONE level,
+        // measured by shifting the decode's start depth: `nest(64)`
+        // tolerates a shift of 1 and breaks at 2 — and slack is what hides
+        // an accounting error rather
         // than what prevents one. `deep_nesting_is_readable_by_both_paths`
         // sits at exactly the depth where that slack runs out.
         decode_value(&mut c, elem).ok()
@@ -570,7 +600,35 @@ mod tests {
             !m.index_complete(),
             "a walk that stopped early must say so, or Absent lies"
         );
-        assert!(!report.is_empty(), "the unknown type must be reported");
+        // The WHOLE entry, not merely that the report is non-empty. This is
+        // the one `MetadataKey` call site Task 10 left unasserted: swapping
+        // it to `value: None, reason: Some(...)` — precisely the defect
+        // Task 10 removed — left all 63 tests green. The doc on `reason`
+        // singles this out as the `None` case because here the code IS the
+        // finding, and that claim was unverified until this line.
+        assert_eq!(
+            report.entries(),
+            [Unrecognized {
+                kind: UnrecognizedKind::MetadataKey {
+                    key: "broken".to_string(),
+                    value: Some(MetaValue::U32(13)),
+                    reason: None,
+                },
+                origin: "t.gguf".to_string(),
+            }]
+        );
+        // `get` must refuse it too, not only `declaration`. Deleting
+        // `value_of`'s `unreadable` guard left all 63 tests green while
+        // `get("broken")` returned `Some(U8(71))` — 0x47, the `G` of the
+        // file's own magic, read from the placeholder entry's `start: 0`
+        // with its placeholder `ty: ValueType::U8`. Every existing test
+        // reached this key through `declaration()`, which checks
+        // `unreadable` first and so shadowed this path entirely.
+        assert_eq!(
+            m.get("broken"),
+            None,
+            "an unreadable key must not answer get() with fabricated bytes"
+        );
 
         // The WHOLE key set, not membership of three chosen names.
         //
@@ -587,6 +645,34 @@ mod tests {
         // form of this crate's whole-value rule: check what IS there, not
         // that the things you thought of are among it.
         assert_eq!(m.keys(), ["first", "broken"]);
+    }
+
+    #[test]
+    fn the_absent_caveat_reaches_a_consumer_through_the_trait_object() {
+        // `index_complete` began as an inherent method on GgufMetadata, and
+        // the whole seam is `&dyn MetadataSource` — so the one caller who
+        // most needs it, the format-agnostic layer holding a trait object,
+        // was the one caller who could not reach it. It got `Absent` with
+        // no way to ask whether the walk had finished, while the core doc
+        // for `Absent` said "the key is not declared" without qualification.
+        //
+        // This asserts the pairing a consumer actually depends on: a
+        // negative answer AND the flag that says whether to believe it,
+        // both obtained without knowing the concrete type.
+        let stopped = gguf(&[("first", 8, s("kept")), ("broken", 13, s("x"))]);
+        let clean = gguf(&[("first", 8, s("kept"))]);
+        let (a, _) = GgufMetadata::parse(&stopped, "t.gguf").unwrap();
+        let (b, _) = GgufMetadata::parse(&clean, "t.gguf").unwrap();
+
+        for (src, complete) in [
+            (&a as &dyn MetadataSource, false),
+            (&b as &dyn MetadataSource, true),
+        ] {
+            // Same question, same answer, from sources where it means
+            // opposite things.
+            assert!(matches!(src.declaration("absent"), Declaration::Absent));
+            assert_eq!(src.index_complete(), complete);
+        }
     }
 
     #[test]
@@ -889,6 +975,18 @@ mod tests {
                 );
             }
             assert_eq!(m.array_len("toks"), Some(all.len() as u64), "{name} len");
+            // The accessors must answer about THE KEY ASKED FOR. Replacing
+            // `entry(key)` with a scan for the first array in the file left
+            // every other assertion here green — this file has exactly one
+            // array, so "the array" and "the array named toks" were
+            // indistinguishable until these two lines. `after` is the
+            // trailing U32 scalar, so it also pins the `ty != Array` guard
+            // against a file that HAS an array, which the scalar-only test
+            // cannot do.
+            assert_eq!(m.array_len("nope"), None, "{name}: absent key");
+            assert_eq!(m.array_get("nope", 0), None, "{name}: absent key");
+            assert_eq!(m.array_len("after"), None, "{name}: scalar key");
+            assert_eq!(m.array_get("after", 0), None, "{name}: scalar key");
             // Past the end, with a real key's bytes sitting there to be
             // misread. Inside the loop because each shape reaches it by a
             // different branch.

@@ -241,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_slice_is_not_gguf_rather_than_a_panic() {
+    fn an_empty_slice_is_truncated_rather_than_a_panic() {
         let mut c = Cursor::new(&[]);
         assert!(matches!(
             parse_header(&mut c).unwrap_err(),
