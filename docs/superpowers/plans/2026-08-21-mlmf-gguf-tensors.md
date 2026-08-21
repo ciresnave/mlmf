@@ -1399,6 +1399,39 @@ but only if it is an ASSERTION panic. A test dying at `.expect()` or
 `unwrap()` before reaching any assert has proven nothing, and the
 `test result:` line looks identical either way.
 
+**Partition by CONTROL versus ORDINARY before classifying, because the risk
+is concentrated rather than distributed.** In an ordinary test, an arm that
+never reddens is an untested property — a coverage gap, real but ordinary,
+and the test still does its job for the arms that pass. **In a control, an
+arm that never reddens is a false claim of verification**: the control's
+entire output is "this property is demonstrated", so an undemonstrated arm
+makes that output wrong rather than incomplete.
+
+Measured over this crate, judging from ASSERTION LINES ONLY — a first pass
+matched comment prose and misclassified the largest test, which is the same
+contamination this project keeps finding:
+
+```
+multi-assert tests                                          66
+  CONTROLS  — at least one arm asserts a negative outcome    40
+  ORDINARY  — every arm asserts a value                      26
+```
+
+**Treat 40 as a floor, not a count.** The classifier recognises `is_none()`,
+`is_err()`, `, None)`, `assert!(!` and `unwrap_err`, and MISSES a negative
+expressed as `matches!(x, Declaration::Absent)` — which this crate uses. The
+tier distribution should be reported over the controls, because that answers
+"are our verification claims earned". The same distribution over all 78
+answers "how thorough are our tests", which is a different and less urgent
+question.
+
+**And note what the partition does to the scariest number.**
+`every_generated_reader_reads_its_own_width`, twelve sequential asserts and
+the worst case in the whole exposure, classifies as ORDINARY on this axis and
+was already measured NOT BREAKABLE on the other. **The test that looks like
+twelve units of work is benign on both axes** — which is the argument for
+partitioning before sweeping rather than after.
+
 **Report the tier DISTRIBUTION, not a completion claim.** A distribution is
 auditable; a promise is not.
 
