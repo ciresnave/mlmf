@@ -38,7 +38,17 @@ The falsification test was whether the last tensor's computed end equals the fil
 
 **Two facts that a specification page would not have given, both of which break a naive implementation:**
 
-1. **A file with zero tensors has no data region and no padding.** It ends exactly at the end of the (empty) tensor directory. **18 of the 28 readable corpus files are this shape** — they are the `llamacpp-vocab/*` files, which is precisely what a metadata-only consumer opens. An implementation that computes `data_start = align_up(dir_end)` and bounds-checks it at parse time fails to open a majority of the corpus.
+1. **A file with zero tensors has no data region and no padding.** It ends exactly at the end of the (empty) tensor directory. **19 of the 28 readable corpus files are this shape** — they are the `llamacpp-vocab/*` files, which is precisely what a metadata-only consumer opens. An implementation that computes `data_start = align_up(dir_end)` and bounds-checks it at parse time fails to open a majority of the corpus.
+
+  **This number was 18 for several hours and the error is worth recording.**
+  The first recon pass handled version 3 only and skipped the one v2 file. On
+  the second pass I added v2, re-derived the headline — 27 files confirmed
+  became 28 — and never re-derived the number that DEPENDS on it. The v2 file
+  declares zero tensors, so the count should have moved 18 to 19 in the same
+  edit. **Widening a measurement's scope makes every number derived from the
+  old scope stale, and the derived numbers do not announce themselves.** Found
+  by an implementer counting from `corpus-metadata.tsv` rather than trusting
+  the prose.
 
 2. **Padding is `(align - dir_end % align) % align`, not a full block when already aligned.** `SmolLM2-135M-Instruct-f16.gguf` has `dir_end == data_start == 1785664`; every other quant file has `dir_end = 1785944` and `data_start = 1785952`, eight bytes of padding. A `dir_end + align - (dir_end % align)` formula adds a phantom 32 bytes when the directory happens to land on a boundary, and shifts every tensor in the file.
 
@@ -889,7 +899,7 @@ git commit -m "feat(gguf): resolve ggml codes, and omit-and-report the ones that
 ```rust
     #[test]
     fn a_file_with_no_tensors_opens_and_has_no_data_region() {
-        // 18 of the 28 readable corpus files are this shape — every
+        // 19 of the 28 readable corpus files are this shape — every
         // `llamacpp-vocab/*` file — and they END at the tensor directory
         // with no padding and no data. An implementation that computes
         // `data_start` eagerly and bounds-checks it against the file length
@@ -1070,7 +1080,7 @@ pub fn parse_tensors<'a>(
 
     // NOT validated against the file length. A file with no tensors ends at
     // `dir_end` and this value can point one alignment block past the end —
-    // 18 of 28 corpus files are that shape. Validating here would refuse
+    // 19 of 28 corpus files are that shape. Validating here would refuse
     // every vocab-only GGUF, which is exactly what a metadata consumer
     // opens. The bound that matters is per-tensor, in `tensor_bytes`.
     let data_start = data_start(dir_end, meta.alignment()).ok_or(GgufError::Malformed {
