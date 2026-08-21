@@ -20,6 +20,19 @@
 //! `tokenizer.ggml.bos_token_id` against `tokenizer.ggml.tokens` has seven
 //! distinct failure modes, and getting them right needs knowledge of the
 //! ecosystem that MLMF deliberately does not hold.
+//!
+//! # Cost of opening a file
+//!
+//! Measured on the reference corpus. The largest key-value block is 15.78 MB
+//! across 42 keys, declaring **777,056 strings** — `ggml-vocab-gemma-4.gguf`,
+//! whose `tokenizer.ggml.merges` alone holds 514,906 entries. Decoding that
+//! eagerly costs roughly 26 MB of allocations, all of it to answer a
+//! question about one key.
+//!
+//! Opening indexes the keys and decodes none of them, so the cost of an
+//! open is proportional to the number of keys — at most 42 in the corpus —
+//! rather than to the size of the vocabulary. `array_get` decodes one
+//! element without materializing its array.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
