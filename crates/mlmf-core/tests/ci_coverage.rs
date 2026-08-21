@@ -99,6 +99,7 @@ fn rustdoc_warnings_are_fatal_for_every_documented_crate() {
     // unrelated to the property it was asserting.
     let workflow = workflow_without_comments();
     let mut toothless = Vec::new();
+    let mut found = 0usize;
 
     // Steps are `- name: ...` blocks; splitting on that boundary gives one
     // chunk per step, each carrying its own `env:` and `run:`.
@@ -109,10 +110,29 @@ fn rustdoc_warnings_are_fatal_for_every_documented_crate() {
         else {
             continue;
         };
+        found += 1;
         if !step.contains("RUSTDOCFLAGS: -D warnings") {
             toothless.push(run.trim().to_string());
         }
     }
+
+    // ENUMERATE, do not merely iterate. This loop walks the doc steps that
+    // are PRESENT, so with zero present it has nothing to complain about and
+    // passes — measured: deleting every `cargo doc` step from the workflow
+    // left this test green. The deletion was caught, but by the sibling gate
+    // above, which enumerates the crates it requires. That is coverage by
+    // ADJACENCY rather than by design, and it evaporates the moment the
+    // sibling changes.
+    //
+    // The general shape, from KISS: a wrong VALUE is compared and fails; a
+    // wrong KEY is never compared at all. An instrument that validates its
+    // numbers but not its own dimension set fails open on the cheap
+    // direction — and deleting a row is cheaper than changing one.
+    assert_eq!(
+        found,
+        common::gated_members().len(),
+        "expected one `cargo doc` step per gated crate and found {found}; a          step that is absent cannot be toothless, so this check has nothing          to say about it"
+    );
 
     assert!(
         toothless.is_empty(),
