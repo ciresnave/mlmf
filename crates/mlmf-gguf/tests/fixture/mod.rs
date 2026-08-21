@@ -111,15 +111,3 @@ impl GgufBuilder {
         out
     }
 }
-
-/// Present because `cargo` compiles `tests/fixture.rs` twice — once as a
-/// module of `authored`, once as an integration target of its own, where
-/// `GgufBuilder` is a crate-root public type and
-/// `clippy::new_without_default` fires. `new()` is the name the plan
-/// specifies and the name every fixture reads better with, so the trait
-/// gets added rather than the constructor renamed.
-impl Default for GgufBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
