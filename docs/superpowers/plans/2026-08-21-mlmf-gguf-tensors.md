@@ -1432,6 +1432,40 @@ was already measured NOT BREAKABLE on the other. **The test that looks like
 twelve units of work is benign on both axes** — which is the argument for
 partitioning before sweeping rather than after.
 
+**Consider a LIVENESS GUARD instead of a census, and narrow it twice before
+paying for either.** A guard is a positive case inside a negative control —
+`assert_ne!(perturbed, baseline)`, or simply a resolvable input asserted
+alongside the unresolvable one. It makes a control's own liveness
+**observable from its output**, which is exactly the property the four tiers
+exist to work around. A census is a snapshot that decays as the suite grows;
+a guard is a one-time structural cost that never needs re-auditing. This is
+not a fresh idea — a sibling project has it in production and in its method
+memory, arrived at independently, which is stronger evidence than a
+suggestion.
+
+**But measure before adding 19 of them, because the suite may already
+provide the liveness.** Counted here: 45 negative controls, 26 with a
+positive case in the same test, **19 without** — those are the ones where
+"always return the negative answer" would pass the test in isolation.
+
+Then measured what "in isolation" is worth. Making `resolve` always decline:
+
+```
+test result: FAILED. 60 passed; 7 failed
+```
+
+**Seven tests, not one.** Six others exercise the positive path and fail, so
+the SUITE catches the dead mechanism even though the individual control
+cannot. A per-test guard there would be redundant.
+
+**So the guard's value is concentrated on mechanisms only ONE test exercises
+positively**, which is a much smaller set than 19 and has to be found the
+same way — one "always return the negative" mutation per mechanism, counting
+how many tests notice. If the answer is more than one, the suite is the
+guard. That is the third narrowing on this exposure: 78 tests to 66
+multi-assert to 40 controls to 19 unguarded to some smaller number that
+actually needs work.
+
 **Report the tier DISTRIBUTION, not a completion claim.** A distribution is
 auditable; a promise is not.
 
