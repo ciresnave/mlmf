@@ -124,14 +124,33 @@ mod tests {
 
     #[test]
     fn every_generated_reader_reads_its_own_width() {
-        // All seven, by identity rather than by sampling two. The macro
-        // guarantees the SHAPE of the generated bodies is identical; it does
-        // not guarantee the type list is right. `u64 => u32` in the
-        // invocation would produce a method named `u64` that reads four
-        // bytes, and no amount of testing `u16` and `u32` would notice.
+        // All seven by identity rather than by sampling two — but NOT for
+        // the reason first written here, which was wrong and is worth
+        // recording as wrong.
         //
-        // `u64` matters most: it is the width GGUF uses for every string
-        // length and every count, so Task 5 and Task 6 build directly on it.
+        // The original comment claimed `u64 => u32` in the macro invocation
+        // would produce a method named `u64` that silently reads four
+        // bytes. Measured: it produces FOUR COMPILE ERRORS. The generated
+        // method returns `$ty`, so a name/type mismatch changes the return
+        // type and every call site stops type-checking. **Rust's type
+        // system already prevents the defect this test was justified by.**
+        //
+        // What the value assertions actually pin is little-endian byte
+        // order and the exact bytes each reader consumes from a shared
+        // buffer — neither of which the type system knows anything about.
+        // What the position assertions pin is that the advance matches the
+        // width, which is by construction inside the macro today and would
+        // not be if a hand-written reader were ever added beside it.
+        //
+        // `u64` still matters most: it is the width GGUF uses for every
+        // string length and every count.
+        //
+        // Note also what this test CANNOT do. A Rust test panics at the
+        // first failing assertion, so a single sabotage demonstrates at
+        // most ONE of the twelve arms below is non-vacuous. The others are
+        // capable of failing — that is a different property from having
+        // been shown to fail — and proving each would take one sabotage
+        // per arm.
         let b = [0x11u8, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
         assert_eq!(Cursor::new(&b).u8().unwrap(), 0x11);
         assert_eq!(Cursor::new(&b).u16().unwrap(), 0x2211);
