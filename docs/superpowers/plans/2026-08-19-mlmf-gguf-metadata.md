@@ -3160,6 +3160,17 @@ impl GgufBuilder {
 }
 ```
 
+**Put the builder at `tests/fixture/mod.rs`, not `tests/fixture.rs`.**
+Cargo's autotests rule makes every `.rs` directly under `tests/` its own
+integration target, so `tests/fixture.rs` is compiled twice — once as a
+module of `authored`, once as a target of its own that runs zero tests and
+exposes `GgufBuilder` as a crate-root public type, which trips
+`clippy::new_without_default` under this crate's `-D warnings` gate. A
+subdirectory module keeps `mod fixture;` working, drops the phantom target,
+and removes the need for an `impl Default` that exists only to satisfy a
+lint about a target nobody wanted. `autotests = false` is NOT the fix: it
+would silently stop Task 9's corpus test from running.
+
 - [ ] **Step 2: Write the adversarial tests**
 
 `crates/mlmf-gguf/tests/authored.rs`:
@@ -3261,14 +3272,40 @@ fn a_key_that_is_not_utf8_is_malformed_rather_than_lossy() {
 #[test]
 fn an_unknown_value_type_is_reported_and_earlier_keys_survive() {
     // R1 within the metadata stage.
+    //
+    // Two parts of this fixture look like decoration and are load-bearing.
+    // The unreadable value's payload is itself a WELL-FORMED KV PAIR, and a
+    // THIRD key is declared after it. Changing `break` to `continue` in the
+    // index leaves the cursor inside the unreadable value while the header
+    // still promises another key, so the walk reads `phantom`/`tail` out of
+    // the middle of the value it just declared unreadable.
+    //
+    // Without both, the sabotage is undetectable here. An earlier draft had
+    // only `first` and `odd`, with `odd` last: the header promises nothing
+    // more, and ON THE FINAL ITERATION OF A BOUNDED LOOP `continue` DOES
+    // EXACTLY WHAT `break` DOES. Measured — that form stayed green under
+    // the sabotage its own comment described. A third key with a
+    // `vec![0; 4]` payload is not enough either: the parse then dies at
+    // `.expect("open survives")`, which is red on the wrong assertion.
+    let mut phantom = 7u64.to_le_bytes().to_vec();
+    phantom.extend_from_slice(b"phantom");
+    phantom.extend_from_slice(&8u32.to_le_bytes()); // a String value...
+    phantom.extend_from_slice(&4u64.to_le_bytes());
+    phantom.extend_from_slice(b"tail");
+
     let bytes = GgufBuilder::new()
         .string("first", "kept")
-        .raw_kv("odd", 42, vec![0; 4])
+        .raw_kv("odd", 42, phantom)
+        .string("last", "past the stop")
         .build();
     let (m, report) = GgufMetadata::parse(&bytes, "authored").expect("open survives");
     assert_eq!(m.get("first"), Some(&MetaValue::String("kept".into())));
     assert!(matches!(m.declaration("odd"), Declaration::Unreadable(_)));
     assert_eq!(report.entries().len(), 1);
+    // `last` IS declared by this file and is NOT in the index, so `Absent`
+    // here means "we could not get far enough to tell" rather than a fact
+    // about the file. That is the whole reason the flag is public.
+    assert!(!m.index_complete());
     // The WHOLE key set. Changing `break` to `continue` in the index leaves
     // the cursor inside the unreadable value and invents a phantom key from
     // its tail; every assertion above survives that, because none of them
