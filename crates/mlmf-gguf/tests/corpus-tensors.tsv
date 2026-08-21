@@ -1,0 +1,66 @@
+# Tensor-directory facts measured from real GGUF files.
+#
+# Method: `docs/superpowers/plans/tensor_recon.py --tsv`, an independent
+# Python reader that shares no code, no type table and no arithmetic with
+# mlmf-gguf. That independence is the whole point: an error shared between
+# a parser and its own expectations cannot be caught by comparing them, so
+# this file must never be regenerated from the crate it checks.
+#
+# Corpus: C:\Models\gguf-corpus. The `file` column is the path RELATIVE to
+# that root, because the corpus is not flat: a bare basename cannot be
+# reopened.
+#
+# 29 .gguf files were scanned and 28 rows are here, matching
+# corpus-metadata.tsv row for row. The missing one is
+# legacy/tinyllamas-stories-260k-f32.gguf, which is GGUF v1 and is refused
+# by version rather than misparsed, so there is nothing to measure.
+#
+# Columns are TAB separated.
+#
+#   file          path relative to the corpus root
+#   n_tensors     tensor-info records the header declares
+#   dir_end       byte offset one past the last tensor-info record
+#   data_start    dir_end rounded UP to the file's alignment. For a file
+#                 with NO tensors this is past the end of the file: the
+#                 writer emits no padding when there is nothing to pad for,
+#                 and 19 of these 28 rows are that shape. Validating it
+#                 against the file length would refuse every vocab-only
+#                 GGUF, which is exactly what a metadata consumer opens.
+#   first_name    name of the first tensor-info record
+#   first_code    its raw ggml type code, as the file spells it
+#   first_offset  its declared offset, RELATIVE to data_start
+#   last_end      absolute end of the LAST tensor: data_start + its declared
+#                 offset + its size from block geometry. Verified equal to
+#                 the file's length on every row, which is what makes it a
+#                 differential on geometry and rebase together.
+#
+# The last four columns are `-` for a file that declares no tensors.
+file	n_tensors	dir_end	data_start	first_name	first_code	first_offset	last_end
+llamacpp-vocab/ggml-vocab-aquila.gguf	0	4825676	4825696	-	-	-	-
+llamacpp-vocab/ggml-vocab-baichuan.gguf	0	1340998	1341024	-	-	-	-
+llamacpp-vocab/ggml-vocab-bert-bge.gguf	0	627549	627552	-	-	-	-
+llamacpp-vocab/ggml-vocab-command-r.gguf	0	10874545	10874560	-	-	-	-
+llamacpp-vocab/ggml-vocab-deepseek-coder.gguf	0	1156067	1156096	-	-	-	-
+llamacpp-vocab/ggml-vocab-deepseek-llm.gguf	0	3970167	3970176	-	-	-	-
+llamacpp-vocab/ggml-vocab-falcon.gguf	0	2287728	2287744	-	-	-	-
+llamacpp-vocab/ggml-vocab-gemma-4.gguf	0	15776467	15776480	-	-	-	-
+llamacpp-vocab/ggml-vocab-gpt-2.gguf	0	1766807	1766816	-	-	-	-
+llamacpp-vocab/ggml-vocab-gpt-neox.gguf	0	1771431	1771456	-	-	-	-
+llamacpp-vocab/ggml-vocab-llama-bpe.gguf	0	7818140	7818144	-	-	-	-
+llamacpp-vocab/ggml-vocab-llama-spm.gguf	0	723869	723872	-	-	-	-
+llamacpp-vocab/ggml-vocab-mpt.gguf	0	1771393	1771424	-	-	-	-
+llamacpp-vocab/ggml-vocab-nomic-bert-moe.gguf	0	6821877	6821888	-	-	-	-
+llamacpp-vocab/ggml-vocab-phi-3.gguf	0	726019	726048	-	-	-	-
+llamacpp-vocab/ggml-vocab-qwen2.gguf	0	5928681	5928704	-	-	-	-
+llamacpp-vocab/ggml-vocab-qwen35.gguf	0	5928682	5928704	-	-	-	-
+llamacpp-vocab/ggml-vocab-refact.gguf	0	1720710	1720736	-	-	-	-
+llamacpp-vocab/ggml-vocab-starcoder.gguf	0	1719346	1719360	-	-	-	-
+quants/SmolLM2-135M-Instruct-IQ3_XS.gguf	272	1785944	1785952	token_embd.weight	8	0	88202080
+quants/SmolLM2-135M-Instruct-IQ4_XS.gguf	272	1785944	1785952	token_embd.weight	8	0	90897760
+quants/SmolLM2-135M-Instruct-Q2_K.gguf	272	1785944	1785952	token_embd.weight	8	0	88202080
+quants/SmolLM2-135M-Instruct-Q4_0.gguf	272	1785944	1785952	token_embd.weight	8	0	91893088
+quants/SmolLM2-135M-Instruct-Q4_K_M.gguf	272	1785944	1785952	token_embd.weight	8	0	105454432
+quants/SmolLM2-135M-Instruct-Q5_K_S.gguf	272	1785944	1785952	token_embd.weight	8	0	109974880
+quants/SmolLM2-135M-Instruct-Q6_K.gguf	272	1785944	1785952	token_embd.weight	8	0	138383200
+quants/SmolLM2-135M-Instruct-Q8_0.gguf	272	1785944	1785952	token_embd.weight	8	0	144811360
+quants/SmolLM2-135M-Instruct-f16.gguf	272	1785664	1785664	token_embd.weight	1	0	270885952
