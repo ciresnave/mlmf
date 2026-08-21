@@ -1350,6 +1350,48 @@ The row count assertion must be EXACT and the version mix must be exact, for the
 
 - [ ] **Step 2: Verify every Important finding yourself before fixing it.** Two of plan 3's reviewer findings needed reproduction before they could be acted on, and one of my own "fixes" for a review finding was itself a control that could not fail.
 
+- [ ] **Step 2b: Classify the multi-assert tests by tier.** A commitment
+made mid-plan and scheduled here rather than done ad hoc, because doing it
+between tasks would have meant doing it badly.
+
+**The exposure, measured:** 78 tests in `mlmf-gguf`, **55 with more than one
+assert-bearing statement**, worst case twelve sequential asserts. A Rust test
+panics at the first failing assertion, so one sabotage demonstrates at most
+one arm — every arm after it is green but never seen red.
+
+**The cheap classification, one mutation attempt per test, four outcomes:**
+
+```
+NEVER REACHED              could be vacuous; execution unproven
+REACHED, GREEN, NEVER RED  capable, executes, unproven
+NOT BREAKABLE AT ALL       no mutation exists; the sweep has nothing to aim at
+DEMONSTRATED RED           proven
+```
+
+**Try ONE mutation and see whether it compiles first.** If it does not, the
+arms are compiler-protected and the sweep is over for that test — one run,
+not one per arm. That is the unusual case where the instrument answers by
+refusing to compile, and the refusal IS the finding. It also inverts the cost
+curve: a twelve-assert test looks like twelve units of work and collapses to
+zero.
+
+`every_generated_reader_reads_its_own_width` is already classified: **NOT
+BREAKABLE**. Both mutation attempts (`u64 => u32` in the macro invocation, and
+capping the read width inside the body) are `error[E0308]` — the return type
+and the `[0u8; N]` buffer both derive from `$ty`, so there is nothing to aim
+at, early or late. Twelve arms, zero sabotage targets.
+
+For the breakable ones, use the ORDERED sweep: aim at the LAST assert first,
+which yields N-1 arms proven reachable plus one demonstrated in a single run,
+then walk backward only as far as arms genuinely need reddening rather than
+merely reaching. **A panic at arm k proves every arm before k executed** —
+but only if it is an ASSERTION panic. A test dying at `.expect()` or
+`unwrap()` before reaching any assert has proven nothing, and the
+`test result:` line looks identical either way.
+
+**Report the tier DISTRIBUTION, not a completion claim.** A distribution is
+auditable; a promise is not.
+
 - [ ] **Step 3: Record the rate.** Count the controls in this plan that could not reach the assertion they named. Plan 3's number was eleven, ten of them mine. **If plan 4's rate has not improved, say so plainly and say what that implies** — a rate that does not move when you add controls is telling you the controls are not the binding constraint.
 
 - [ ] **Step 4: Commit and push.**
