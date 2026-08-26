@@ -11,6 +11,14 @@
         "-Clink-arg=/NODEFAULTLIB:stdc++.lib",
     ]
 
-[build]
-    # Explicitly target MSVC toolchain
-    target = "x86_64-pc-windows-msvc"
+# NO `[build] target = ...` HERE, AND IT MUST NEVER RETURN.
+#
+# This file used to set `target = "x86_64-pc-windows-msvc"` unconditionally.
+# That is correct on a Windows developer machine and fatal everywhere else:
+# a Linux CI runner has no such target installed, so the very first
+# dependency fails with `error[E0463]: can't find crate for `core``, and the
+# workspace never compiles at all.
+#
+# The `[target.x86_64-pc-windows-msvc]` section above is fine — it applies
+# only when that target is ALREADY the one being built. A `[build] target`
+# applies always.
