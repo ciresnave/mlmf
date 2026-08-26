@@ -1,0 +1,8 @@
+bytemuck v1.25.2
+proc-macro2 v1.0.107
+quote v1.0.47
+smallvec v1.15.2
+syn v3.0.3
+thiserror v2.0.20
+thiserror-impl v2.0.20
+unicode-ident v1.0.24

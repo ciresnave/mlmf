@@ -1,0 +1,15 @@
+[package]
+    description          = "Vocabulary and traits for machine learning model files. No I/O, no tensor types, no backend."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-core"
+    repository.workspace = true
+    version.workspace    = true
+
+[dependencies]
+    bytemuck  = "1.14"
+    smallvec  = "1.13"
+    thiserror = "2"
+
+[features]
+    default = []

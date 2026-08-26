@@ -1,3 +1,19 @@
+[workspace]
+members = ["crates/*"]
+# Without this, a workspace whose root is itself a package selects ONLY the
+# root package for workspace-root commands. Bare `cargo test` therefore ran
+# the legacy crate's doctests and none of mlmf-core's gates — not purity
+# (C3), not the dependency allow-list (C2), not the transitive snapshot
+# (C1/C2). The command a developer types, and the command any stock CI
+# template contains, checked nothing.
+default-members = [".", "crates/mlmf-core"]
+
+[workspace.package]
+edition    = "2024"
+license    = "MIT OR Apache-2.0"
+repository = "https://github.com/CireSnave/mlmf"
+version    = "0.4.0"
+
 [package]
     authors = ["Eric Evans <CireSnave@gmail.com>"]
     categories = ["algorithms", "science"]
@@ -14,7 +30,10 @@
     name = "mlmf"
     readme = "README.md"
     repository = "https://github.com/CireSnave/mlmf"
-    version = "0.3.0"
+    # C7: one version number across the workspace, released in lockstep.
+    # This hardcoded 0.3.0 while [workspace.package] said 0.4.0, so the
+    # constraint was false on the day it was written.
+    version.workspace = true
 
 [dependencies]
     # Candlelight - Unified Candle ML framework wrapper (from GitHub)
