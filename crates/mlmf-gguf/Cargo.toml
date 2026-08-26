@@ -1,0 +1,11 @@
+[package]
+    description          = "Reads GGUF metadata. No I/O, no interpretation."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-gguf"
+    repository.workspace = true
+    version.workspace    = true
+
+[dependencies]
+    mlmf-core = { path = "../mlmf-core", version = "0.4.0" }
+    mlmf-ggml = { path = "../mlmf-ggml", version = "0.4.0" }

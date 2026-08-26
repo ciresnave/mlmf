@@ -26,14 +26,36 @@ use crate::MetaValue;
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum UnrecognizedKind {
-    /// A metadata key this build has no canonical name for. The value is
-    /// preserved verbatim — dropping unrecognised keys is the worst kind
-    /// of lossy, because it is invisible.
+    /// A metadata key this build did not act on: one it has no canonical
+    /// name for, one declared twice, or one whose value it recognised and
+    /// refused. Dropping any of them silently is the worst kind of lossy,
+    /// because it is invisible.
     MetadataKey {
         /// Key exactly as declared.
         key: String,
-        /// Value exactly as declared.
-        value: MetaValue,
+        /// Value exactly as declared, when the parse captured it.
+        ///
+        /// `None` when it deliberately did not. Reporting a duplicate key
+        /// must not cost a value decode: the reference corpus's largest
+        /// single key declares 514,906 strings, so decoding one to
+        /// describe it would cost roughly 17 MB to say "this appeared
+        /// twice" — that is the ONE key; the ~26 MB quoted elsewhere is the
+        /// whole file's 777,056 strings, two quantities that were briefly
+        /// given the same number. A reader that needs the value can seek it; a report
+        /// entry exists to be cheap.
+        value: Option<MetaValue>,
+        /// Why this entry exists, when the key and value do not say.
+        ///
+        /// `None` for the plain unrecognised-key case, where the value IS
+        /// the finding. `Some` when the parse recognised the key and
+        /// declined it — a duplicate, or a declared value it refused —
+        /// because nothing in the pair alone conveys that.
+        ///
+        /// This field exists because those reasons were previously stored
+        /// in `value`, which is documented as the file's own bytes. An
+        /// explanation sitting in a field documented as data is not a
+        /// smaller problem than no explanation at all.
+        reason: Option<String>,
     },
     /// A file present in a checkpoint whose role is unknown.
     File {
@@ -94,7 +116,21 @@ pub struct Unrecognized {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Declaration<'a> {
-    /// The key is not declared. Never a default.
+    /// The key was not found. Never a default.
+    ///
+    /// **Whether this is a fact about the file depends on
+    /// [`MetadataSource::index_complete`].** With a complete view it means
+    /// the key is not declared. With an incomplete one it means only *not
+    /// found in the part that could be read* — a walk that stopped early
+    /// cannot distinguish "absent" from "past the point where we stopped",
+    /// and a key may sit immediately beyond it.
+    ///
+    /// So a positive finding is always safe to act on and a negative one
+    /// is not, until `index_complete()` says otherwise. Those are different
+    /// claims: "this model declares no chat template" versus "we could not
+    /// get far enough to tell".
+    ///
+    /// [`MetadataSource::index_complete`]: crate::MetadataSource::index_complete
     Absent,
     /// The key is declared and the value could not be decoded. Carries the
     /// report entry, so the complaint can name the key and what was seen.
@@ -155,7 +191,8 @@ mod tests {
         r.push(Unrecognized {
             kind: UnrecognizedKind::MetadataKey {
                 key: "llama.future_thing".into(),
-                value: MetaValue::U32(42),
+                value: Some(MetaValue::U32(42)),
+                reason: None,
             },
             origin: "model.gguf".into(),
         });
@@ -164,12 +201,59 @@ mod tests {
         let entry = &r.entries()[0];
         assert_eq!(entry.origin, "model.gguf");
         match &entry.kind {
-            UnrecognizedKind::MetadataKey { key, value } => {
+            UnrecognizedKind::MetadataKey { key, value, reason } => {
                 assert_eq!(key, "llama.future_thing");
-                assert_eq!(value.as_u64(), Some(42));
+                assert_eq!(value.as_ref().and_then(MetaValue::as_u64), Some(42));
+                // The plain unrecognised-key case: the value IS the
+                // finding, so there is nothing for `reason` to add.
+                assert_eq!(*reason, None);
             }
             other => panic!("wrong kind: {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_reason_and_a_value_are_different_fields_and_neither_impersonates_the_other() {
+        // The defect this variant's shape exists to prevent: an explanation
+        // sentence stored in a field documented as the file's own bytes. A
+        // consumer reading `value` must always be reading the model, never
+        // the parser's commentary.
+        let mut r = Report::new();
+        r.push(Unrecognized {
+            kind: UnrecognizedKind::MetadataKey {
+                key: "general.alignment".into(),
+                value: Some(MetaValue::U64(64)),
+                reason: Some("must be UINT32; using the default of 32".into()),
+            },
+            origin: "model.gguf".into(),
+        });
+        r.push(Unrecognized {
+            kind: UnrecognizedKind::MetadataKey {
+                key: "dup".into(),
+                value: None,
+                reason: Some("declared more than once".into()),
+            },
+            origin: "model.gguf".into(),
+        });
+
+        // Whole-value comparison of both entries, not a field at a time:
+        // a chain of field assertions cannot see the two entries swapped.
+        let got: Vec<_> = r.entries().iter().map(|e| e.kind.clone()).collect();
+        assert_eq!(
+            got,
+            vec![
+                UnrecognizedKind::MetadataKey {
+                    key: "general.alignment".into(),
+                    value: Some(MetaValue::U64(64)),
+                    reason: Some("must be UINT32; using the default of 32".into()),
+                },
+                UnrecognizedKind::MetadataKey {
+                    key: "dup".into(),
+                    value: None,
+                    reason: Some("declared more than once".into()),
+                },
+            ]
+        );
     }
 
     #[test]
@@ -220,7 +304,8 @@ mod tests {
         Unrecognized {
             kind: UnrecognizedKind::MetadataKey {
                 key: k.into(),
-                value: MetaValue::U32(v),
+                value: Some(MetaValue::U32(v)),
+                reason: None,
             },
             origin: origin.into(),
         }

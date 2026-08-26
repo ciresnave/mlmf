@@ -1,28 +1,39 @@
 #!/bin/sh
 # Refuse a commit whose staged Rust files are not rustfmt-clean.
 #
-# Checks the WORKING TREE rather than the index, which is the honest
-# approximation: `cargo fmt --check` has no staged-content mode, and a
-# tree that is clean overall cannot have a dirty staged subset. The
-# failure mode is a false positive from unstaged drift elsewhere, which
-# is loud and fixable, rather than a false negative that lets unformatted
-# code through.
+# Checks the STAGED FILES specifically, not the whole tree. An earlier
+# version ran `cargo fmt --all --check`, which fails on unformatted code
+# anywhere in the workspace — including files another concurrent worker is
+# mid-edit on. That blocks an unrelated commit for a reason the committer
+# cannot fix without reaching into somebody else's work, so the gate stopped
+# being about the change being made.
+#
+# Known limitation, stated rather than hidden: this checks each staged path
+# as it exists ON DISK, not the exact staged blob. A file staged and then
+# further edited is checked in its newer form. That is the same compromise
+# nearly every rustfmt hook makes, and the failure direction is a false
+# positive the committer can see and fix, never a false negative.
 #
 # Enable once per clone:  git config core.hooksPath .githooks
 
-if ! git diff --cached --name-only --diff-filter=ACM | grep -q '\.rs$'; then
+staged=$(git diff --cached --name-only --diff-filter=ACM | grep '\.rs$')
+[ -z "$staged" ] && exit 0
+
+if ! command -v rustfmt >/dev/null 2>&1; then
+    echo "pre-commit: rustfmt not on PATH; skipping the format gate." >&2
     exit 0
 fi
 
-if ! command -v cargo >/dev/null 2>&1; then
-    echo "pre-commit: cargo not on PATH; skipping the rustfmt gate." >&2
-    exit 0
-fi
+bad=""
+for f in $staged; do
+    [ -f "$f" ] || continue
+    rustfmt --edition 2024 --check "$f" >/dev/null 2>&1 || bad="$bad $f"
+done
 
-if ! cargo fmt --all -- --check >/dev/null 2>&1; then
+if [ -n "$bad" ]; then
     echo >&2
-    echo "pre-commit: rustfmt would change these files:" >&2
-    cargo fmt --all -- --check 2>&1 | grep '^Diff in' | sed 's/ at line.*//;s/^Diff in /  /' | sort -u >&2
+    echo "pre-commit: these STAGED files are not rustfmt-clean:" >&2
+    for f in $bad; do echo "  $f" >&2; done
     echo >&2
     echo "Run 'cargo fmt --all', re-stage, and commit again." >&2
     exit 1

@@ -596,8 +596,12 @@ pub mod error;
 `crates/mlmf-gguf/tests/allowed-std.list`:
 
 ```
-# mlmf-gguf parses bytes. `sync` is here for OnceLock, which backs the
-# lazy KV index (D1) and is not a way out of the process.
+# mlmf-gguf parses bytes.
+#
+# NOTE: `sync` is deliberately ABSENT until Task 6 needs it. Granting a
+# permission before any code uses it means no red-then-green cycle ever
+# proves the gate would catch its misuse, and an entry nothing needs can
+# outlive the design that asked for it.
 cmp
 fmt
 iter
@@ -607,7 +611,6 @@ result
 slice
 str
 string
-sync
 u32
 u64
 usize
@@ -637,14 +640,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reads_little_endian_widths_and_advances() {
-        let bytes = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-        let mut c = Cursor::new(&bytes);
-        assert_eq!(c.pos(), 0);
-        assert_eq!(c.u16().unwrap(), 0x0201);
-        assert_eq!(c.pos(), 2);
-        assert_eq!(c.u32().unwrap(), 0x06050403);
-        assert_eq!(c.pos(), 6);
+    fn every_generated_reader_reads_its_own_width() {
+        // All seven, by identity rather than by sampling two. The macro
+        // guarantees the SHAPE of the generated bodies is identical; it does
+        // not guarantee the type list is right. `u64 => u32` in the
+        // invocation would produce a method named `u64` that reads four
+        // bytes, and no amount of testing `u16` and `u32` would notice.
+        //
+        // `u64` matters most: it is the width GGUF uses for every string
+        // length and every count, so Task 5 and Task 6 build directly on it.
+        let b = [0x11u8, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
+        assert_eq!(Cursor::new(&b).u8().unwrap(), 0x11);
+        assert_eq!(Cursor::new(&b).u16().unwrap(), 0x2211);
+        assert_eq!(Cursor::new(&b).u32().unwrap(), 0x4433_2211);
+        assert_eq!(Cursor::new(&b).u64().unwrap(), 0x8877_6655_4433_2211);
+        assert_eq!(
+            Cursor::new(&b).i64().unwrap(),
+            0x8877_6655_4433_2211u64 as i64
+        );
+
+        // And each advances by its own width. A reader that returns the
+        // right value after consuming the wrong number of bytes leaves the
+        // cursor desynchronised, and the symptom appears at the NEXT field
+        // rather than at this one.
+        let mut c = Cursor::new(&b);
+        c.u8().unwrap();
+        assert_eq!(c.pos(), 1, "u8");
+        let mut c = Cursor::new(&b);
+        c.u16().unwrap();
+        assert_eq!(c.pos(), 2, "u16");
+        let mut c = Cursor::new(&b);
+        c.u32().unwrap();
+        assert_eq!(c.pos(), 4, "u32");
+        let mut c = Cursor::new(&b);
+        c.u64().unwrap();
+        assert_eq!(c.pos(), 8, "u64");
+        let mut c = Cursor::new(&b);
+        c.i64().unwrap();
+        assert_eq!(c.pos(), 8, "i64");
+        let mut c = Cursor::new(&b);
+        c.f32().unwrap();
+        assert_eq!(c.pos(), 4, "f32");
+        let mut c = Cursor::new(&b);
+        c.f64().unwrap();
+        assert_eq!(c.pos(), 8, "f64");
     }
 
     #[test]
@@ -653,11 +692,19 @@ mod tests {
         // what let an operator tell a truncated download from a corrupt one.
         let bytes = [0x01u8, 0x02];
         let mut c = Cursor::new(&bytes);
-        let e = c.u32().unwrap_err();
-        assert_eq!(e.needed, 4);
-        assert_eq!(e.available, 2);
-        // And the cursor must not have moved, so the caller can report the
-        // offset the failure happened at.
+        // One comparison over the whole error. Chaining `needed` then
+        // `available` means a transposition in the construction — the two
+        // sit adjacent, so it is a plausible slip — trips the first
+        // assertion and the second never runs, blaming the wrong field.
+        assert_eq!(
+            c.u32().unwrap_err(),
+            Truncated {
+                needed: 4,
+                available: 2
+            }
+        );
+        // Position is a property of the cursor rather than of the error, so
+        // it cannot fold into the comparison above and stays its own check.
         assert_eq!(c.pos(), 0);
     }
 
@@ -680,9 +727,17 @@ mod tests {
         // triggered by four bytes of a header.
         let bytes = [0u8; 8];
         let mut c = Cursor::new(&bytes);
-        let e = c.take(u64::MAX).unwrap_err();
-        assert_eq!(e.needed, u64::MAX);
-        assert_eq!(e.available, 8);
+        assert_eq!(
+            c.take(u64::MAX).unwrap_err(),
+            Truncated {
+                needed: u64::MAX,
+                available: 8
+            }
+        );
+        // The same guarantee its sibling short-read test pins: a refused
+        // read must not move the cursor, or every later error reports an
+        // offset that is wrong by however much the failed read consumed.
+        assert_eq!(c.pos(), 0);
     }
 
     #[test]
@@ -698,15 +753,39 @@ mod tests {
 
     #[test]
     fn floats_are_bit_exact_not_approximately_decoded() {
-        // f32::from_le_bytes, not a cast through f64 or a parse. Exact
-        // equality is the right assertion here: any transformation at all
-        // shows up as inequality.
-        let v: f32 = -1.5;
-        let bytes = v.to_le_bytes();
-        assert_eq!(Cursor::new(&bytes).f32().unwrap(), v);
-        let w: f64 = 1.0 / 3.0;
-        let wb = w.to_le_bytes();
-        assert_eq!(Cursor::new(&wb).f64().unwrap(), w);
+        // Compare BITS, and pick values that a lossy route would damage.
+        //
+        // A first draft used -1.5 and claimed exact equality would catch a
+        // detour through f64. Both halves of that were wrong. -1.5 is
+        // exactly representable in f32, f64 and decimal, so it distinguishes
+        // nothing — and an f32 -> f64 -> f32 round trip is bit-exact for
+        // EVERY f32, because widening never rounds and narrowing back with
+        // round-to-nearest recovers the original. There is no double
+        // rounding to lose. So the f64 detour was never a hazard worth
+        // naming; the real ones are flush-to-zero and byte order, which is
+        // what these values and this comparison are chosen for.
+        let third = f32::from_bits(0x3EAA_AAAB); // nearest f32 to 1/3
+        assert_eq!(
+            Cursor::new(&third.to_le_bytes()).f32().unwrap().to_bits(),
+            0x3EAA_AAAB
+        );
+
+        // A subnormal. An implementation that normalises on conversion —
+        // or runs with flush-to-zero — turns this into 0.0, and comparing
+        // bits is what catches it. Comparing values would too, but only
+        // because 0.0 != this; comparing bits also catches a sign or
+        // payload change that compares equal as a float.
+        let subnormal = f32::from_bits(0x0000_0001);
+        assert_eq!(
+            Cursor::new(&subnormal.to_le_bytes()).f32().unwrap().to_bits(),
+            0x0000_0001
+        );
+
+        let w = f64::from_bits(0x3FD5_5555_5555_5555); // nearest f64 to 1/3
+        assert_eq!(
+            Cursor::new(&w.to_le_bytes()).f64().unwrap().to_bits(),
+            0x3FD5_5555_5555_5555
+        );
     }
 }
 ```
@@ -761,8 +840,14 @@ impl<'a> Cursor<'a> {
         self.pos as u64
     }
 
-    /// Bytes remaining.
-    fn remaining(&self) -> u64 {
+    /// Bytes remaining from the current position.
+    ///
+    /// Public because a parser needs it to bound a *declared* count before
+    /// trusting it: no container can hold more elements than it has bytes,
+    /// since every element occupies at least one. That check is what turns
+    /// an absurd declared length into an error instead of an allocation.
+    #[must_use]
+    pub fn remaining(&self) -> u64 {
         (self.bytes.len() - self.pos) as u64
     }
 
@@ -849,7 +934,29 @@ cargo clippy -p mlmf-gguf --all-targets -- -D warnings
 1. Add `use std::{fs, path::Path};` and `pub fn r(p:&Path)->Vec<u8>{fs::read(p).unwrap()}` to `src/lib.rs`. The consolidated purity gate must go red **naming `mlmf-gguf`** — this crate is new, so this is the first proof the Task 2 loop actually reaches it. Restore.
 2. Add `byteorder = "1"` to `[dependencies]`. The deps gate must go red naming it. Restore.
 3. In `take`, change the bounds check to `if n > self.remaining() + 8`. `a_short_read_reports_what_it_needed_and_what_was_there` must go red. Restore.
-4. In `take`, leave the bounds check but move the position update before the slice. Confirm `a_short_read...` still asserts `c.pos() == 0` — **this is the assertion that catches a cursor which advances on failure**, and without it a caller's reported error offset would be wrong.
+
+3b. **Isolate the advance half of the width test.** Inside the `fixed_width!` macro body, after `let raw = self.take(N as u64)?;` add `self.pos -= 1;`. Every value assertion still passes — the bytes read are correct — and only the seven `assert_eq!(c.pos(), ...)` assertions fail. Confirm the failure names a width. Restore.
+
+   **Do not use `u64 => u32` in the macro invocation for this.** It goes red, but as a *compile error*: the deny-by-default `overflowing_literals` lint rejects the 64-bit test literal before any test runs, which halts the binary and proves nothing about whether the advance assertions are live. A control that stops the compiler has not exercised anything.
+
+3c. **Prove the subnormal case is load-bearing.** In the `f32` reader, flush subnormals: `let v = <f32>::from_le_bytes(buf); Ok(if v.is_subnormal() { 0.0 } else { v })`. Only the subnormal assertion in `floats_are_bit_exact_not_approximately_decoded` may fail — the 1/3 case must stay green, which is what makes the two values complementary rather than redundant. Restore.
+
+   **Do not use an `f64` round trip for this.** `f32 -> f64 -> f32` is bit-exact for every `f32`: widening never rounds, and narrowing back with round-to-nearest recovers the original, so there is no double rounding to lose. It is a mathematical no-op and cannot fail.
+4. In `take`, make the **failure path itself** consume the remainder before returning:
+
+   ```rust
+   if n > self.remaining() {
+       let available = self.remaining(); // captured BEFORE the mutation
+       self.pos = self.bytes.len();      // wrongly consume on failure
+       return Err(Truncated { needed: n, available });
+   }
+   ```
+
+   `a_short_read_reports_what_it_needed_and_what_was_there` must go red on its `assert_eq!(c.pos(), 0)` assertion. Restore.
+
+   **Capturing `available` first is what makes this mutation isolating, and that detail is load-bearing.** Without it, `self.pos = self.bytes.len()` changes what `self.remaining()` returns, so the test trips its `assert_eq!(e.available, 2)` assertion — which sits *above* the `pos` one — and panics before `pos` is ever checked. The test goes red either way, which looks like success and proves nothing about the assertion you were trying to exercise. **An earlier assertion in the same test can shadow a later one, so "the test went red" is not evidence that a particular assertion works.** Check which assertion fires, not merely that one did.
+
+   **A first draft of this plan named the wrong mutation here** — "move the position update before the slice" — and an implementer correctly refused to fudge it when the suite stayed green. The bounds check is an *early return*, so the failure path never touches `self.pos`, and reordering the statements after the guard is invisible to a failing read. The assertion was right; the control named a mutation that could not reach it. The version above does reach it, and "consume what is available, then error" is a plausible thing someone writes on purpose — which is what a control should target.
 
 - [ ] **Step 7: Commit**
 
@@ -918,11 +1025,18 @@ mod tests {
     fn reads_a_well_formed_v3_header() {
         let b = header_bytes(3, 291, 42);
         let mut c = Cursor::new(&b);
-        let h = parse_header(&mut c).expect("valid header");
-        assert_eq!(h.version, 3);
-        assert_eq!(h.tensor_count, 291);
-        assert_eq!(h.kv_count, 42);
-        assert_eq!(h.end, 24, "magic 4 + version 4 + two i64 = 24");
+        // Whole-value comparison: a transposition of `tensor_count` and
+        // `kv_count` in the constructor would otherwise trip the first
+        // assertion and leave the second unproven.
+        assert_eq!(
+            parse_header(&mut c).expect("valid header"),
+            Header {
+                version: 3,
+                tensor_count: 291,
+                kv_count: 42,
+                end: 24, // magic 4 + version 4 + two i64
+            }
+        );
     }
 
     #[test]
@@ -988,10 +1102,9 @@ mod tests {
         let b = header_bytes(4, 0, 0);
         let mut c = Cursor::new(&b);
         assert!(matches!(
-            parse_header(&mut Cursor::new(&b)).unwrap_err(),
+            parse_header(&mut c).unwrap_err(),
             GgufError::UnsupportedVersion { version: 4 }
         ));
-        let _ = c;
     }
 
     #[test]
@@ -1001,33 +1114,40 @@ mod tests {
         // times has turned eight bytes into a hang.
         let b = header_bytes(3, -1, 0);
         let mut c = Cursor::new(&b);
-        match parse_header(&mut c).unwrap_err() {
-            GgufError::Malformed { stage, detail, .. } => {
-                assert_eq!(stage, Stage::Header);
-                assert!(detail.contains("-1"), "must name the value seen: {detail}");
+        // Whole-value comparison, for two reasons. A chain of field
+        // assertions carries ordering bias — one on `stage` above one on
+        // `detail` means a mutation touching only `detail` is masked or
+        // misattributed. And this test's own sabotage stops the error being
+        // produced at all, so it panics at `unwrap_err` before any inner
+        // assertion is reached: those assertions were never proven live.
+        assert_eq!(
+            parse_header(&mut c).unwrap_err(),
+            GgufError::Malformed {
+                stage: Stage::Header,
+                offset: 8,
+                detail: "tensor count is negative: -1".to_string(),
             }
-            other => panic!("expected Malformed, got {other:?}"),
-        }
+        );
     }
 
     #[test]
     fn a_truncated_header_reports_the_stage_and_the_offset() {
         let b = b"GGUF\x03\x00\x00\x00\x01".to_vec(); // 9 bytes: magic, version, one stray
         let mut c = Cursor::new(&b);
-        match parse_header(&mut c).unwrap_err() {
+        // Whole-value comparison rather than a chain of field assertions.
+        // Chaining means a transposition of `needed` and `available` — a
+        // plausible one-line slip, since they are adjacent in the
+        // construction — trips the `needed` assertion and the `available`
+        // one never runs, so the failure names the wrong field.
+        assert_eq!(
+            parse_header(&mut c).unwrap_err(),
             GgufError::Truncated {
-                stage,
-                offset,
-                needed,
-                available,
-            } => {
-                assert_eq!(stage, Stage::Header);
-                assert_eq!(offset, 8, "the tensor count starts at byte 8");
-                assert_eq!(needed, 8);
-                assert_eq!(available, 1);
+                stage: Stage::Header,
+                offset: 8, // the tensor count starts at byte 8
+                needed: 8,
+                available: 1,
             }
-            other => panic!("expected Truncated, got {other:?}"),
-        }
+        );
     }
 
     #[test]
@@ -1471,13 +1591,18 @@ mod tests {
         b.extend_from_slice(&99u32.to_le_bytes());
         b.extend_from_slice(&1u64.to_le_bytes());
         let mut c = Cursor::new(&b);
-        match skip_value(&mut c, ValueType::Array).unwrap_err() {
-            GgufError::Malformed { stage, detail, .. } => {
-                assert_eq!(stage, Stage::Metadata);
-                assert!(detail.contains("99"), "must name the code: {detail}");
+        // One comparison over the whole error, against a fully-specified
+        // literal, rather than chaining `stage` then `detail`: chaining
+        // means a `stage` mismatch fires first and the `detail` assertion
+        // — the one that actually proves the code was named — never runs.
+        assert_eq!(
+            skip_value(&mut c, ValueType::Array).unwrap_err(),
+            GgufError::Malformed {
+                stage: Stage::Metadata,
+                offset: 0,
+                detail: "array declares unknown element type 99".to_string(),
             }
-            other => panic!("expected Malformed, got {other:?}"),
-        }
+        );
     }
 
     #[test]
@@ -1519,6 +1644,188 @@ mod tests {
         match decode_value(&mut c, ValueType::String).unwrap() {
             MetaValue::String(s) => assert_eq!(s.as_bytes(), raw, "the NUL is data"),
             other => panic!("expected String, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_value_round_trips_every_type() {
+        // `decode_value` had tests for exactly two of thirteen types, and
+        // none at all for its Array arm. This loop covers the eleven
+        // scalars; String and Array are exercised by their own tests
+        // because both need structured fixtures rather than a width and a
+        // literal — the branch carrying this crate's
+        // whole 500,000-element rationale. A copy-paste width slip in any
+        // scalar arm (`I16` reaching for `cursor.u32()`, say) would
+        // desynchronise the cursor and no test would have noticed.
+        //
+        // Each case asserts the decoded value AND the bytes consumed,
+        // because a reader that returns the right value after eating the
+        // wrong number of bytes breaks the NEXT key rather than this one.
+        let cases: Vec<(ValueType, Vec<u8>, MetaValue, u64)> = vec![
+            (ValueType::U8, vec![0xFE], MetaValue::U8(0xFE), 1),
+            (ValueType::I8, vec![0xFE], MetaValue::I8(-2), 1),
+            (ValueType::U16, vec![0x01, 0x02], MetaValue::U16(0x0201), 2),
+            (ValueType::I16, vec![0xFE, 0xFF], MetaValue::I16(-2), 2),
+            (
+                ValueType::U32,
+                vec![0x01, 0x02, 0x03, 0x04],
+                MetaValue::U32(0x0403_0201),
+                4,
+            ),
+            (
+                ValueType::I32,
+                vec![0xFE, 0xFF, 0xFF, 0xFF],
+                MetaValue::I32(-2),
+                4,
+            ),
+            (
+                ValueType::U64,
+                vec![1, 2, 3, 4, 5, 6, 7, 8],
+                MetaValue::U64(0x0807_0605_0403_0201),
+                8,
+            ),
+            (
+                ValueType::I64,
+                vec![0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+                MetaValue::I64(-2),
+                8,
+            ),
+            (
+                ValueType::F32,
+                (-1.5f32).to_le_bytes().to_vec(),
+                MetaValue::F32(-1.5),
+                4,
+            ),
+            (
+                ValueType::F64,
+                (0.25f64).to_le_bytes().to_vec(),
+                MetaValue::F64(0.25),
+                8,
+            ),
+            (ValueType::Bool, vec![0], MetaValue::Bool(false), 1),
+        ];
+        for (ty, bytes, want, width) in cases {
+            let mut c = Cursor::new(&bytes);
+            assert_eq!(decode_value(&mut c, ty).unwrap(), want, "{ty:?} value");
+            assert_eq!(c.pos(), width, "{ty:?} consumed the wrong width");
+        }
+    }
+
+    #[test]
+    fn decoding_an_array_yields_its_elements_and_consumes_it_exactly() {
+        // The Array arm, which had no test at all — not even a happy path.
+        let mut b = 4u32.to_le_bytes().to_vec(); // U32 elements
+        b.extend_from_slice(&3u64.to_le_bytes());
+        for v in [10u32, 20, 30] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        b.extend_from_slice(b"SENTINEL");
+        let mut c = Cursor::new(&b);
+        assert_eq!(
+            decode_value(&mut c, ValueType::Array).unwrap(),
+            MetaValue::Array(vec![
+                MetaValue::U32(10),
+                MetaValue::U32(20),
+                MetaValue::U32(30)
+            ])
+        );
+        // Landing point, so a decode that over- or under-runs is caught
+        // here rather than at whatever key follows it in a real file.
+        assert_eq!(c.take(8).unwrap(), b"SENTINEL");
+    }
+
+    #[test]
+    fn an_array_claiming_more_elements_than_the_file_has_bytes_is_refused() {
+        // Twelve bytes of prefix claiming 2^40 elements.
+        //
+        // This fixture proves the bound NAMES the right thing, not that it
+        // prevents a crash — a sabotage established that `try_reserve`
+        // already refuses a request this large, so removing the bound still
+        // errors, just citing allocator capacity instead of the invariant
+        // actually violated. The case the bound uniquely catches is milder
+        // and untestable here without a large fixture: a count of ten
+        // million against a small file, which allocates hundreds of
+        // megabytes before failing on truncation partway through the loop.
+        let mut b = 4u32.to_le_bytes().to_vec(); // U32 elements
+        b.extend_from_slice(&(1u64 << 40).to_le_bytes());
+        let mut c = Cursor::new(&b);
+        let err = decode_value(&mut c, ValueType::Array).unwrap_err();
+        match err {
+            GgufError::Malformed { detail, .. } => {
+                assert!(
+                    detail.contains("1099511627776") && detail.contains("bytes remain"),
+                    "must name the count and the bound: {detail}"
+                );
+            }
+            other => panic!("expected Malformed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nesting_deeper_than_the_limit_is_refused_rather_than_overflowing_the_stack() {
+        // Each level is twelve bytes: a 4-byte element type and an 8-byte
+        // count of 1. That is how cheaply a file can ask for unbounded
+        // recursion, and why the depth bound exists — a stack overflow
+        // aborts the process instead of returning an error.
+        // A literal depth, deliberately NOT `MAX_ARRAY_DEPTH + 5`. Writing
+        // it in terms of the constant means raising the constant to
+        // `u32::MAX` — the obvious sabotage — overflows the addition at
+        // COMPILE time and rustc's `arithmetic_overflow` lint rejects the
+        // crate before a test binary exists. The control could then never
+        // run. A fixture that depends on the value it is testing cannot
+        // survive that value being mutated.
+        const NESTED: usize = 200;
+        let mut b = Vec::new();
+        for _ in 0..NESTED {
+            b.extend_from_slice(&9u32.to_le_bytes()); // element type: Array
+            b.extend_from_slice(&1u64.to_le_bytes());
+        }
+        b.extend_from_slice(&4u32.to_le_bytes()); // innermost: U32
+        b.extend_from_slice(&1u64.to_le_bytes());
+        b.extend_from_slice(&7u32.to_le_bytes());
+
+        let mut c = Cursor::new(&b);
+        assert!(matches!(
+            skip_value(&mut c, ValueType::Array).unwrap_err(),
+            GgufError::Malformed { .. }
+        ));
+        let mut c = Cursor::new(&b);
+        assert!(matches!(
+            decode_value(&mut c, ValueType::Array).unwrap_err(),
+            GgufError::Malformed { .. }
+        ));
+    }
+
+    #[test]
+    fn skip_and_decode_agree_on_what_they_refuse() {
+        // The whole lazy design rests on this. `skip_value` decides what
+        // gets indexed at open; `decode_value` decides what can be read
+        // later. If they disagree, a key survives indexing and then fails
+        // when somebody asks for it, and the file looks fine until the
+        // moment it does not.
+        //
+        // Nothing forces them to agree — they walk the same grammar twice,
+        // in two functions, and a depth bound added to both independently
+        // produced exactly this divergence: the skip path's fixed-width
+        // fast path elided a descent the decode path still made, so skip
+        // accepted 64 levels that decode refused. This pins the agreement
+        // rather than the individual behaviours.
+        for nested in [1usize, 2, 63, 64, 65, 70] {
+            let mut b = Vec::new();
+            for _ in 0..nested {
+                b.extend_from_slice(&9u32.to_le_bytes()); // element type: Array
+                b.extend_from_slice(&1u64.to_le_bytes());
+            }
+            b.extend_from_slice(&4u32.to_le_bytes()); // a fixed-width leaf,
+            b.extend_from_slice(&1u64.to_le_bytes()); // which is the case
+            b.extend_from_slice(&7u32.to_le_bytes()); // the fast path takes
+
+            let skipped = skip_value(&mut Cursor::new(&b), ValueType::Array).is_ok();
+            let decoded = decode_value(&mut Cursor::new(&b), ValueType::Array).is_ok();
+            assert_eq!(
+                skipped, decoded,
+                "{nested} levels: skip accepted {skipped}, decode accepted {decoded}"
+            );
         }
     }
 
@@ -1653,6 +1960,21 @@ impl ValueType {
     }
 }
 
+/// Maximum nesting depth for arrays of arrays.
+///
+/// GGUF permits an array whose elements are arrays; real files use depth 1
+/// at most. Each level costs only 12 bytes on the wire — a 4-byte element
+/// type and an 8-byte count — so a few hundred kilobytes of crafted input
+/// drives recursion tens of thousands of frames deep and overflows the
+/// stack, which **aborts the process** rather than returning an error.
+///
+/// Every other adversarial input in this crate becomes a `Result`: a
+/// declared length larger than the file, a count that overflows, an
+/// unknown type code. Nesting is the one that could still take the process
+/// down, so it gets a bound too. 64 is far past anything a real writer
+/// emits and far short of anything that threatens the stack.
+const MAX_ARRAY_DEPTH: u32 = 64;
+
 /// Advance past one value without decoding it.
 ///
 /// This is what makes opening a file O(keys) rather than O(vocabulary):
@@ -1664,6 +1986,17 @@ impl ValueType {
 /// [`GgufError::Malformed`] if an array declares an element type this build
 /// does not know.
 pub fn skip_value(cursor: &mut Cursor<'_>, ty: ValueType) -> Result<(), GgufError> {
+    skip_at_depth(cursor, ty, 0)
+}
+
+fn skip_at_depth(cursor: &mut Cursor<'_>, ty: ValueType, depth: u32) -> Result<(), GgufError> {
+    if depth > MAX_ARRAY_DEPTH {
+        return Err(GgufError::Malformed {
+            stage: Stage::Metadata,
+            offset: cursor.pos(),
+            detail: format!("array nesting deeper than {MAX_ARRAY_DEPTH}"),
+        });
+    }
     if let Some(w) = ty.fixed_width() {
         let at = cursor.pos();
         cursor.take(w).map_err(|t| trunc(at, t))?;
@@ -1682,6 +2015,20 @@ pub fn skip_value(cursor: &mut Cursor<'_>, ty: ValueType) -> Result<(), GgufErro
             match elem.fixed_width() {
                 // One seek for the whole run, not `count` reads.
                 Some(w) => {
+                    // The fast path elides the per-element descent that the
+                    // element-wise branch performs, so it must still account
+                    // for the level that descent would have cost. Without
+                    // this, `skip_value` accepts nesting `decode_value`
+                    // rejects — and since the lazy index skips at open and
+                    // decodes on access, that means a key survives indexing
+                    // and then fails when somebody reads it.
+                    if depth + 1 > MAX_ARRAY_DEPTH {
+                        return Err(GgufError::Malformed {
+                            stage: Stage::Metadata,
+                            offset: cursor.pos(),
+                            detail: format!("array nesting deeper than {MAX_ARRAY_DEPTH}"),
+                        });
+                    }
                     let at = cursor.pos();
                     let total = count.checked_mul(w).ok_or_else(|| GgufError::Malformed {
                         stage: Stage::Metadata,
@@ -1692,7 +2039,7 @@ pub fn skip_value(cursor: &mut Cursor<'_>, ty: ValueType) -> Result<(), GgufErro
                 }
                 None => {
                     for _ in 0..count {
-                        skip_value(cursor, elem)?;
+                        skip_at_depth(cursor, elem, depth + 1)?;
                     }
                 }
             }
@@ -1708,6 +2055,21 @@ pub fn skip_value(cursor: &mut Cursor<'_>, ty: ValueType) -> Result<(), GgufErro
 ///
 /// As [`skip_value`].
 pub fn decode_value(cursor: &mut Cursor<'_>, ty: ValueType) -> Result<MetaValue, GgufError> {
+    decode_at_depth(cursor, ty, 0)
+}
+
+fn decode_at_depth(
+    cursor: &mut Cursor<'_>,
+    ty: ValueType,
+    depth: u32,
+) -> Result<MetaValue, GgufError> {
+    if depth > MAX_ARRAY_DEPTH {
+        return Err(GgufError::Malformed {
+            stage: Stage::Metadata,
+            offset: cursor.pos(),
+            detail: format!("array nesting deeper than {MAX_ARRAY_DEPTH}"),
+        });
+    }
     let at = cursor.pos();
     let v = match ty {
         ValueType::U8 => MetaValue::U8(cursor.u8().map_err(|t| trunc(at, t))?),
@@ -1726,19 +2088,52 @@ pub fn decode_value(cursor: &mut Cursor<'_>, ty: ValueType) -> Result<MetaValue,
         ValueType::String => decode_string(cursor)?,
         ValueType::Array => {
             let (elem, count) = read_array_prefix(cursor)?;
+            // Bound the declared count by what the file could possibly
+            // contain: every element occupies at least one byte, so a count
+            // exceeding the bytes remaining describes a file that cannot
+            // exist.
+            //
+            // What this actually buys, stated accurately — an earlier draft
+            // of this comment claimed it prevents an allocation-driven
+            // abort, and a sabotage showed otherwise. For an absurd count
+            // like 2^40, `try_reserve` below already refuses, so removing
+            // this check still yields an error rather than a crash. The
+            // real gap is the MIDDLE of the range: a count of ten million
+            // against a one-kilobyte file passes `try_reserve` happily,
+            // allocates hundreds of megabytes, and only then fails on
+            // truncation partway through the loop. This bound refuses that
+            // before a byte is allocated, and names the invariant actually
+            // violated instead of the allocator's capacity.
+            if count > cursor.remaining() {
+                return Err(GgufError::Malformed {
+                    stage: Stage::Metadata,
+                    offset: at,
+                    detail: format!(
+                        "array declares {count} elements but only {} bytes remain",
+                        cursor.remaining()
+                    ),
+                });
+            }
             let n = usize::try_from(count).map_err(|_| GgufError::Malformed {
                 stage: Stage::Metadata,
                 offset: at,
                 detail: format!("array of {count} elements cannot be held on this platform"),
             })?;
             let mut items = Vec::new();
-            items.try_reserve(n.min(1024)).map_err(|_| GgufError::Malformed {
+            // Reserve the whole thing, not a token 1024. A partial
+            // reservation protects only the first 1024 elements: every push
+            // after that grows the Vec through `Vec::push`, which is NOT
+            // fallible — on allocation failure it aborts the process rather
+            // than returning an error this function could report. For the
+            // 514,906-element `tokenizer.ggml.merges` this crate exists to
+            // handle, a 1024-element guard protects nothing at all.
+            items.try_reserve(n).map_err(|_| GgufError::Malformed {
                 stage: Stage::Metadata,
                 offset: at,
                 detail: format!("cannot allocate {n} elements"),
             })?;
             for _ in 0..count {
-                items.push(decode_value(cursor, elem)?);
+                items.push(decode_at_depth(cursor, elem, depth + 1)?);
             }
             MetaValue::Array(items)
         }
@@ -1805,6 +2200,18 @@ cargo clippy -p mlmf-gguf --all-targets -- -D warnings
 2. Change `decode_string` to use `String::from_utf8_lossy(raw).into_owned()` wrapped in `MetaValue::String`. `decoding_preserves_bytes_exactly_including_invalid_utf8` must go red. **This is the single most important sabotage in the crate**: no file in the 29-file corpus can produce this failure, so this authored case is the only thing standing between the crate and a silent tokenizer mismatch.
 3. Add `.trim_end_matches('\0')` to the decoded string. `a_trailing_nul_is_part_of_the_string_not_a_terminator` must go red. Same reasoning: zero corpus files have one.
 4. In `skip_value`'s `Array` arm, replace the fixed-width fast path with the element-wise loop. **All tests must stay green** — the two paths are semantically identical, and that is the point: the fast path is an optimization whose correctness is pinned by the sentinel tests either way. Restore.
+
+- [ ] **Step 5b: Prove the three adversarial guards (AD-2)**
+
+These defend against input nobody publishes, so nothing but an authored control can exercise them.
+
+5. **Remove the bytes-remaining bound** from `decode_value`'s `Array` arm. `an_array_claiming_more_elements_than_the_file_has_bytes_is_refused` must go red — and note *how*: without the bound the call reaches `try_reserve(1_099_511_627_776)`, so the failure is either a `Malformed` for a different reason or an allocation failure, not the specific "cannot exist" complaint. Record which. Restore.
+
+6. **Set `MAX_ARRAY_DEPTH` to `u32::MAX`.** `nesting_deeper_than_the_limit_is_refused_rather_than_overflowing_the_stack` must go red on its `matches!` assertion: with no effective bound, 200 levels decode successfully and no `Malformed` is returned. That proves the bound is what causes the refusal. Restore.
+
+   **This does not demonstrate the stack overflow itself, and it should not try to.** Reaching an actual overflow needs on the order of 100,000 levels — a 1.2 MB fixture — and a test that crashes the process is not a test. The hazard is the *reason* for the bound; the control's job is to show the bound is load-bearing, which a 200-level fixture does at 2.4 kB.
+
+7. **Restore `try_reserve(n.min(1024))`** in place of `try_reserve(n)`. **Every test stays green** — that is the finding, not a failure. A 1024-element reservation protects only the first 1024 pushes; every push after that grows the `Vec` through `Vec::push`, which aborts on allocation failure rather than returning an error. The guard is decorative for exactly the 514,906-element arrays this crate exists to read, and no test can show that, because the failure it fails to prevent is a process abort. Record it as a case where the suite cannot distinguish a real guard from a decorative one, and restore.
 
 - [ ] **Step 6: Commit**
 
@@ -1913,10 +2320,36 @@ mod tests {
         let (m, report) = GgufMetadata::parse(&bytes, "t.gguf").expect("does not fail the open");
         assert_eq!(m.get("first"), Some(&MetaValue::String("kept".into())));
         assert!(matches!(m.declaration("broken"), Declaration::Unreadable(_)));
-        // `third` is genuinely unreachable — an unknown width means the
-        // parse cannot find it. Absent, and the report says why.
+        // `third` reads as Absent, and that is the honest limit of what
+        // this API can say: an unknown width means the parse never found
+        // out whether `third` exists. It is NOT a fact about the file.
+        //
+        // So the index must announce that it stopped, or a caller reading
+        // `Absent` concludes "this model declares no third key" from a scan
+        // that never reached it — a negative finding drawn from a truncated
+        // walk. `index_complete()` is what separates the two.
         assert!(matches!(m.declaration("third"), Declaration::Absent));
+        assert!(
+            !m.index_complete(),
+            "a walk that stopped early must say so, or Absent lies"
+        );
         assert!(!report.is_empty(), "the unknown type must be reported");
+
+        // The WHOLE key set, not membership of three chosen names.
+        //
+        // Every assertion above is satisfied by a parse that desynchronises
+        // instead of stopping: changing `break` to `continue` leaves the
+        // cursor inside the unreadable value, and the next read lands on
+        // its tail — here producing a phantom key "unreachable" that is
+        // valid UTF-8, carrying a garbage `I32(0)`. `first` still decodes,
+        // `broken` is still Unreadable, `third` is still Absent, the index
+        // still reports incomplete, the report is still non-empty. Five
+        // assertions, none of which can see an invented key.
+        //
+        // Asserting the set closes it, and the principle is the collection
+        // form of this crate's whole-value rule: check what IS there, not
+        // that the things you thought of are among it.
+        assert_eq!(m.keys(), ["first", "broken"]);
     }
 
     #[test]
@@ -1945,6 +2378,20 @@ mod tests {
                 other => panic!("{want_key}: expected Unreadable, got {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn a_clean_parse_reports_a_complete_index() {
+        // The other half of the pair. Without this, `index_complete` could
+        // return `false` unconditionally and the test above would still
+        // pass — a flag that is always pessimistic is as useless as one
+        // that is always optimistic, and only asserting both directions
+        // distinguishes them.
+        let bytes = gguf(&[("a", 8, s("x")), ("b", 8, s("y"))]);
+        let (m, report) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        assert!(m.index_complete());
+        assert!(report.is_empty());
+        assert_eq!(m.keys().len(), 2);
     }
 
     #[test]
@@ -2038,6 +2485,8 @@ Expected: compile error, `cannot find type GgufMetadata`.
 
 - [ ] **Step 3: Implement**
 
+**First, add `sync` to `crates/mlmf-gguf/tests/allowed-std.list`** — insert it in sorted position, replacing the placeholder note Task 3 left. This is the commit that introduces `OnceLock`, so this is the commit where the permission is earned. Prove it: remove the entry and confirm the shared purity gate goes red naming `mlmf-gguf` and `std::sync`, then restore. A permission added alongside the code that needs it gets a red-then-green cycle; one added in advance never does.
+
 ```rust
 use std::sync::OnceLock;
 
@@ -2085,6 +2534,8 @@ pub struct GgufMetadata<'a> {
     entries: Vec<Entry>,
     alignment: u64,
     kv_end: u64,
+    /// False when the index stopped before every declared key was seen.
+    index_complete: bool,
 }
 
 impl<'a> GgufMetadata<'a> {
@@ -2107,6 +2558,12 @@ impl<'a> GgufMetadata<'a> {
         let mut cursor = Cursor::new(bytes);
         let header = parse_header(&mut cursor)?;
         let mut report = Report::new();
+        let mut index_complete = true;
+        // Deliberately NOT `Vec::with_capacity(header.kv_count)`. The count
+        // is a declared number this build has only checked for negativity,
+        // so `i64::MAX` reaches here intact; preallocating from it panics on
+        // capacity overflow before any truncation check runs. Growing as we
+        // go costs nothing at the 42-key scale real files use.
         let mut entries: Vec<Entry> = Vec::new();
 
         for _ in 0..header.kv_count {
@@ -2140,6 +2597,7 @@ impl<'a> GgufMetadata<'a> {
                     unreadable: Some(complaint),
                     value: OnceLock::new(),
                 });
+                index_complete = false;
                 break;
             };
 
@@ -2175,6 +2633,7 @@ impl<'a> GgufMetadata<'a> {
             entries,
             alignment: DEFAULT_ALIGNMENT,
             kv_end,
+            index_complete,
         };
         me.alignment = me.resolve_alignment(origin, &mut report);
         Ok((me, report))
@@ -2184,6 +2643,26 @@ impl<'a> GgufMetadata<'a> {
     #[must_use]
     pub fn header(&self) -> &Header {
         &self.header
+    }
+
+    /// Whether every key the header declared was indexed.
+    ///
+    /// `false` means the walk stopped early: an unknown value type has an
+    /// unknown width, so the parse cannot find the key that follows it.
+    ///
+    /// **This changes what [`mlmf_core::Declaration::Absent`] means, and a
+    /// caller that ignores it will draw a false conclusion.** With a
+    /// complete index, `Absent` is a fact about the file — the key is not
+    /// declared. With an incomplete one it means only *not found in the part
+    /// that could be read*, and the key may be sitting immediately past the
+    /// point where the walk stopped. Those are different claims:
+    /// "this model declares no chat template" versus "we could not get far
+    /// enough to tell". A count or a `keys()` listing taken from an
+    /// incomplete index can support a positive finding — this key IS here —
+    /// and never a negative one.
+    #[must_use]
+    pub fn index_complete(&self) -> bool {
+        self.index_complete
     }
 
     /// Offset just past the key-value block.
@@ -2198,7 +2677,16 @@ impl<'a> GgufMetadata<'a> {
     /// Alignment for the tensor data region.
     ///
     /// `general.alignment` when the file declares a valid one, otherwise
-    /// GGUF's documented default of 32. An invalid declaration is reported
+    /// GGUF's documented default of 32.
+    ///
+    /// **This is the effective value, and it does not say where it came
+    /// from.** A file that declares 32 and a file that declares nothing
+    /// both answer 32 here. That is the right shape for a caller who needs
+    /// a number, but a caller who needs the *fact* must ask
+    /// `declaration("general.alignment")`, which separates declared from
+    /// absent from undecodable. Spec §5 says absent never means a default;
+    /// this method returns a default precisely because alignment has a
+    /// documented one, and the raw fact stays reachable beside it. An invalid declaration is reported
     /// and falls back rather than failing the open — this is metadata, and
     /// R1 says reading metadata survives.
     #[must_use]
@@ -2429,30 +2917,63 @@ Expected: the tests compile (the default trait impls exist from Task 1) but `arr
 
 - [ ] **Step 3: Implement the overrides**
 
+First, in `crates/mlmf-gguf/src/value.rs`, widen one helper — the accessors must not re-read a grammar that already has a reader:
+
+```rust
+/// Read an array's element type and count, leaving the cursor on element 0.
+pub(crate) fn read_array_prefix(cursor: &mut Cursor<'_>) -> Result<(ValueType, u64), GgufError> {
+```
+
+Then add the import and a positioning helper to `metadata.rs`:
+
+```rust
+use crate::value::{ValueType, decode_value, read_array_prefix, skip_value};
+```
+
+```rust
+    /// Position a cursor on an array's first element.
+    ///
+    /// Returns the element type, the declared count, and a cursor sitting
+    /// at element 0. `None` when the key is absent, unreadable, or not an
+    /// array.
+    ///
+    /// The prefix — element type code, then count — is read by
+    /// `value::read_array_prefix`, the function `skip_value` and
+    /// `decode_value` already use, instead of being re-read here. Task 5
+    /// cost a day to the case where two functions walked one grammar and
+    /// drifted apart; `array_len` and `array_get` would have been the third
+    /// and fourth walkers of this particular grammar, so they go through
+    /// the same door instead of each opening their own.
+    fn array_at(&self, key: &str) -> Option<(ValueType, u64, Cursor<'a>)> {
+        let e = self.entry(key)?;
+        if e.ty != ValueType::Array || e.unreadable.is_some() {
+            return None;
+        }
+        let mut c = Cursor::new(self.bytes);
+        c.seek(e.start).ok()?;
+        let (elem, count) = read_array_prefix(&mut c).ok()?;
+        Some((elem, count, c))
+    }
+```
+
 Add to `impl MetadataSource for GgufMetadata<'_>`:
 
 ```rust
     fn array_len(&self, key: &str) -> Option<u64> {
-        let e = self.entry(key)?;
-        if e.ty != ValueType::Array || e.unreadable.is_some() {
-            return None;
-        }
-        let mut c = Cursor::new(self.bytes);
-        c.seek(e.start).ok()?;
-        // Element type then count; both were validated during indexing.
-        c.u32().ok()?;
-        c.u64().ok()
+        self.array_at(key).map(|(_, count, _)| count)
     }
 
+    /// Decode one element without materializing the array.
+    ///
+    /// **Cost, because a caller cannot guess it:** constant time for
+    /// fixed-width elements, whose offset is arithmetic. `O(index)` for
+    /// `String` and nested `Array` elements, whose widths are only knowable
+    /// by walking — so a loop calling this at every index of a
+    /// 500,000-element token list is quadratic and will not finish. This
+    /// method is for reading a few elements out of many. A caller who wants
+    /// the whole array should call `get` once and pay once.
     fn array_get(&self, key: &str, index: u64) -> Option<MetaValue> {
-        let e = self.entry(key)?;
-        if e.ty != ValueType::Array || e.unreadable.is_some() {
-            return None;
-        }
-        let mut c = Cursor::new(self.bytes);
-        c.seek(e.start).ok()?;
-        let elem = ValueType::from_code(c.u32().ok()?)?;
-        let count = c.u64().ok()?;
+        let (elem, count, mut c) = self.array_at(key)?;
         if index >= count {
             return None;
         }
@@ -2471,6 +2992,11 @@ Add to `impl MetadataSource for GgufMetadata<'_>`:
                 }
             }
         }
+        // Nesting depth restarts at 0 here, so a nested element is walked
+        // with the full budget again rather than the remainder indexing had
+        // left. That direction is the safe one: this can never REJECT a
+        // subtree the index accepted, and a key that survived indexing must
+        // stay readable. It cannot accept anything the file does not hold.
         decode_value(&mut c, elem).ok()
     }
 ```
@@ -2484,7 +3010,7 @@ cargo clippy -p mlmf-gguf --all-targets -- -D warnings
 
 - [ ] **Step 5: Prove the tests can fail (AD-2)**
 
-1. Delete both overrides so the defaults apply again. `array_access_does_not_decode_the_array` must go red **on the cache assertion and nowhere else** — the values are still correct, only the cost is wrong. That contrast is the finding. Restore.
+1. Delete both overrides so the defaults apply again. Run plain `cargo test`, **not** clippy: the deletion orphans `array_at`, and a `dead_code` denial would turn this sabotage into a compile error that never reaches any assertion. `array_access_does_not_decode_the_array` must go red **on the cache assertion and nowhere else** — the values are still correct, only the cost is wrong. That contrast is the finding. Restore.
 2. In `array_get`'s fixed-width arm, drop the `index >= count` check. `a_fixed_width_array_is_indexed_by_arithmetic_not_by_walking` must go red on index 5 — without it, index 5 reads whatever follows the array, which is a plausible-looking `U32` from the next key's bytes. **Record the value you get**; a wrong number that looks like a token id is worse than an error.
 3. In `array_get`'s variable-width arm, change `for _ in 0..index` to `for _ in 0..index.saturating_sub(1)`. `array_accessors_agree_with_the_decoded_value` must go red — it compares every index against the decoded array, so an off-by-one cannot hide at any single index.
 
@@ -2634,6 +3160,17 @@ impl GgufBuilder {
 }
 ```
 
+**Put the builder at `tests/fixture/mod.rs`, not `tests/fixture.rs`.**
+Cargo's autotests rule makes every `.rs` directly under `tests/` its own
+integration target, so `tests/fixture.rs` is compiled twice — once as a
+module of `authored`, once as a target of its own that runs zero tests and
+exposes `GgufBuilder` as a crate-root public type, which trips
+`clippy::new_without_default` under this crate's `-D warnings` gate. A
+subdirectory module keeps `mod fixture;` working, drops the phantom target,
+and removes the need for an `impl Default` that exists only to satisfy a
+lint about a target nobody wanted. `autotests = false` is NOT the fix: it
+would silently stop Task 9's corpus test from running.
+
 - [ ] **Step 2: Write the adversarial tests**
 
 `crates/mlmf-gguf/tests/authored.rs`:
@@ -2735,14 +3272,45 @@ fn a_key_that_is_not_utf8_is_malformed_rather_than_lossy() {
 #[test]
 fn an_unknown_value_type_is_reported_and_earlier_keys_survive() {
     // R1 within the metadata stage.
+    //
+    // Two parts of this fixture look like decoration and are load-bearing.
+    // The unreadable value's payload is itself a WELL-FORMED KV PAIR, and a
+    // THIRD key is declared after it. Changing `break` to `continue` in the
+    // index leaves the cursor inside the unreadable value while the header
+    // still promises another key, so the walk reads `phantom`/`tail` out of
+    // the middle of the value it just declared unreadable.
+    //
+    // Without both, the sabotage is undetectable here. An earlier draft had
+    // only `first` and `odd`, with `odd` last: the header promises nothing
+    // more, and ON THE FINAL ITERATION OF A BOUNDED LOOP `continue` DOES
+    // EXACTLY WHAT `break` DOES. Measured — that form stayed green under
+    // the sabotage its own comment described. A third key with a
+    // `vec![0; 4]` payload is not enough either: the parse then dies at
+    // `.expect("open survives")`, which is red on the wrong assertion.
+    let mut phantom = 7u64.to_le_bytes().to_vec();
+    phantom.extend_from_slice(b"phantom");
+    phantom.extend_from_slice(&8u32.to_le_bytes()); // a String value...
+    phantom.extend_from_slice(&4u64.to_le_bytes());
+    phantom.extend_from_slice(b"tail");
+
     let bytes = GgufBuilder::new()
         .string("first", "kept")
-        .raw_kv("odd", 42, vec![0; 4])
+        .raw_kv("odd", 42, phantom)
+        .string("last", "past the stop")
         .build();
     let (m, report) = GgufMetadata::parse(&bytes, "authored").expect("open survives");
     assert_eq!(m.get("first"), Some(&MetaValue::String("kept".into())));
     assert!(matches!(m.declaration("odd"), Declaration::Unreadable(_)));
     assert_eq!(report.entries().len(), 1);
+    // `last` IS declared by this file and is NOT in the index, so `Absent`
+    // here means "we could not get far enough to tell" rather than a fact
+    // about the file. That is the whole reason the flag is public.
+    assert!(!m.index_complete());
+    // The WHOLE key set. Changing `break` to `continue` in the index leaves
+    // the cursor inside the unreadable value and invents a phantom key from
+    // its tail; every assertion above survives that, because none of them
+    // can see an EXTRA element. Third fixture in this crate to need it.
+    assert_eq!(m.keys(), ["first", "odd"]);
 }
 
 #[test]
@@ -2772,7 +3340,12 @@ fn a_string_declaring_a_length_beyond_the_file_is_truncated_not_an_allocation() 
 fn an_array_element_that_is_not_utf8_survives_indexed_access() {
     // R3 through R5's path, which is a different code path from `get`.
     let items: Vec<&[u8]> = vec![b"fine", &[0xFF, 0x00], b"also fine"];
-    let bytes = GgufBuilder::new().string_array("toks", &items).build();
+    // The trailing key is not decoration — see the standing rule in Step 4.
+    // Every array fixture in this file carries one.
+    let bytes = GgufBuilder::new()
+        .string_array("toks", &items)
+        .string("after", "sentinel")
+        .build();
     let (m, _) = GgufMetadata::parse(&bytes, "authored").unwrap();
     assert_eq!(m.array_len("toks"), Some(3));
     assert_eq!(
@@ -2783,11 +3356,18 @@ fn an_array_element_that_is_not_utf8_survives_indexed_access() {
 
 #[test]
 fn a_zero_length_array_has_a_length_and_no_elements() {
-    let bytes = GgufBuilder::new().string_array("empty", &[]).build();
+    let bytes = GgufBuilder::new()
+        .string_array("empty", &[])
+        .string("after", "sentinel")
+        .build();
     let (m, _) = GgufMetadata::parse(&bytes, "authored").unwrap();
     // Some(0), not None: the array is declared and it is empty. None would
     // say "not an array", which is a different fact.
     assert_eq!(m.array_len("empty"), Some(0));
+    // EVERY index of an empty array is out of range, so this assertion
+    // depends entirely on the trailing key above. Without it the array is
+    // last in the file, index 0 lands on EOF, and the cursor's bounds check
+    // supplies a `None` that looks like the accessor's.
     assert_eq!(m.array_get("empty", 0), None);
 }
 
@@ -2820,10 +3400,47 @@ cargo test -p mlmf-gguf --test authored
 
 Expected: PASS.
 
-- [ ] **Step 4: Prove the two that matter can fail (AD-2)**
+- [ ] **Step 4: Prove they can fail (AD-2)**
 
-1. In `decode_string`, use `String::from_utf8_lossy`. `a_non_utf8_value_survives_byte_for_byte` and `an_array_element_that_is_not_utf8_survives_indexed_access` must **both** go red. **Then run `measured_headers_parse_to_their_measured_values` (Task 9) under the same sabotage and confirm it stays green** — that contrast is the entire argument for this file's existence, and it should be recorded in the task report as a measured fact rather than a claim.
-2. Add `.trim_end_matches('\0')`. `a_trailing_nul_is_kept` must go red while `measured_headers_parse_to_their_measured_values` stays green — both named, so the discriminator is a string rather than a category.
+Eight controls in this plan could not reach the assertion they named, and
+three of them were fixtures shaped exactly like the ones in this file. Two
+sabotages for thirteen tests is not enough. Run all six, and for each record
+WHICH assertion fired.
+
+1. In `decode_string`, use `String::from_utf8_lossy`. `a_non_utf8_value_survives_byte_for_byte` and `an_array_element_that_is_not_utf8_survives_indexed_access` must **both** go red. **Then run `measured_headers_parse_to_their_measured_values` (Task 9) under the same sabotage and confirm it stays green** — that contrast is the entire argument for this file's existence, and it belongs in the task report as a measured fact rather than a claim.
+2. Add a trailing-NUL trim in `decode_string`. `a_trailing_nul_is_kept` must go red while `measured_headers_parse_to_their_measured_values` stays green — both named, so the discriminator is a string rather than a category.
+3. Delete `array_get`'s `index >= count` bound. `a_zero_length_array_has_a_length_and_no_elements` must go red. **If it stays green the fixture is wrong, not the code** — see the standing rule below.
+4. In `read_key`, replace the UTF-8 check with a lossy conversion. `a_key_that_is_not_utf8_fails_the_parse_rather_than_being_renamed` must go red. Keys are lookup tokens and values are not; without a test separating those rules, a well-meaning edit unifies them.
+5. In the KV index, change `break` to `continue` on the unknown-type path. `an_unknown_value_type_is_reported_and_earlier_keys_survive` must go red **on the `m.keys()` assertion specifically**, not on an earlier one. Record the phantom key you get.
+6. In `resolve_alignment`, drop the `is_power_of_two` check. `a_declared_alignment_is_honoured_and_a_bad_one_is_reported` must go red on the 63 case. Record what `alignment()` returns — an odd alignment silently accepted is a byte offset every consumer computes wrong.
+
+**Before running each sabotage, write down which tests SHOULD die, then
+compare.** A sabotage that kills everything proves the suite is alive. One
+that kills only SOME of what it should is the only signal that separates a
+live suite from one with dead fixtures — a fixture so uniform, empty, or
+short that a wrong answer is indistinguishable from a right one. Fuel found
+exactly this: every integer probe tensor was all zeros, so every comparison
+passed honestly against data carrying no information.
+
+It is not hypothetical here. Task 7's fixed-width fixture holds `0, 11, 22,
+33, 44`; an off-by-one in the indexing arithmetic kills two tests. Rebuilt
+with every element `0u32` — the same shape as a float-to-int truncation —
+**the identical sabotage kills nothing, 47 pass.** Measured, in a worktree.
+The distinctness of that fixture is load-bearing.
+
+So for each of the six above: name the expected set first, run, and report
+the SHORTFALL rather than the count. Red is not the finding; missing red
+where red was due is the finding. If a test you expected to die survives,
+inspect its fixture before concluding the code is fine — ask whether the
+assertion could pass with every element identical, with the array empty, or
+with the index arithmetic wrong in a direction the fixture cannot expose.
+
+**Standing rule for this file, now the third instance:** any assertion of the
+form `array_get(k, <out of range>) == None` requires a key declared AFTER the
+array in the same fixture. Without one the array is last, the read lands on
+EOF, and the cursor supplies a `None` that looks like the bound's. Verify by
+deleting the bound and watching that assertion — if it does not go red, the
+fixture did not construct the world the test describes.
 
 - [ ] **Step 5: Commit**
 
@@ -2836,6 +3453,31 @@ git commit -m "test(gguf): adversarial fixtures for the paths no published model
 ---
 
 ## Task 9: Corpus differential, the measurement, and CI
+
+**Carried in from Task 6's review and the CI audit that followed it:**
+
+1. `UnrecognizedKind::MetadataKey` documents its `value` field as "value
+   exactly as declared", and two of the three `mlmf-gguf` call sites put a
+   human-readable explanation there instead — "duplicate key; first
+   occurrence kept", "must be UINT32; using the default of 32". The
+   variant's own doc is also too narrow: it says "a metadata key this build
+   has no canonical name for", which describes none of the new uses.
+   Fixing it properly means widening a core enum — a `reason` field, and
+   `value` becoming optional, because the duplicate case must not decode a
+   26 MB array in order to report a duplicate. That is a core API change
+   with its own tests and its own sabotage, which is why it is here and not
+   folded into a `mlmf-gguf` fix wave.
+
+2. The C2 TRANSITIVE dependency snapshot covers `mlmf-core` only, while
+   every other gate iterates `gated_members()`. It is currently sound, but
+   by construction rather than by design: `mlmf-ggml` and `mlmf-gguf`
+   declare no external dependencies at all, so `mlmf-core`'s transitive set
+   IS theirs, and the direct-deps gate enforces each crate's manifest
+   against its own `tests/direct-deps.allow` — so an external dependency
+   cannot appear in a format crate without failing a gate first. Write that
+   reasoning into `transitive_deps.rs` as a comment, or extend the snapshot
+   to every member. What must not survive is the present state, where the
+   scope is correct for a reason nobody recorded.
 
 **Files:**
 - Create: `crates/mlmf-gguf/tests/corpus-metadata.tsv`
@@ -2918,10 +3560,25 @@ use mlmf_gguf::GgufMetadata;
 #[test]
 fn the_fixture_is_intact() {
     let rows = rows();
-    assert!(rows.len() >= 25, "expected the full corpus, found {}", rows.len());
-    // v2 and v3 must both be represented, or the version branch is untested.
-    assert!(rows.iter().any(|r| r.version == 2), "no v2 file in the fixture");
-    assert!(rows.iter().any(|r| r.version == 3), "no v3 file in the fixture");
+    // EXACT, not a floor. `>= 25` — which this was — passes on a file
+    // truncated from 29 rows to 25, and a truncated fixture is exactly what
+    // a fixture-integrity test exists to catch. Use whatever Step 1 actually
+    // produced, and change it deliberately if it ever changes.
+    assert_eq!(rows.len(), 29, "the fixture is not the corpus that was measured");
+
+    // The WHOLE version distribution, not "at least one of each". A
+    // membership assertion cannot see the fixture losing every v2 row but
+    // one, and the v2 arm is the only thing the header test below really
+    // proves. Counts come from Step 1's output.
+    let mut by_version: Vec<(u32, usize)> = Vec::new();
+    for r in &rows {
+        match by_version.iter_mut().find(|(v, _)| *v == r.version) {
+            Some((_, n)) => *n += 1,
+            None => by_version.push((r.version, 1)),
+        }
+    }
+    by_version.sort_unstable();
+    assert_eq!(by_version, vec![(2, 1), (3, 28)], "version mix changed");
 }
 
 struct Row {
@@ -2954,9 +3611,16 @@ fn rows() -> Vec<Row> {
         .collect()
 }
 
-/// Rebuild a file's header from its measured facts. This is not the real
-/// file — it is a header carrying the same numbers, which is all the header
-/// stage can be checked against without shipping gigabytes.
+/// Rebuild a file's header from its measured facts.
+///
+/// **Be honest about what this proves: it is a ROUND TRIP, not a
+/// differential.** It writes a header from the measured numbers and checks
+/// that parsing gives them back, so it cannot catch a parser that misreads
+/// a real file — it never opens one. Its value is narrow and real: it is
+/// the only test in the crate that exercises the v2 version arm, and it is
+/// the control that must stay GREEN under Task 8's string-decoding
+/// sabotages, which is what shows the authored fixtures measure something
+/// the corpus cannot.
 #[test]
 fn measured_headers_parse_to_their_measured_values() {
     for r in rows() {
@@ -2968,9 +3632,20 @@ fn measured_headers_parse_to_their_measured_values() {
         let mut c = mlmf_gguf::cursor::Cursor::new(&b);
         let h = mlmf_gguf::parse_header(&mut c)
             .unwrap_or_else(|e| panic!("{}: {e}", r.file));
-        assert_eq!(h.version, r.version, "{}", r.file);
-        assert_eq!(h.tensor_count, r.n_tensors, "{}", r.file);
-        assert_eq!(h.kv_count, r.n_kv, "{}", r.file);
+        // One comparison of the whole triple, not three chained ones. A
+        // chain has ordering bias: if `version` differs the other two are
+        // never proven, and a transposition of tensor_count and kv_count is
+        // blamed on whichever fires first. Found five times in Task 4.
+        assert_eq!(
+            (h.version, h.tensor_count, h.kv_count),
+            (r.version, r.n_tensors, r.n_kv),
+            "{}",
+            r.file
+        );
+        // arch, first_key and kv_end are NOT checked here and cannot be:
+        // this test never opens a real file. See
+        // `the_corpus_agrees_or_says_it_was_not_there`, which is the only
+        // place those columns become evidence.
         let _ = (&r.arch, &r.first_key, r.kv_end);
     }
 }
@@ -2978,15 +3653,97 @@ fn measured_headers_parse_to_their_measured_values() {
 
 **Note:** `Cursor` must be `pub` for this test to construct one; it is already `pub` inside `pub mod cursor`.
 
+Add the differential itself. The TSV carries `arch`, `first_key` and
+`kv_end`, which nothing above checks — three of seven measured columns
+sitting in the fixture as decoration. This is where they become evidence:
+
+```rust
+/// Parse the real corpus and compare against the independent measurements.
+///
+/// Skipped when the corpus is not on this machine — it is 1.13 GiB and is
+/// not in the repository. **It says so loudly when it skips**, because a
+/// test that silently passes when its subject is absent is an empty result
+/// reading as a finding, which this project has now hit from three
+/// different directions.
+#[test]
+fn the_corpus_agrees_or_says_it_was_not_there() {
+    let root = std::path::Path::new(CORPUS_ROOT);
+    if !root.is_dir() {
+        eprintln!(
+            "SKIPPED: no corpus at {CORPUS_ROOT}. The header round-trip above \
+             still ran; the byte-level differential did NOT. Do not read this \
+             run as corpus-verified."
+        );
+        return;
+    }
+    let mut checked = 0usize;
+    for r in rows() {
+        let path = root.join(&r.file);
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("fixture names {} but: {e}", r.file));
+        let (m, _) = GgufMetadata::parse(&bytes, &r.file)
+            .unwrap_or_else(|e| panic!("{}: {e}", r.file));
+        assert_eq!(
+            (
+                m.header().version,
+                m.header().tensor_count,
+                m.header().kv_count,
+                m.kv_end()
+            ),
+            (r.version, r.n_tensors, r.n_kv, r.kv_end),
+            "{}",
+            r.file
+        );
+        assert_eq!(
+            m.keys().first().copied(),
+            Some(r.first_key.as_str()),
+            "{}",
+            r.file
+        );
+        checked += 1;
+    }
+    // The corpus was present, so every row must have been reached. Without
+    // this, a loop that skipped every file passes as loudly as one that
+    // verified all 29.
+    assert_eq!(checked, rows().len(), "corpus present but not fully walked");
+}
+```
+
+`arch` stays unchecked deliberately: reading `general.architecture` and
+deciding what it means is interpretation, and this crate does not interpret.
+It is carried so a human can see which models the corpus covers. Say that in
+a comment rather than leaving it looking forgotten.
+
 - [ ] **Step 3: Run**
 
 ```bash
 cargo test -p mlmf-gguf --test corpus
 ```
 
-- [ ] **Step 4: Prove it can fail (AD-2)**
+- [ ] **Step 4: Prove they can fail (AD-2)**
 
-Change `SUPPORTED` in `header.rs` to `&[3]`. `measured_headers_parse_to_their_measured_values` must go red naming the v2 file (`ggml-vocab-aquila.gguf`). Restore. This is the only test that would catch dropping v2 support, since every authored fixture defaults to v3.
+For each, name the expected kill set BEFORE running, then report the
+SHORTFALL rather than the count. A sabotage that kills only some of what it
+should is the only signal separating a live suite from one whose fixtures
+carry no information.
+
+1. Change `SUPPORTED` in `header.rs` to `&[3]`.
+   Expect: `measured_headers_parse_to_their_measured_values` red naming the
+   v2 file (`ggml-vocab-aquila.gguf`), and — if the corpus is present —
+   `the_corpus_agrees_or_says_it_was_not_there` red on the same file.
+   Nothing else: every authored fixture defaults to v3.
+2. Delete one data row from the TSV.
+   Expect: `the_fixture_is_intact` red on the row count, and on the version
+   mix if the deleted row was the v2 one. **If the count assertion is still
+   a `>=` floor this stays green** — that is the check on the check.
+3. In `the_corpus_agrees_or_says_it_was_not_there`, replace the loop body
+   with `continue`.
+   Expect: red on `checked == rows().len()`. If it passes, the test can
+   report success having verified nothing, which is what it exists to
+   prevent.
+4. Rename the corpus directory so the path does not exist.
+   Expect: PASSES, and prints the SKIPPED line. Read the output and confirm
+   the line is there. A skip nobody can see is indistinguishable from a run.
 
 - [ ] **Step 5: Record the measurement Lightbulb was promised**
 
@@ -3007,22 +3764,67 @@ Add to `crates/mlmf-gguf/src/lib.rs` after the crate docs:
 //! element without materializing its array.
 ```
 
-- [ ] **Step 6: Wire CI**
+- [x] **Step 6: Wire CI** — DONE EARLY, 2026-08-20, commit `58fdf93`.
 
-`.github/workflows/ci.yml` names crates explicitly and does not use `--workspace`, so a new crate is invisible until named. Add, mirroring the existing `mlmf-ggml` steps exactly including the `env: RUSTDOCFLAGS` block:
+Not deferred to this task in the end, because the reason for doing it
+arrived first: `mlmf-gguf` had existed since Task 3 with 42 tests and the
+workflow named `mlmf-core` and `mlmf-ggml` only. Six tasks of work behind a
+green check that did not cover the crate. `cargo fmt --all` covered it;
+nothing else did.
 
-```yaml
-      - name: cargo test -p mlmf-gguf
-        run: cargo test -p mlmf-gguf
+The three steps are in `.github/workflows/ci.yml` now, and verified in the
+run logs to have executed on both runners rather than inferred from the
+badge. The first thing the doc step found was a six-task-old defect —
+`skip_value` documenting a link to `MAX_ARRAY_DEPTH`, which was private, and
+`cargo doc` exits 0 on that without `RUSTDOCFLAGS=-D warnings`. The constant
+is now `pub`, which it should always have been: it is the documented
+boundary between a file this build accepts and one it refuses.
 
-      - name: cargo doc -p mlmf-gguf --no-deps
-        run: cargo doc -p mlmf-gguf --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
+- [x] **Step 6b: Make the CI crate list self-enforcing** — DONE EARLY, same
+commit, as `crates/mlmf-core/tests/ci_coverage.rs`.
 
-      - name: cargo clippy -p mlmf-gguf
-        run: cargo clippy -p mlmf-gguf --all-targets -- -D warnings
+**The `--workspace` rationale below is still correct and still worth
+keeping** — it is why the enumeration stays. But the landed test differs
+from the sketch that was here in three ways, all of which matter, and a
+future reader must not reimplement the weaker form:
+
+1. **It strips comment lines before matching.** The sketch called
+   `workflow.contains(&needle)` on the raw file, so `# run: cargo clippy -p
+   mlmf-gguf ...` would have satisfied it. Commenting a step out is the
+   single most likely way a step disappears, which makes it the one case the
+   gate must not accept.
+2. **It requires `--all-targets` on the clippy needle.** Clippy without it
+   never sees test code, which is where most of this crate's assertions
+   live, so a step lacking the flag would pass a check for `cargo clippy -p
+   <name>` while covering much less than the reader assumes.
+3. **It checks per step that every `cargo doc` carries
+   `RUSTDOCFLAGS: -D warnings`.** A doc step without it cannot fail on a
+   broken intra-doc link — measured, that is exactly how the
+   `MAX_ARRAY_DEPTH` defect survived six tasks. This check is written by
+   splitting on step boundaries rather than counting occurrences across the
+   file: a first version counted `--no-deps` against `RUSTDOCFLAGS` and got
+   6 versus 3, because `--no-deps` appears in both the `name:` and `run:`
+   lines. Loose arithmetic over a whole file can also pair two flags with
+   one step and none with another.
+
+Three sabotages fired against the landed version: deleting the `mlmf-gguf`
+steps (named all three), commenting one out (named it), and dropping one
+`RUSTDOCFLAGS` env (named the step).
+
+**Why `--workspace` is not the fix, recorded so nobody re-proposes it:**
+`cargo doc --workspace --no-deps` fails today:
+
 ```
+error: unknown lint: `rustdoc::missing_doc_code_examples`
+ --> src\lib.rs:2:10
+error: could not document `mlmf`
+```
+
+That is the **legacy root crate**, which uses a nightly-only lint name and
+is scheduled for deletion. Switching to `--workspace` would break CI for a
+crate that is being removed anyway. `clippy --workspace` fails on the same
+crate for its own reasons. When the legacy crate goes, `--workspace` becomes
+the right answer and `ci_coverage.rs` can be deleted with it.
 
 - [ ] **Step 7: Update the spec**
 
