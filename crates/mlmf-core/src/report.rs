@@ -102,6 +102,15 @@ pub enum UnrecognizedKind {
     /// to it, because the two answer different questions and a reader
     /// branching on the kind should not have to check whether a field is
     /// meaningful before trusting it.
+    ///
+    /// **The overlapping-range example above is one format's rule, not this
+    /// crate's.** [`crate::TensorContainer::tensors`] carries the ruling:
+    /// whether two tensors may share bytes is a fact about the format —
+    /// malformed in GGUF, a standard tied-weight layout in safetensors — so
+    /// a format crate reports it only when its own format forbids it. This
+    /// doc naming it as a reason, while the only sweep producing it lived in
+    /// one backend, is what made a seam-level rule look decided when it had
+    /// not been.
     TensorDeclined {
         /// Tensor name exactly as declared.
         name: String,

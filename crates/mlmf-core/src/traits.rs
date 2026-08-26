@@ -66,6 +66,29 @@ pub trait RangedSource {
 pub trait TensorContainer {
     /// Every tensor this container declares **that this build can describe**.
     ///
+    /// **Descriptors MAY name overlapping byte ranges, and what an overlap
+    /// MEANS is a fact about the format rather than about this trait.**
+    ///
+    /// In GGUF every tensor carries its own explicit offset and a writer has
+    /// no reason to make two of them collide, so `mlmf-gguf` treats an
+    /// overlap as malformed and reports it. In safetensors, tied weights —
+    /// `lm_head` and `embed_tokens` referring to the same bytes — are a
+    /// standard layout that real models use, and reporting one would blame
+    /// a valid file.
+    ///
+    /// The rule therefore belongs to each format crate, not here. Recorded
+    /// because it was previously implicit: one backend's sweep existed and
+    /// `crate::UnrecognizedKind::TensorDeclined`'s doc named an overlapping
+    /// range as a reason, which together read as a seam-level rule that had
+    /// never been decided.
+    ///
+    /// Two consequences for a consumer:
+    ///
+    /// - An empty report does **not** prove the ranges are disjoint. It
+    ///   proves this format's reader found nothing worth reporting.
+    /// - A reported overlap does **not** prove corruption unless you know
+    ///   the format forbids sharing.
+    ///
     /// A tensor whose declared encoding could not be resolved — an
     /// unrecognized ggml type code, for instance — is absent from this
     /// slice. [`TensorDescriptor`] has no way to say "length unknown," so
@@ -129,6 +152,27 @@ pub trait TensorContainer {
 /// config accessors and chat-template extraction are written once.
 pub trait MetadataSource {
     /// The value declared under `key`, if any.
+    ///
+    /// **A [`MetaValue`]'s variant reports HOW THE FORMAT DECLARED the
+    /// value, not what the value means.** GGUF declares typed values —
+    /// `general.alignment` arrives as `U32`. Safetensors' `__metadata__` is
+    /// `string -> string`, so every value from it arrives as `String`, and
+    /// twelve of the thirteen variants never appear.
+    ///
+    /// This is deliberate and it is the charter: MLMF extracts what a file
+    /// says. Deciding that the string `"32"` is the number 32 — or that
+    /// `"0x20"` is, or that `"true"` is a boolean — is format knowledge, and
+    /// a format that did not declare a number did not declare a number.
+    ///
+    /// **So [`MetaValue::as_u64`] and its siblings widen losslessly within a
+    /// family and NEVER parse.** `as_u64` accepts `U8`/`U16`/`U32`/`U64`
+    /// and returns `None` for a `String`. A `None` from an accessor means
+    /// **"this format did not declare that kind of value here"**, which is a
+    /// fact about the file, not a failure of this crate.
+    ///
+    /// A consumer that wants a number out of a string-valued format must
+    /// parse it deliberately, at a layer that knows which format it is
+    /// reading. That layer is not this one.
     ///
     /// `None` means **not declared**. It never means a default (spec §5) —
     /// but see [`Self::index_complete`] for when "not declared" is a fact

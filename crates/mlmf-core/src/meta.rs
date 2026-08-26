@@ -153,6 +153,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn an_accessor_widens_within_a_family_and_never_parses() {
+        // RULING: a variant reports how the FORMAT DECLARED a value, not
+        // what the value means. GGUF declares `general.alignment` as U32;
+        // safetensors' `__metadata__` is string -> string, so the same
+        // logical fact arrives as a String there and twelve of the thirteen
+        // variants never appear at all.
+        //
+        // So an accessor widens losslessly within its family and REFUSES to
+        // parse. `None` means "this format did not declare that kind of
+        // value here" — a fact about the file — and not "mlmf could not read
+        // it". Deciding that "32" is 32, or that "0x20" is, or that "true"
+        // is a boolean, is format knowledge, and this crate does not
+        // interpret.
+        //
+        // Pinned because the rule is otherwise only a doc comment, and a
+        // documented rule with no control is one refactor from being untrue.
+        assert_eq!(MetaValue::U8(32).as_u64(), Some(32), "widens");
+        assert_eq!(MetaValue::U32(32).as_u64(), Some(32), "widens");
+        assert_eq!(MetaValue::U64(32).as_u64(), Some(32), "identity");
+
+        // The safetensors case, and the one that must not become lenient.
+        assert_eq!(
+            MetaValue::String("32".into()).as_u64(),
+            None,
+            "never parses"
+        );
+        assert_eq!(
+            MetaValue::String("true".into()).as_bool(),
+            None,
+            "never parses"
+        );
+        assert_eq!(
+            MetaValue::String("1.5".into()).as_f64(),
+            None,
+            "never parses"
+        );
+
+        // And no cross-family widening either: a u64 is not an i64 here,
+        // because the family is the declaration and 2^63 has no i64.
+        assert_eq!(MetaValue::U32(32).as_i64(), None, "families do not mix");
+        assert_eq!(MetaValue::I32(32).as_u64(), None, "families do not mix");
+        assert_eq!(MetaValue::U32(32).as_f64(), None, "families do not mix");
+    }
+
+    use super::*;
+
+    #[test]
     fn arrays_nest() {
         let v = MetaValue::Array(vec![
             MetaValue::Array(vec![MetaValue::U32(1), MetaValue::U32(2)]),
