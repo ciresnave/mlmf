@@ -16,7 +16,37 @@
 - `#![forbid(unsafe_code)]`, `#![warn(missing_docs)]`.
 - **No file I/O anywhere in `src/`.** The core is about what is in the file, not how it is obtained. The C3 purity gate enforces this and the new crate must be added to it.
 - **MLMF reads and writes model files. It is never an interpreter of their content.** A tensor name is an opaque key. No `config.json`, no architecture inference, no sharding.
-- Every gate green by EXIT STATUS before every commit — `cargo test --workspace --no-fail-fast`, `cargo clippy -p mlmf-safetensors --all-targets -- -D warnings`, `RUSTDOCFLAGS=-D warnings cargo doc`, `rustfmt --edition 2024 --check`. **Never pipe a gate to another command**: piping to `tail` or `sed` makes the pipeline's exit status the *last* command's, and a check whose exit status is discarded is not a check. That has happened twice in this project.
+- Every gate green by EXIT STATUS before every commit. **Never pipe a gate
+  to another command**: piping to `tail` or `sed` makes the pipeline's exit
+  status the *last* command's, and a check whose exit status is discarded is
+  not a check. That has happened twice in this project.
+
+  **Run what CI runs, per crate — not `--workspace`.** The two are not the
+  same set and the difference is worth stating, because an earlier version of
+  this line said `--workspace` and that is what a reader would have trusted:
+
+  ```
+  cargo test   -p mlmf-core -p mlmf-ggml -p mlmf-gguf -p mlmf-safetensors --no-fail-fast
+  cargo test   -p mlmf-core --no-default-features
+  cargo clippy -p <each> --all-targets -- -D warnings
+  RUSTDOCFLAGS="-D warnings" cargo doc -p <each> --no-deps
+  cargo fmt --all -- --check
+  ```
+
+  `cargo test --workspace` additionally builds the **legacy root `mlmf`
+  package**, which CI excludes on the record: it needs `protoc` and a git
+  dependency, and spec §11 schedules it for rewrite rather than repair. On a
+  machine that has `protoc` it builds and passes, so `--workspace` is a
+  SUPERSET of CI rather than a different or unrunnable set — which is the
+  safe direction, and is why nothing was missed by using it. But a green from
+  it is not the green CI computes, and only the per-crate set is reproducible
+  on a runner.
+
+  **Also run the gates once with `CARGO_TERM_COLOR=always`.** CI sets it and
+  your shell does not, and it has produced a red in this repo that no plain
+  local run reproduces — a dependency-snapshot gate that parsed coloured
+  `cargo tree` output and reported crates as added that were already in the
+  snapshot.
 
 ---
 
@@ -110,7 +140,19 @@ The gates are the deliverable, not scaffolding. `mlmf-gguf` existed for six task
 
 ## Task 2: The tensor directory, and the different base
 
-**Files:** `crates/mlmf-safetensors/src/tensors.rs`.
+**Files:** `crates/mlmf-safetensors/src/tensors.rs`, **and
+`crates/mlmf-safetensors/src/error.rs`** — this task needs
+`Stage::TensorDirectory` and a tensor-stage variant, and neither exists yet.
+
+That second file was missing from this list until Task 1's implementer said
+so. It is the same trap `mlmf-gguf/src/error.rs` already carries a comment
+about: plan 4 scheduled a variant there, each of its eight tasks touched
+something else, and the doc still told consumers the tensor stage was
+unreachable after the stage had landed. **A file a plan schedules and no
+task owns is a file no per-task review looks at.**
+
+Task 1 deliberately did NOT pre-add the variant, which was right — a variant
+added ahead of its use is one no review examines.
 
 - [ ] **Step 1: Write the failing tests.**
   - A resolvable tensor becomes a descriptor **rebased onto the slice**: `8 + header_len + data_offsets.0`, asserted as a whole tuple against a fully-specified literal. This is D4 and it is the highest-value assertion in the plan.
