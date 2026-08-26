@@ -1,6 +1,24 @@
-# C3: the std submodules mlmf-safetensors may name. Deliberately EMPTY.
+# C3: the std submodules mlmf-safetensors may name. Started EMPTY at the
+# crate skeleton and grows one commit at a time; the first three entries
+# landed with task 1, the header stage, which is the first code here.
 #
 # A permission granted before its use is a permission nobody re-examines.
 # mlmf-gguf started this file empty too and grew it one commit at a time,
 # each entry landing beside the code that forced it. Add an entry only in
 # the commit that needs it, and say in a comment what forced it.
+
+# Task 1, the header stage. Each entry names what forced it.
+#
+# `error` -- `impl std::error::Error for SafetensorsError`. The trait lives
+#   in std and there is no other way to spell it; this crate does not depend
+#   on `thiserror`.
+# `fmt` -- the `Display` impls on `Stage` and `SafetensorsError`, which are
+#   what make the error printable at a consumer's edge.
+# `str` -- `std::str::from_utf8` on the header bytes, so that "not UTF-8" is
+#   its own error kind rather than serde's guess at a syntax error. Spelled
+#   with the `std::` prefix on purpose: the bare `str::from_utf8` associated
+#   function reaches the same code and is invisible to this allow-list, and a
+#   gate that can be stepped around by dropping four characters is not one.
+error
+fmt
+str
