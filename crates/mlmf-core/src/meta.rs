@@ -197,8 +197,6 @@ mod tests {
         assert_eq!(MetaValue::U32(32).as_f64(), None, "families do not mix");
     }
 
-    use super::*;
-
     #[test]
     fn arrays_nest() {
         let v = MetaValue::Array(vec![
