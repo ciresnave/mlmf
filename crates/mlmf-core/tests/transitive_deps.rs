@@ -58,6 +58,27 @@ fn current() -> Vec<String> {
             "all",
             "--prefix",
             "none",
+            // `--color never`, and it is load-bearing rather than cosmetic.
+            //
+            // CI's toolchain action sets CARGO_TERM_COLOR=always, so
+            // `cargo tree` writes its dedup marker COLOURED. The parse below
+            // splits each line on `" ("` to strip that marker; with an escape
+            // sequence sitting between the space and the paren the split
+            // never matches, every entry keeps a coloured suffix, and the
+            // gate reports a dependency set that changed when nothing did.
+            // Measured, with CARGO_TERM_COLOR=always:
+            //
+            //   added: ["proc-macro2 v1.0.107 <ESC>[33m<ESC>[2m(*)<ESC>..."]
+            //
+            // Worse than a false alarm, because the gate offers `--bless` in
+            // the same breath and blessing would record ANSI escapes as the
+            // intended dependency set, permanently. The crates it names were
+            // already IN the snapshot.
+            //
+            // Whenever a gate parses another tool's OUTPUT, pin what the
+            // environment can change about it at the call site.
+            "--color",
+            "never",
         ])
         .arg("--manifest-path")
         .arg(&manifest)
@@ -131,9 +152,9 @@ fn the_snapshot_records_versions_not_only_names() {
     assert!(!pinned.is_empty(), "the snapshot must not be empty");
     for line in &pinned {
         assert!(
-            line.split_whitespace()
-                .nth(1)
-                .is_some_and(|v| v.starts_with('v') && v[1..].starts_with(|c: char| c.is_ascii_digit())),
+            line.split_whitespace().nth(1).is_some_and(
+                |v| v.starts_with('v') && v[1..].starts_with(|c: char| c.is_ascii_digit())
+            ),
             "snapshot line `{line}` carries no version"
         );
     }

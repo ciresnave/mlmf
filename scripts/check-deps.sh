@@ -38,7 +38,10 @@ CEILING=13
 # into a false "dependency set changed" — the same cry-wolf failure the
 # .gitattributes rule above exists to stop.
 current() {
-  cargo tree -p mlmf-core --edges normal,build --no-default-features \
+  # --color never: CI sets CARGO_TERM_COLOR=always and the parse below
+  # splits on " (", which an escape between the space and the paren
+  # defeats. Must stay byte-identical to the Rust gate.
+  cargo tree -p mlmf-core --edges normal,build --no-default-features --color never \
     --target all --prefix none \
     | sed 's/ (.*//' \
     | sed 's/[[:space:]]*$//' \
