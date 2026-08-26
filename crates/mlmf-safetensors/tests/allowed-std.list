@@ -1,0 +1,6 @@
+# C3: the std submodules mlmf-safetensors may name. Deliberately EMPTY.
+#
+# A permission granted before its use is a permission nobody re-examines.
+# mlmf-gguf started this file empty too and grew it one commit at a time,
+# each entry landing beside the code that forced it. Add an entry only in
+# the commit that needs it, and say in a comment what forced it.

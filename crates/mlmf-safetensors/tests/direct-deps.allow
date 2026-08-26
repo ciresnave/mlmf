@@ -1,0 +1,20 @@
+# C2: mlmf-safetensors's direct dependencies. Changing this file is a
+# deliberate act. Keep sorted. Every entry must be justified in the design
+# spec.
+mlmf-core
+# D3, and this is the first external dependency in a format crate, so it is
+# recorded rather than slipped in. The safetensors header is JSON that a
+# writer produced with a real serialiser, so it may legally contain \uXXXX
+# escapes, surrogate pairs and exponential-form numbers. A tensor name is a
+# LOOKUP KEY -- this project already ruled for GGUF that a key must be
+# byte-exact or the parse fails -- and a hand-rolled subset parser either
+# mangles an escape, producing a name nobody can look up, or refuses a valid
+# file, which is the failure mode D1's second ruling exists to avoid.
+# Getting JSON right is not this crate's contribution.
+#
+# C1/C2's transitive snapshot covers mlmf-core only, and its own doc says
+# that scope stops being correct the moment a format crate gains an external
+# dependency -- and that `deps.rs` is what catches it. This is that moment.
+# It is recorded here so the next reader of transitive_deps.rs knows the
+# construction it rests on has changed.
+serde_json

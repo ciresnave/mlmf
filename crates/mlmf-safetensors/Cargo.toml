@@ -1,0 +1,17 @@
+[package]
+    description          = "Reads safetensors headers and tensor directories. No I/O, no interpretation."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-safetensors"
+    repository.workspace = true
+    version.workspace    = true
+
+[dependencies]
+    mlmf-core = { path = "../mlmf-core", version = "0.4.0" }
+    # D3: the header is JSON a real serialiser produced, so it may legally
+    # carry \uXXXX escapes, surrogate pairs and exponential-form numbers. A
+    # tensor name is a lookup key and must be byte-exact, so a hand-rolled
+    # subset parser either mangles an escape -- producing a name nobody can
+    # look up -- or refuses a valid file. Getting JSON right is not this
+    # crate's contribution.
+    serde_json = { version = "1.0", default-features = false, features = ["std"] }

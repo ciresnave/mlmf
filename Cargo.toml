@@ -6,7 +6,13 @@ members = ["crates/*"]
 # (C3), not the dependency allow-list (C2), not the transitive snapshot
 # (C1/C2). The command a developer types, and the command any stock CI
 # template contains, checked nothing.
-default-members = [".", "crates/mlmf-core", "crates/mlmf-ggml", "crates/mlmf-gguf"]
+default-members = [
+    ".",
+    "crates/mlmf-core",
+    "crates/mlmf-ggml",
+    "crates/mlmf-gguf",
+    "crates/mlmf-safetensors",
+]
 
 [workspace.package]
 edition    = "2024"
