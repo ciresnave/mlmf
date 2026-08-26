@@ -1,7 +1,26 @@
 # Rust
 /target/
-Cargo.lock
 *.profraw
+
+# Cargo.lock IS committed, deliberately.
+#
+# It was ignored, and that made the C2 transitive-dependency snapshot a time
+# bomb: the snapshot records exact patch versions, so on any machine that has
+# not already resolved, an upstream patch release reddens `cargo test -p
+# mlmf-core` and `scripts/check-deps.sh` with a diff nobody made. A reviewer
+# hit it in a fresh worktree — `syn v3.0.3 -> v3.0.4` — while this working
+# copy stayed green off a stale lock, so "all gates green" was a property of
+# one developer's resolve rather than of the branch.
+#
+# A gate that fires on someone else's release, forever, on every clean
+# checkout, is a gate that gets deleted by whoever is holding it when it
+# finally becomes inconvenient. Committing the lock makes the resolve
+# reproducible, so the snapshot means what it claims: the set changed
+# because someone changed it.
+#
+# Cargo ignores a library's lockfile when it is consumed as a dependency, so
+# this constrains only local and CI builds — which is exactly the scope the
+# gate operates in.
 
 # IDE
 .vscode/

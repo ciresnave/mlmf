@@ -129,20 +129,25 @@ pub(crate) fn data_start(dir_end: u64, alignment: u64) -> Option<u64> {
 /// Turn a raw record into a descriptor, or report why it cannot be one.
 ///
 /// `None` means the tensor is **omitted from the container's list** and the
-/// report names it. Six things reach that outcome and every one of them
+/// report names it. SEVEN things reach that outcome and every one of them
 /// looks the same to a consumer holding the list: a shorter list. The
 /// report is the only other signal, so no path here returns `None` without
 /// pushing an entry.
 ///
-/// Four of the six are reported as
+/// (Six until the whole-branch review. The seventh — a dimension that does
+/// not fit this target's `usize` — existed in the code and not in this
+/// list, which read as exhaustive and was consulted as though it were.)
+///
+/// Four of the seven are reported as
 /// [`UnrecognizedKind::TensorEncoding`], and they are deliberately not
 /// distinguished from one another — a code this build does not know, a
 /// retired code, a shape `mlmf-ggml` refuses as ragged, and a size that
 /// overflows all say "this build cannot compute this tensor's extent from
 /// its declared type", and telling them apart is interpretation.
 ///
-/// The other two are [`UnrecognizedKind::TensorDeclined`], and that
-/// distinction is NOT interpretation: when the rebase overflows, the
+/// The other THREE are [`UnrecognizedKind::TensorDeclined`] — the two
+/// rebase overflows and the `usize` narrowing — and that distinction is
+/// NOT interpretation: in all three the
 /// encoding resolved perfectly. Reporting `TensorEncoding { code: 0 }` for
 /// an F32 tensor would name a code this build recognises and point an
 /// operator at a library upgrade that would change nothing. The fact is a
@@ -187,7 +192,33 @@ pub(crate) fn resolve(
     };
     let dims: Option<Vec<usize>> = info.dims.iter().map(|d| usize::try_from(*d).ok()).collect();
     let Some(dims) = dims else {
-        return complain(report);
+        // `decline`, not `complain`. The encoding resolved — `from_code`
+        // and `nbytes` both succeeded above — and the failure is that a
+        // declared dimension does not fit this target's `usize`. That is a
+        // fact about the MACHINE DOING THE READING, not about the model,
+        // and D5 says so explicitly.
+        //
+        // This arm reported `TensorEncoding` until the whole-branch review,
+        // which is the exact defect the doc twelve lines above forbids: it
+        // would name a ggml code this build recognises perfectly and point
+        // an operator at a library upgrade that would change nothing. An
+        // F32 tensor reported as an unresolvable ggml encoding.
+        //
+        // **Unreachable on a 64-bit target**, where every `u64` fits a
+        // `usize`, so no test here can drive it and the kind is fixed by
+        // inspection rather than by a control. Said plainly rather than
+        // left looking covered: on a 32-bit target this is the arm that
+        // runs, and it is the one arm in this function no sabotage on this
+        // machine can reach.
+        return decline(
+            report,
+            format!(
+                "declared dimensions {:?} do not fit this target's usize; \
+                 that is a limit of the machine reading the file, not of \
+                 the file",
+                info.dims
+            ),
+        );
     };
     let Some(start) = data_start.checked_add(info.offset) else {
         return decline(
@@ -234,8 +265,14 @@ impl GgufTensors<'_> {
         self.data_start
     }
 
-    /// How many names the lookup index holds. Test surface for the
-    /// structural assertion that lookup is not a scan.
+    /// How many names the lookup index holds.
+    ///
+    /// Test surface for the assertion that an index EXISTS covering
+    /// every tensor — which is strictly less than "the lookup used
+    /// it". Measured: replacing the indexed lookup with a linear scan
+    /// while still building the index leaves that assertion green.
+    /// This doc previously claimed the stronger property, which the
+    /// test's own comment already retracted.
     #[must_use]
     pub fn index_len(&self) -> usize {
         self.index.len()
@@ -728,7 +765,21 @@ mod tests {
             offset: 0,
         };
         assert!(resolve(&info, 0, "t.gguf", &mut report).is_none());
-        assert_eq!(report.entries().len(), 1);
+        // The WHOLE entry, not a count. Switching this arm from `complain`
+        // to `decline` left the workspace green — two of the four
+        // TensorEncoding causes had their kind pinned and two did not, and
+        // this was one of the two. A count cannot see a kind.
+        assert_eq!(
+            report.entries(),
+            [Unrecognized {
+                kind: UnrecognizedKind::TensorEncoding {
+                    name: "ragged".into(),
+                    family: "ggml",
+                    code: 2,
+                },
+                origin: "t.gguf".into(),
+            }]
+        );
     }
 
     #[test]

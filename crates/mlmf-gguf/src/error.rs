@@ -21,7 +21,13 @@ pub enum Stage {
     Header,
     /// The key-value block.
     Metadata,
-    /// The tensor directory. Reached only by the next plan.
+    /// The tensor directory: the tensor-info records and the padding
+    /// before the data region.
+    ///
+    /// Reached by [`crate::parse_tensors`]. This said "only by the next
+    /// plan" until that plan landed and no task owned the edit — the
+    /// plan's file list scheduled it and its eight tasks each touched
+    /// something else, so no per-task review had reason to look here.
     TensorDirectory,
 }
 
