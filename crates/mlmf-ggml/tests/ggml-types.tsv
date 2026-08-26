@@ -1,0 +1,49 @@
+# ggml type geometry, ground truth.
+#
+# Source: ggml-org/llama.cpp @ 9d57ce456c94d241dde672b2db9cf18879766568
+#   codes            ggml/include/ggml.h        enum ggml_type
+#   elements/block   ggml/src/ggml.c            type_traits[].blck_size
+#   bytes/block      ggml/src/ggml-common.h     sizeof(block_*)
+#   alignment        ggml/src/ggml-common.h     max member alignment
+#
+# Every `blocked` row's byte count is independently confirmed by
+# llama.cpp's own static_assert on that struct: 27 of 27, no mismatches.
+# Dense rows have no struct and no assert; their sizes are the scalar widths.
+#
+# To regenerate, see docs/superpowers/plans/2026-08-15-mlmf-ggml.md Task 3.
+code	name	kind	elems	bytes	align
+0	F32	dense	1	4	4
+1	F16	dense	1	2	2
+2	Q4_0	blocked	32	18	2
+3	Q4_1	blocked	32	20	2
+6	Q5_0	blocked	32	22	2
+7	Q5_1	blocked	32	24	2
+8	Q8_0	blocked	32	34	2
+9	Q8_1	blocked	32	36	2
+10	Q2_K	blocked	256	84	2
+11	Q3_K	blocked	256	110	2
+12	Q4_K	blocked	256	144	2
+13	Q5_K	blocked	256	176	2
+14	Q6_K	blocked	256	210	2
+15	Q8_K	blocked	256	292	4
+16	IQ2_XXS	blocked	256	66	2
+17	IQ2_XS	blocked	256	74	2
+18	IQ3_XXS	blocked	256	98	2
+19	IQ1_S	blocked	256	50	2
+20	IQ4_NL	blocked	32	18	2
+21	IQ3_S	blocked	256	110	2
+22	IQ2_S	blocked	256	82	2
+23	IQ4_XS	blocked	256	136	2
+24	I8	dense	1	1	1
+25	I16	dense	1	2	2
+26	I32	dense	1	4	4
+27	I64	dense	1	8	8
+28	F64	dense	1	8	8
+29	IQ1_M	blocked	256	56	1
+30	BF16	dense	1	2	2
+34	TQ1_0	blocked	256	54	2
+35	TQ2_0	blocked	256	66	2
+39	MXFP4	blocked	32	17	1
+40	NVFP4	blocked	64	36	1
+41	Q1_0	blocked	128	18	2
+42	Q2_0	blocked	64	18	2

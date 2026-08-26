@@ -24,7 +24,7 @@ use std::{
 
 /// GGUF quantization types matching llama.cpp conventions
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(non_camel_case_types)]// Keep GGUF standard naming (Q4_K_M, Q6_K, etc.)
+#[allow(non_camel_case_types)] // Keep GGUF standard naming (Q4_K_M, Q6_K, etc.)
 pub enum GGUFQuantType {
     /// No quantization - F32 format
     F32,
@@ -770,7 +770,7 @@ pub fn save_as_gguf(
                 return Err(crate::Error::invalid_config(format!(
                     "Unsupported GGUF quantization: {}",
                     quant
-                )))
+                )));
             }
         }
     } else {

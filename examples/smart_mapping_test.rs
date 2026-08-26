@@ -53,7 +53,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => {
             // Expected - the directory doesn't exist
             println!("⚠️  Expected error (test directory doesn't exist): {}", e);
-            println!("✅ Smart mapping integration is working - the oracle would be called for real models");
+            println!(
+                "✅ Smart mapping integration is working - the oracle would be called for real models"
+            );
         }
     }
 

@@ -15,7 +15,7 @@
 //! read any package's version.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Packages permitted to carry a build script.
 ///
@@ -25,13 +25,18 @@ use std::path::{Path, PathBuf};
 ///   creating it is not also a gate change.
 const BUILD_SCRIPT_ALLOWED: &[&str] = &["mlmf", "mlmf-onnx"];
 
-fn workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("crates/mlmf-core has a workspace root two levels up")
-        .to_path_buf()
-}
+// `workspace_root` lives once, in `tests/common/mod.rs`, shared with
+// `purity.rs` and `deps.rs` rather than duplicated per file. See that
+// module's doc comment for why a `#[path]` include, not a dev-dependency.
+// `member_manifests` below stays local: it walks the root package plus
+// every `crates/*` member (for C5/C7, which apply workspace-wide,
+// including the legacy `mlmf` package), where `gated_members` in the
+// shared module walks only `crates/*` (for C2/C3, which the root package
+// is deliberately exempt from). They are not the same set and must not be
+// merged.
+#[path = "common/mod.rs"]
+mod common;
+use common::workspace_root;
 
 /// Every manifest in the workspace: the root package plus `crates/*`.
 fn member_manifests() -> Vec<PathBuf> {
@@ -166,9 +171,13 @@ fn the_gates_can_fail() {
         ),
         "only the [package] table's own version counts"
     );
-    assert!(declares_build_dependencies("[build-dependencies]\nprost-build = \"0.14\"\n"));
+    assert!(declares_build_dependencies(
+        "[build-dependencies]\nprost-build = \"0.14\"\n"
+    ));
     assert!(declares_build_dependencies(
         "[target.'cfg(unix)'.build-dependencies]\ncc = \"1\"\n"
     ));
-    assert!(!declares_build_dependencies("[dependencies]\nbytemuck = \"1\"\n"));
+    assert!(!declares_build_dependencies(
+        "[dependencies]\nbytemuck = \"1\"\n"
+    ));
 }

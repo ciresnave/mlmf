@@ -340,7 +340,12 @@ impl QuantizationEngine {
         for (idx, (tensor_name, tensor)) in model.raw_tensors.iter().enumerate() {
             if let Some(callback) = &progress_callback {
                 callback(&ProgressEvent::Status {
-                    message: format!("Quantizing tensor {}/{}: {}", idx + 1, total_tensors, tensor_name),
+                    message: format!(
+                        "Quantizing tensor {}/{}: {}",
+                        idx + 1,
+                        total_tensors,
+                        tensor_name
+                    ),
                 });
             }
 
@@ -374,18 +379,26 @@ impl QuantizationEngine {
         let mut quantization_info = crate::metadata::ModelQuantizationInfo::new(
             bit_depth,
             calibration_method,
-            if self.config.block_wise { Some(self.config.block_size) } else { None },
+            if self.config.block_wise {
+                Some(self.config.block_size)
+            } else {
+                None
+            },
         );
         quantization_info.calibration_info = Some(crate::metadata::CalibrationInfo {
             sample_count: self.config.calibration_samples,
-            dataset_description: Some(format!("Calibrated with {} method", self.config.calibration_method)),
+            dataset_description: Some(format!(
+                "Calibrated with {} method",
+                self.config.calibration_method
+            )),
             distribution_stats: None,
         });
         quantization_info.quantized_at = Some(chrono::Utc::now());
 
         // Create new name mapper from the quantized tensor names
         let tensor_names: Vec<String> = quantized_tensors.keys().cloned().collect();
-        let new_name_mapper = crate::smart_mapping::SmartTensorNameMapper::from_tensor_names(&tensor_names)?;
+        let new_name_mapper =
+            crate::smart_mapping::SmartTensorNameMapper::from_tensor_names(&tensor_names)?;
 
         let mut quantized_model = LoadedModel {
             var_builder: model.var_builder.clone(),
@@ -473,7 +486,7 @@ impl QuantizationEngine {
         // Flatten and get min/max values
         let flattened = tensor.flatten_all()?;
         let values = flattened.to_vec1::<f32>()?;
-        
+
         let min_val = values.iter().fold(f32::INFINITY, |a, &b| a.min(b));
         let max_val = values.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
         scheme.range = (min_val, max_val);
@@ -596,7 +609,9 @@ pub mod quantized_loading {
     }
 
     /// Get quantization information from model
-    pub fn get_quantization_info(model: &LoadedModel) -> Option<&crate::metadata::ModelQuantizationInfo> {
+    pub fn get_quantization_info(
+        model: &LoadedModel,
+    ) -> Option<&crate::metadata::ModelQuantizationInfo> {
         model.quantization_info.as_ref()
     }
 }

@@ -252,8 +252,10 @@ A log line is ignorable by construction, so this lives in the type system: **eve
 
 **Two severity tiers, because not all unknowns are survivable:**
 
-- **Fatal — refuse to parse.** Unknown type code, unknown format version, unrecognised block encoding. These make byte-size arithmetic unknowable, so proceeding means handing out *wrong* bytes rather than incomplete ones.
-- **Loud — preserve verbatim and report.** Unknown metadata keys, unrecognised files in a checkpoint, unhandled feature flags. Harmless to carry, dangerous to drop. The report names the key, its typed value, and its origin — not a count.
+- **Fatal — refuse to parse.** Unknown format version, unrecognised block encoding, and an unknown type code **in a container that derives tensor offsets by accumulation** — each tensor's size feeding the next tensor's start, so one unreadable size makes every later offset unknowable. These make byte-size arithmetic unknowable, so proceeding means handing out *wrong* bytes rather than incomplete ones.
+- **Loud — preserve verbatim and report.** Unknown metadata keys, unrecognised files in a checkpoint, unhandled feature flags, and an unknown type code **in a container that stores each tensor's offset explicitly** — GGUF is this case, so an unrecognised type code there costs exactly that one tensor's length, and metadata and every other tensor stay readable. Harmless to carry, dangerous to drop. The report names the key, its typed value, and its origin — not a count.
+
+**The fatal/loud split for an unknown type code is a property of whether the unknown poisons other addressing, not a property of the unknown itself.** The same code is fatal in a format whose offsets accumulate and loud in a format whose offsets do not — §7 is not "type codes are always fatal," it is "an unknown is fatal exactly where continuing would compute wrong bytes for *something else*." (`mlmf-ggml`, §11.)
 
 **Two independent obligations, and this distinction is the important part:**
 
@@ -395,6 +397,13 @@ Recorded with reasons so they are not relitigated from taste later.
 This is also the strongest single justification for the per-format split: **the pickle VM can only enter a dependency graph through an explicit `mlmf-pickle` edge.** Feature-gating could never have promised that.
 
 One wrinkle: mmap-slicing a `.bin` works only because `torch.save` writes ZIP entries **stored, not deflated**. A compressed entry must be decompressed into an owned buffer, so `mlmf-pickle` returns borrowed-or-owned, unlike GGUF and safetensors which are always borrowable.
+
+### `mlmf-ggml` — landed
+
+Implemented ahead of `mlmf-gguf` (§12 step 2), as the type-geometry half of that step. Two decisions this plan made that the spec above did not anticipate:
+
+1. **The type space is 35 live codes plus 8 retired, not the ~15 a straight port of Fuel's table would have produced.** The corpus evidence for the wider space is concrete — 540 `IQ4_NL`, 30 `IQ3_S`, 30 `IQ4_XS` tensors in ordinary Hub downloads that a 15-type table cannot read at all.
+2. **§7's fatal/loud rule is amended** (see §7 above): the split is a property of whether an unknown poisons other addressing, not a property of the unknown itself. This was found while building `mlmf-ggml`, because GGUF's explicit per-tensor offsets are the concrete case that falsifies "unknown type code ⇒ always fatal."
 
 ---
 

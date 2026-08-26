@@ -5,10 +5,20 @@
 //! so the obligation lives in the type instead.
 //!
 //! Only **loud** unknowns appear here — things harmless to carry and
-//! dangerous to drop. **Fatal** unknowns (an unrecognised type code,
-//! version or encoding) are [`crate::ErrorKind`] variants, because they
-//! make byte-size arithmetic unknowable and continuing would hand out
+//! dangerous to drop. **Fatal** unknowns (an unrecognised container
+//! version or block encoding) are [`crate::ErrorKind`] variants, because
+//! they make byte-size arithmetic unknowable and continuing would hand out
 //! wrong bytes rather than incomplete ones.
+//!
+//! An unrecognised **type code** is fatal or loud depending on the
+//! container, not on the code itself: the split tracks whether the
+//! unknown poisons *other* addressing. A format that derives tensor
+//! offsets by accumulation — each tensor's size feeding the next tensor's
+//! start — cannot survive one unreadable size, so there the code is fatal
+//! for the same reason as an unrecognised version. GGUF stores each
+//! tensor's offset explicitly, so an unrecognised type code there costs
+//! exactly that one tensor's length; metadata and every other tensor stay
+//! readable, so the code belongs here instead.
 
 use crate::MetaValue;
 
@@ -37,6 +47,27 @@ pub enum UnrecognizedKind {
         /// Raw value as declared.
         raw: u64,
     },
+    /// A tensor whose declared encoding this build cannot resolve.
+    ///
+    /// The tensor is **omitted from the container's tensor list**, because
+    /// [`crate::TensorDescriptor`] has no way to say "length unknown" — its
+    /// `encoding` is not optional — and fabricating one would let a caller
+    /// compute a byte range for a tensor whose extent is genuinely unknown.
+    ///
+    /// Omission is not silence: this entry names the tensor, the family
+    /// that owns the code space, and the code itself, so a consumer can
+    /// report exactly which tensor it cannot see and why. Whether an
+    /// unresolvable code is merely loud (this) or fatal
+    /// ([`crate::ErrorKind::UnknownTypeCode`]) is a property of the
+    /// container — see this module's header.
+    TensorEncoding {
+        /// Tensor name exactly as declared.
+        name: String,
+        /// Family owning the code space, e.g. `"ggml"`.
+        family: &'static str,
+        /// The code exactly as declared.
+        code: u32,
+    },
 }
 
 /// One unrecognised item plus where it came from.
@@ -46,6 +77,30 @@ pub struct Unrecognized {
     pub kind: UnrecognizedKind,
     /// Artifact it came from, for attribution in messages.
     pub origin: String,
+}
+
+/// What a source knows about one metadata key (spec §5, consumer R2).
+///
+/// [`MetadataSource::get`] returns `Option`, which collapses two facts an
+/// operator must be able to tell apart: a file that **declares nothing**
+/// under this key, and a file that declares something the parse **could not
+/// decode**. Those carry opposite remedies — supply the value, versus repair
+/// the file — and a consumer given only `None` cannot say which it is
+/// looking at.
+///
+/// `get` stays as the ergonomic path. This is the honest one.
+///
+/// [`MetadataSource::get`]: crate::MetadataSource::get
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum Declaration<'a> {
+    /// The key is not declared. Never a default.
+    Absent,
+    /// The key is declared and the value could not be decoded. Carries the
+    /// report entry, so the complaint can name the key and what was seen.
+    Unreadable(&'a Unrecognized),
+    /// The key is declared and decoded.
+    Declared(&'a MetaValue),
 }
 
 /// Everything a parse did not understand.
@@ -115,6 +170,50 @@ mod tests {
             }
             other => panic!("wrong kind: {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_tensor_encoding_entry_survives_a_merge_with_its_fields_intact() {
+        let mut a = Report::new();
+        a.push(Unrecognized {
+            kind: UnrecognizedKind::TensorEncoding {
+                name: "blk.0.attn_q.weight".into(),
+                family: "ggml",
+                code: 9999,
+            },
+            origin: "model.gguf".into(),
+        });
+
+        let mut b = Report::new();
+        b.push(Unrecognized {
+            kind: UnrecognizedKind::TensorEncoding {
+                name: "blk.1.attn_q.weight".into(),
+                family: "ggml",
+                code: 9999,
+            },
+            origin: "shard-2.gguf".into(),
+        });
+        a.merge(b);
+
+        assert_eq!(a.entries().len(), 2);
+        match &a.entries()[0].kind {
+            UnrecognizedKind::TensorEncoding { name, family, code } => {
+                assert_eq!(name, "blk.0.attn_q.weight");
+                assert_eq!(*family, "ggml");
+                assert_eq!(*code, 9999);
+            }
+            other => panic!("wrong kind: {other:?}"),
+        }
+        assert_eq!(a.entries()[0].origin, "model.gguf");
+        match &a.entries()[1].kind {
+            UnrecognizedKind::TensorEncoding { name, family, code } => {
+                assert_eq!(name, "blk.1.attn_q.weight");
+                assert_eq!(*family, "ggml");
+                assert_eq!(*code, 9999);
+            }
+            other => panic!("wrong kind: {other:?}"),
+        }
+        assert_eq!(a.entries()[1].origin, "shard-2.gguf");
     }
 
     fn key(k: &str, v: u32, origin: &str) -> Unrecognized {
@@ -191,10 +290,7 @@ mod tests {
 
         a.merge(b);
         assert_eq!(a.entries().len(), 2);
-        assert!(matches!(
-            a.entries()[0].kind,
-            UnrecognizedKind::File { .. }
-        ));
+        assert!(matches!(a.entries()[0].kind, UnrecognizedKind::File { .. }));
         assert!(matches!(
             a.entries()[1].kind,
             UnrecognizedKind::FeatureFlag { .. }

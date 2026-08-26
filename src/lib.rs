@@ -131,7 +131,7 @@ pub use universal_loader::{detect_model_format, is_supported_model, load_model};
 pub use saver::save_gguf;
 
 #[cfg(feature = "onnx")]
-pub use formats::{load_onnx, ONNXLoadOptions, ONNXLoader, ONNXModelInfo};
+pub use formats::{ONNXLoadOptions, ONNXLoader, ONNXModelInfo, load_onnx};
 pub use smart_mapping::{
     ChatBasedOracle, MappingContext, NameMappingOracle, SmartTensorNameMapper,
 };
@@ -141,8 +141,8 @@ pub use progress::{ProgressEvent, ProgressFn};
 
 // Re-export conversion API
 pub use conversion::{
-    convert_batch, convert_model, ConversionFormat, ConversionJob, ConversionOptions,
-    ConversionResult,
+    ConversionFormat, ConversionJob, ConversionOptions, ConversionResult, convert_batch,
+    convert_model,
 };
 
 // Re-export multi-modal API

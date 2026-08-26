@@ -24,7 +24,7 @@ pub use dtype::DType;
 pub use encoding::{BlockSpec, Encoding};
 pub use error::{Error, ErrorKind, Result};
 pub use meta::MetaValue;
-pub use report::{Report, Unrecognized, UnrecognizedKind};
+pub use report::{Declaration, Report, Unrecognized, UnrecognizedKind};
 pub use shape::Shape;
 pub use tensor::TensorDescriptor;
 pub use traits::{ByteSource, MetadataSource, RangedSource, TensorContainer};

@@ -1,0 +1,3 @@
+# C2: mlmf-ggml's direct dependencies. Changing this file is a deliberate act.
+# Keep sorted. Every entry must be justified in the design spec.
+mlmf-core

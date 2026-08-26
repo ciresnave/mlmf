@@ -1,0 +1,29 @@
+#!/bin/sh
+# Refuse a commit whose staged Rust files are not rustfmt-clean.
+#
+# Checks the WORKING TREE rather than the index, which is the honest
+# approximation: `cargo fmt --check` has no staged-content mode, and a
+# tree that is clean overall cannot have a dirty staged subset. The
+# failure mode is a false positive from unstaged drift elsewhere, which
+# is loud and fixable, rather than a false negative that lets unformatted
+# code through.
+#
+# Enable once per clone:  git config core.hooksPath .githooks
+
+if ! git diff --cached --name-only --diff-filter=ACM | grep -q '\.rs$'; then
+    exit 0
+fi
+
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "pre-commit: cargo not on PATH; skipping the rustfmt gate." >&2
+    exit 0
+fi
+
+if ! cargo fmt --all -- --check >/dev/null 2>&1; then
+    echo >&2
+    echo "pre-commit: rustfmt would change these files:" >&2
+    cargo fmt --all -- --check 2>&1 | grep '^Diff in' | sed 's/ at line.*//;s/^Diff in /  /' | sort -u >&2
+    echo >&2
+    echo "Run 'cargo fmt --all', re-stage, and commit again." >&2
+    exit 1
+fi

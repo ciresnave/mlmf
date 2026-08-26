@@ -192,7 +192,10 @@ mod tests {
     #[test]
     fn q8_0_still_computes_ordinary_sizes() {
         // The overflow guard must not fire on a real tensor.
-        assert_eq!(Encoding::Blocked(q8_0()).byte_size(4096, "t").unwrap(), 4352);
+        assert_eq!(
+            Encoding::Blocked(q8_0()).byte_size(4096, "t").unwrap(),
+            4352
+        );
     }
 
     #[test]

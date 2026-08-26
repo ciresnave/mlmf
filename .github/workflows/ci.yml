@@ -25,6 +25,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      # Formatting is a gate, not a preference. It runs first because it is
+      # the cheapest failure to produce and the cheapest to fix, and because
+      # a drifting file makes this check unenableable — the drift protects
+      # itself until someone sweeps it.
+      - name: cargo fmt --all --check
+        run: cargo fmt --all -- --check
 
       # C6: build AND run the parser suite with default features off, so the
       # mmap-free path is proven functional rather than merely compilable.
@@ -49,6 +58,17 @@ jobs:
 
       - name: cargo clippy -p mlmf-core
         run: cargo clippy -p mlmf-core --all-targets -- -D warnings
+
+      - name: cargo test -p mlmf-ggml
+        run: cargo test -p mlmf-ggml
+
+      - name: cargo doc -p mlmf-ggml --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-ggml --no-deps
+
+      - name: cargo clippy -p mlmf-ggml
+        run: cargo clippy -p mlmf-ggml --all-targets -- -D warnings
 
 # NOT gated here, deliberately and on the record: the legacy root `mlmf`
 # package. It depends on `candlelight` from git and runs a `prost-build`
