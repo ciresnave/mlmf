@@ -1,5 +1,16 @@
 # mlmf-gguf parses bytes.
+#
+# `borrow` and `collections` were added when the tensor directory landed,
+# and both are forced by the seam rather than chosen. `TensorContainer::
+# tensor_bytes` returns `Cow<'_, [u8]>` -- mlmf-core's signature, not this
+# crate's -- so `std::borrow::Cow` cannot be avoided while implementing it.
+# `TensorContainer::tensor`'s own doc requires a format crate parsing a real
+# model to replace the default linear scan with an index, and a HashMap is
+# that index. Neither reaches outside the process, which is what C3 exists
+# to forbid.
+borrow
 cmp
+collections
 error
 fmt
 iter

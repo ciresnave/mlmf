@@ -90,6 +90,25 @@ pub enum UnrecognizedKind {
         /// The code exactly as declared.
         code: u32,
     },
+    /// A tensor this build declined for a reason that is not its encoding.
+    ///
+    /// Like [`Self::TensorEncoding`], the tensor is **omitted from the
+    /// container's list** — a consumer sees a shorter list and this entry is
+    /// the only other signal. Unlike it, there is no type code involved: the
+    /// encoding resolved fine, or the complaint is not about the encoding at
+    /// all. A duplicate name and an overlapping byte range are both this.
+    ///
+    /// Separate from `TensorEncoding` rather than a `code: Option<u32>` added
+    /// to it, because the two answer different questions and a reader
+    /// branching on the kind should not have to check whether a field is
+    /// meaningful before trusting it.
+    TensorDeclined {
+        /// Tensor name exactly as declared.
+        name: String,
+        /// Why, in terms a person can act on. Never a substitute for a
+        /// field that exists — see the `MetadataKey` repair.
+        reason: String,
+    },
 }
 
 /// One unrecognised item plus where it came from.
@@ -380,5 +399,49 @@ mod tests {
             a.entries()[1].kind,
             UnrecognizedKind::FeatureFlag { .. }
         ));
+    }
+
+    #[test]
+    fn a_declined_tensor_says_why_without_inventing_a_type_code() {
+        // `TensorEncoding` answers "this build cannot resolve the encoding".
+        // A duplicate name and an overlapping range are neither, and forcing
+        // them into it means a `code` field holding a number the file never
+        // declared. That is the defect this enum's MetadataKey sibling was
+        // repaired for.
+        let mut r = Report::new();
+        r.push(Unrecognized {
+            kind: UnrecognizedKind::TensorDeclined {
+                name: "blk.0.attn_q.weight".into(),
+                reason: "declared more than once; the first occurrence is kept".into(),
+            },
+            origin: "model.gguf".into(),
+        });
+        r.push(Unrecognized {
+            kind: UnrecognizedKind::TensorDeclined {
+                name: "blk.1.attn_k.weight".into(),
+                reason: "byte range overlaps blk.0.attn_q.weight".into(),
+            },
+            origin: "model.gguf".into(),
+        });
+
+        // Whole values, in order. A chain of field assertions cannot see the
+        // two entries swapped, and swapping them attributes each complaint
+        // to the wrong tensor.
+        assert_eq!(
+            r.entries()
+                .iter()
+                .map(|e| e.kind.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                UnrecognizedKind::TensorDeclined {
+                    name: "blk.0.attn_q.weight".into(),
+                    reason: "declared more than once; the first occurrence is kept".into(),
+                },
+                UnrecognizedKind::TensorDeclined {
+                    name: "blk.1.attn_k.weight".into(),
+                    reason: "byte range overlaps blk.0.attn_q.weight".into(),
+                },
+            ]
+        );
     }
 }
