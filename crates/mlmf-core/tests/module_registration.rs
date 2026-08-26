@@ -76,9 +76,23 @@ fn every_source_file_is_named_by_a_mod_declaration() {
             }
             // `mod x;` or `pub mod x;` or `pub(crate) mod x;`, and the
             // `#[path = "..."]` form some test files use.
+            //
+            // The third disjunct was a bare `contains("{stem}.rs")`, which
+            // matched the filename ANYWHERE in the crate — including prose.
+            // Measured: deleting `pub mod geometry;` from mlmf-ggml's
+            // lib.rs left this gate GREEN, because types.rs writes
+            // "`geometry.rs`'s test module" in a comment. geometry.rs names
+            // types.rs in return, so BOTH of that crate's modules were
+            // outside the gate that exists to cover them.
+            //
+            // This gate's own doc says it catches an unregistered file
+            // "always", where reading the counts catches it "when someone
+            // remembers to". It caught it unless someone had mentioned the
+            // file. Anchored to the attribute it was written for.
             let declared = haystack.contains(&format!("mod {stem};"))
                 || haystack.contains(&format!("mod {stem} "))
-                || haystack.contains(&format!("{stem}.rs"));
+                || haystack.contains(&format!("#[path = \"{stem}.rs\"]"))
+                || haystack.contains(&format!("#[path = \"{stem}/mod.rs\"]"));
             if !declared {
                 orphans.push(f.display().to_string());
             }
