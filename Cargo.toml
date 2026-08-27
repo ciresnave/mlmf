@@ -8,6 +8,7 @@ members = ["crates/*"]
 # template contains, checked nothing.
 default-members = [
     ".",
+    "crates/mlmf-conformance",
     "crates/mlmf-core",
     "crates/mlmf-ggml",
     "crates/mlmf-gguf",

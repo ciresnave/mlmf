@@ -97,6 +97,21 @@ jobs:
       - name: cargo clippy -p mlmf-safetensors
         run: cargo clippy -p mlmf-safetensors --all-targets -- -D warnings
 
+      # mlmf-conformance is never published and is gated exactly like the
+      # crates that are. It is the only member linking more than one backend
+      # into one binary, which is what a cross-backend seam test needs and
+      # what neither backend may have.
+      - name: cargo test -p mlmf-conformance
+        run: cargo test -p mlmf-conformance
+
+      - name: cargo doc -p mlmf-conformance --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-conformance --no-deps
+
+      - name: cargo clippy -p mlmf-conformance
+        run: cargo clippy -p mlmf-conformance --all-targets -- -D warnings
+
 # NOT gated here, deliberately and on the record: the legacy root `mlmf`
 # package. It depends on `candlelight` from git and runs a `prost-build`
 # build script, so it needs `protoc` and a long build. Spec §11 schedules it

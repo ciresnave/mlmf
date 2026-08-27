@@ -1,0 +1,13 @@
+# C3: the std submodules mlmf-conformance may name. DELIBERATELY EMPTY.
+#
+# The C3 purity gate scans `src/` only, and this crate's `src/lib.rs` is
+# documentation with no code in it -- every line of this crate that does
+# anything lives in `tests/`, which the gate does not scan. So there is
+# nothing here to permit, and an entry added "just in case" would be a
+# permission nobody re-examines.
+#
+# The file exists rather than being absent because `purity.rs::allowed_std`
+# panics when a gated member does not declare a list. That is deliberate on
+# its part: an absent file and an empty file would otherwise be
+# indistinguishable, and the absent one would look like a crate nobody had
+# considered.

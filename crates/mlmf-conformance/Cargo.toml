@@ -1,0 +1,41 @@
+[package]
+    description          = "Conformance suite for the mlmf-core seam, exercised through two backends at once."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-conformance"
+    # NEVER SHIPPED. This crate exists to hold tests that need more than one
+    # backend in one binary, and a consumer has no use for it.
+    publish              = false
+    repository.workspace = true
+    # C7 all the same, and the two fields are ORTHOGONAL rather than
+    # redundant. `publish = false` says this artifact does not go to a
+    # registry; `version.workspace = true` says that whatever version the
+    # workspace is at, this crate is at it too. A crate that never ships
+    # still gets built, tested and reasoned about alongside the ones that
+    # do, and a member carrying its own hardcoded version is exactly the
+    # drift C7 exists to stop -- the root package already did that once,
+    # pinning 0.3.0 while [workspace.package] said 0.4.0. Opting out of the
+    # registry is not a reason to opt out of the workspace's one number, and
+    # `workspace.rs::every_package_carries_the_one_workspace_version` reads
+    # this field for every member without asking whether it publishes.
+    version.workspace    = true
+
+# PLAIN [dependencies], and that is the ruling rather than a convenience.
+#
+# This crate is shaped like a CONSUMER: it reaches both backends through
+# mlmf-core, which is what Fuel and Lightbulb do. The alternative considered
+# and rejected was a [dev-dependencies] edge from mlmf-safetensors to
+# mlmf-gguf, which would put an edge between two SIBLING BACKENDS -- neither
+# should know the other exists, that being what a seam is -- and would also
+# be arbitrary, since nothing says why safetensors would be the one that
+# knows about GGUF rather than the reverse.
+#
+# It would also have needed an exception in
+# `mlmf-core/tests/deps.rs::no_table_other_than_plain_dependencies_may_declare_an_edge`,
+# whose header says an unanticipated form must fail loudly rather than be
+# skipped. That gate refusing the dev-dependency was the design working. The
+# answer to a loud failure is to stop needing the exception.
+[dependencies]
+    mlmf-core        = { path = "../mlmf-core", version = "0.4.0" }
+    mlmf-gguf        = { path = "../mlmf-gguf", version = "0.4.0" }
+    mlmf-safetensors = { path = "../mlmf-safetensors", version = "0.4.0" }
