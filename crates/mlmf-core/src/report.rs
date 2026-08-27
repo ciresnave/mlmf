@@ -128,7 +128,30 @@ pub enum UnrecognizedKind {
     TensorEncoding {
         /// Tensor name exactly as declared.
         name: String,
-        /// Family owning the type space, e.g. `"ggml"` or `"safetensors"`.
+        /// **The namespace in which [`Self::TensorEncoding::declared`] is
+        /// meaningful**, e.g. `"ggml"` or `"safetensors"`.
+        ///
+        /// That is the whole invariant, and it is why this stays an open
+        /// `&'static str` rather than becoming a closed enum. A ggml code
+        /// `2` means nothing without "ggml" beside it; a safetensors dtype
+        /// name means nothing without "safetensors". Both values satisfy the
+        /// invariant, and the fact that one names a type system while the
+        /// other names a container format is not a difference this field is
+        /// about.
+        ///
+        /// **A closed set would make `mlmf-core` enumerate its backends**,
+        /// which is the failure [`DeclaredType`] was created to remove: a
+        /// format crate must be able to arrive without editing the seam.
+        /// `crate::BlockSpec::family` is open for the identical reason, and
+        /// `encoding.rs` deliberately exercises a `family: "future"` that
+        /// belongs to no crate.
+        ///
+        /// **Openness has a cost and it is unguarded here:** nothing stops
+        /// two backends choosing one string, and a consumer branching on it
+        /// would then attribute one format's complaint to another.
+        /// `mlmf-conformance` carries the control — it asserts the exact set
+        /// of family strings the workspace's backends emit — because that is
+        /// a fact about which backends exist, which this crate must not know.
         family: &'static str,
         /// The type exactly as the file declares it: a numeric code from a
         /// format that declares codes, a name from one that declares names.

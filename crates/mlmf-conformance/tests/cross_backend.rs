@@ -201,6 +201,37 @@ fn with_both<R>(gguf: &[u8], st: &[u8], f: impl FnOnce(Backend<'_>, Backend<'_>)
     )
 }
 
+/// Every `family` string the two backends put in a `TensorEncoding` entry,
+/// sorted and deduplicated.
+///
+/// Reaches into `Report` rather than through the two traits, because
+/// neither trait exposes one — the same reason [`Backend::reported`] exists.
+fn families(gguf: &[u8], st: &[u8]) -> Vec<String> {
+    use mlmf_core::UnrecognizedKind as K;
+    let (gm, gmr) = mlmf_gguf::GgufMetadata::parse(gguf, "f.gguf").expect("opens");
+    let (_, gtr) = mlmf_gguf::parse_tensors(gguf, &gm, "f.gguf").expect("parses");
+    let sh = mlmf_safetensors::parse_header(st).expect("opens");
+    let (_, smr) = mlmf_safetensors::parse_metadata(&sh, "f.safetensors");
+    let (_, str_) = mlmf_safetensors::parse_tensors(st, &sh, "f.safetensors").expect("parses");
+
+    let mut out: Vec<String> = [&gmr, &gtr, &smr, &str_]
+        .iter()
+        .flat_map(|r| r.entries())
+        .filter_map(|e| match &e.kind {
+            K::TensorEncoding { family, .. } => Some((*family).to_string()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !out.is_empty(),
+        "no TensorEncoding entry was produced, so this test would assert \
+         nothing; the fixtures must each declare an unresolvable type"
+    );
+    out.sort();
+    out.dedup();
+    out
+}
+
 fn sorted(mut v: Vec<&str>) -> Vec<&str> {
     v.sort_unstable();
     v
@@ -250,10 +281,42 @@ fn metadata_keys_agree_as_sets_and_are_unordered_for_the_same_reason() {
     // Task 2 measured in `tensors()`. A future reader who sorts one and not
     // the other will conclude a backend is broken, so both are sorted and
     // the shared cause is named here.
-    with_both(&gguf_model(), &safetensors_model(), |g, s| {
+    //
+    // **THREE keys, declared in an order that is not lexicographic**, and
+    // that is a correction rather than a flourish. With one key — or with
+    // keys that happen to be declared in sorted order, which every
+    // `__metadata__` fixture in this workspace was — the `sorted()` calls
+    // above are INERT: they cannot fail, and the divergence they exist to
+    // absorb is exercised by nothing. `tensors()` had an out-of-order
+    // fixture from the start; `keys()` had none.
+    let mut kvs = Vec::new();
+    for (k, v) in [("zeta", 1u32), ("alpha", 2), ("mid", 3)] {
+        push_gguf_str(&mut kvs, k.as_bytes());
+        kvs.extend_from_slice(&GGUF_UINT32.to_le_bytes());
+        kvs.extend_from_slice(&v.to_le_bytes());
+    }
+    let gguf = gguf_file(3, &kvs, 0, &[], &[]);
+    let st = safetensors_file(
+        r#"{"__metadata__":{"zeta":"1","alpha":"2","mid":"3"}}"#,
+        &[],
+    );
+
+    with_both(&gguf, &st, |g, s| {
         assert_eq!(
             (sorted(g.meta.keys()), sorted(s.meta.keys())),
-            (vec![KEY], vec![KEY])
+            (vec!["alpha", "mid", "zeta"], vec!["alpha", "mid", "zeta"]),
+            "the same keys from both, as SETS"
+        );
+        // And the raw orders differ, which is what makes the sort above
+        // load-bearing: GGUF walks its key-value block forward and yields
+        // declaration order; safetensors yields `serde_json`'s BTreeMap
+        // order. Pinned as a divergence, exactly as the tensor ordering is.
+        assert_eq!(
+            (g.meta.keys(), s.meta.keys()),
+            (vec!["zeta", "alpha", "mid"], vec!["alpha", "mid", "zeta"]),
+            "declaration order from {}, lexicographic from {}",
+            g.label,
+            s.label
         );
     });
 }
@@ -409,6 +472,47 @@ fn a_declared_undecodable_key_is_distinguishable_from_an_absent_key_in_both() {
             "a stopped walk and an all-or-nothing parse are different claims"
         );
     });
+}
+
+#[test]
+fn each_backend_claims_its_own_family_namespace() {
+    // `UnrecognizedKind::TensorEncoding::family` is an open `&'static str`,
+    // and that is a ruling: a closed set would make `mlmf-core` enumerate
+    // its backends, which is the failure `DeclaredType` was created to
+    // remove. A format crate must be able to arrive without editing the
+    // seam.
+    //
+    // The cost of openness is that nothing stops two backends choosing one
+    // string, and a consumer branching on `family` would then attribute one
+    // format's complaint to another. **This is the only place that cost can
+    // be controlled**, because "which families does this workspace emit" is
+    // a fact about which backends exist — exactly what `mlmf-core` must not
+    // know, and what neither backend can see about the other.
+    //
+    // The exact SET, not "each is non-empty" and not "they differ": a
+    // membership check cannot see a third backend colliding with a fourth,
+    // and a difference check cannot see both drifting together.
+    let mut kvs = Vec::new();
+    push_gguf_str(&mut kvs, KEY.as_bytes());
+    kvs.extend_from_slice(&GGUF_UINT32.to_le_bytes());
+    kvs.extend_from_slice(&32u32.to_le_bytes());
+    // A ggml type code no build resolves, so GGUF reports `TensorEncoding`.
+    let infos = gguf_info("unresolvable.weight", &[2, 3], 9999, 0);
+    let gguf = gguf_file(1, &kvs, 1, &infos, &PAYLOAD[..24]);
+
+    // A dtype string safetensors does not define, so this crate reports
+    // `TensorEncoding` too — the kind that only became expressible for a
+    // string-typed format when `DeclaredType` grew its `Name` arm.
+    let json = format!(
+        r#"{{"__metadata__":{{"{KEY}":"32"}},"unresolvable.weight":{{"dtype":"F4_E2M1","shape":[2,3],"data_offsets":[0,24]}}}}"#
+    );
+    let st = safetensors_file(&json, &PAYLOAD[..24]);
+
+    assert_eq!(
+        families(&gguf, &st),
+        vec!["ggml".to_string(), "safetensors".to_string()],
+        "the family namespaces this workspace's backends emit"
+    );
 }
 
 #[test]
