@@ -119,6 +119,15 @@ mod tests {
     /// be wrong the first time it fired, which is the moment a gate needs to
     /// be right. Naming the type here is how a maintainer says "measured,
     /// and safetensors does not spell it", as opposed to "forgot".
+    ///
+    /// **The reason is for a person, and no assertion about its CONTENT can
+    /// be load-bearing.** Whether safetensors spells `F16` is a fact about
+    /// that format's specification, not about this repository, so nothing
+    /// here can check that a reason is true — only that somebody wrote one.
+    /// The two cheap guards below are what that buys: a reason must be
+    /// non-empty, and this table must be EMPTY today. Adding a row therefore
+    /// costs an edit in a second place a reviewer has to see, which is the
+    /// whole mechanism.
     const UNSPELLED: [(DType, &str); 0] = [];
 
     #[test]
@@ -199,6 +208,35 @@ mod tests {
         // A gate that checked `SPELLINGS` against `DType::ALL` would compare
         // the test's data with core's and never touch this crate's code, so
         // deleting an arm from `dtype_of` would leave it green.
+        // Two guards on `UNSPELLED` itself, and the second is the one that
+        // matters. Measured, and it is why they are here: escaping this gate
+        // takes THREE edits — delete a `dtype_of` arm, delete its
+        // `SPELLINGS` row, add an `UNSPELLED` row — after which a working
+        // dtype arm has been deleted with the whole suite green. The reason
+        // string was the only thing standing in the way and nothing looked
+        // at it.
+        //
+        // Neither guard can verify that a reason is TRUE; that is a fact
+        // about safetensors' specification. What they do is make the escape
+        // cost an edit somewhere a reviewer must look, rather than a row
+        // nobody reads.
+        for (dt, reason) in UNSPELLED {
+            assert!(
+                !reason.trim().is_empty(),
+                "{dt:?} is listed as unspellable with no reason. The reason is \
+                 the only part of this table a person can check."
+            );
+        }
+        assert!(
+            UNSPELLED.is_empty(),
+            "UNSPELLED is no longer empty. Measured 2026-08-26: safetensors' \
+             fifteen dtype strings map one-to-one onto `DType::ALL`'s fifteen \
+             variants, so nothing was left over in either direction. If that \
+             changed, change this assertion deliberately and say what was \
+             measured — a row appearing here silently is a working dtype arm \
+             being retired with the suite green. Currently: {UNSPELLED:?}"
+        );
+
         for dt in DType::ALL {
             let spelled: Vec<&str> = SPELLINGS
                 .iter()
