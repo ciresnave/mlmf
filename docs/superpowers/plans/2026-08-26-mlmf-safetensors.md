@@ -283,6 +283,71 @@ and is still omitted.
 
 ---
 
+## Task 2c: GGUF implements half the keep-and-report ruling
+
+**Found by Task 2b's implementer, in its own report, and it BLOCKS Task 5.**
+
+The ruling is **keep and report**. After Task 2b the two backends *keep*
+alike and *report* differently: `mlmf-safetensors` names a past-EOF tensor in
+the report, `mlmf-gguf` says nothing. `mlmf-gguf::tensors::resolve` takes no
+file length and there is no EOF sweep anywhere in its directory parse — only
+`tensor_bytes` checks, at read time.
+
+**So a consumer handed the same defect by two backends gets a diagnostic from
+one and silence from the other**, which is the exact class of divergence
+Task 2b existed to remove. A backend that keeps without reporting has
+implemented half a ruling.
+
+**Ruled: `mlmf-gguf` reports it too.**
+
+Whether a declared range lies inside the file is a **fact about the bytes**,
+not an interpretation of the model, so it is in scope under the charter.
+
+**Files:** `crates/mlmf-gguf/src/tensors.rs`.
+
+`parse_tensors` already has `bytes` in scope, so `bytes.len() as u64` reaches
+`resolve` with a signature change and nothing else.
+
+**Do not move the bound out of `tensor_bytes`.** This adds a report entry; it
+does not remove a check. Both must hold.
+
+**The vocab-only concern does not apply and the existing comment says why.**
+`data_start` may legitimately point one alignment block past the end — 19 of
+the 28 corpus files are that shape — which is why the *data region's* start
+is deliberately unvalidated. A **per-tensor** bound cannot fire on those
+files, because they declare zero tensors. Read that comment before touching
+anything near it, and leave it intact.
+
+**Test it with sabotage in both directions**: a past-EOF tensor is kept AND
+named, and a normal file gains no entry. The second is not optional — a
+check that reports every tensor is indistinguishable from a working one
+until someone opens a healthy model.
+
+### And a doc-only correction in the same task
+
+`TensorDescriptor::validate()` returns `Ok` for a descriptor whose bytes are
+not in the file: `71..83` is 12 bytes, `[2,3]` BF16 needs 12, and that is all
+`validate` promises. **The doc is not lying; the NAME is louder than the
+doc.** Say in `validate`'s doc what it does not check, and name `tensor_bytes`
+as the only answer to "are these bytes present". This is the same defect
+class as the `TensorDeclined` omission promise — prose or a name asserting a
+guarantee nothing tests.
+
+### Recorded, NOT scheduled: `family` has no registry
+
+`UnrecognizedKind::TensorEncoding::family` is a bare `&'static str` and now
+carries two different KINDS of name: `"ggml"` is a **type system** that is
+not the container format, `"safetensors"` is the **container format**,
+because its dtype-string space belongs to it. Both satisfy the field's doc.
+A consumer matching on the string gets one name from each of two categories,
+and nothing stops a third backend choosing a colliding one.
+
+**Task 7 must rule on this: open string or closed set.** It is recorded here
+so the whole-branch review cannot miss it, and deliberately not fixed inside
+a task whose file list does not name the decision.
+
+---
+
 ## Task 3: Dtypes, pinned arm by arm
 
 **Files:** `crates/mlmf-safetensors/src/dtype.rs`.
