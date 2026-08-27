@@ -58,7 +58,7 @@ pub struct Header {
 
 /// Name the JSON kind of a value, for an error message that says what was
 /// found instead of an object.
-fn json_kind(value: &serde_json::Value) -> &'static str {
+pub(crate) fn json_kind(value: &serde_json::Value) -> &'static str {
     match value {
         serde_json::Value::Null => "null",
         serde_json::Value::Bool(_) => "boolean",

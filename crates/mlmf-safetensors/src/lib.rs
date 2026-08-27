@@ -14,8 +14,12 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod dtype;
 pub mod error;
 pub mod header;
+pub mod tensors;
 
+pub use dtype::dtype_of;
 pub use error::{SafetensorsError, Stage};
 pub use header::{Header, parse_header};
+pub use tensors::{SafetensorsTensors, parse_tensors};

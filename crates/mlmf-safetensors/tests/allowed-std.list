@@ -22,3 +22,22 @@
 error
 fmt
 str
+
+# Task 2, the tensor directory. Each entry names what forced it.
+#
+# `borrow` -- `TensorContainer::tensor_bytes` returns `Cow<'_, [u8]>`. That
+#   is mlmf-core's signature, not this crate's, so `std::borrow::Cow` cannot
+#   be avoided while implementing the trait.
+# `collections` -- `TensorContainer::tensor`'s own doc requires a format
+#   crate parsing a real model to replace the default linear scan with an
+#   index. The two files this plan was measured against declare 290 and 201
+#   tensors; a HashMap is that index.
+# `iter` -- `std::iter::repeat_n`, building the tensor-data tail of an
+#   authored fixture in this module's tests. The purity gate scans `src/`
+#   including its `#[cfg(test)]` modules, which is why a test-only use needs
+#   an entry.
+#
+# None of the three reaches outside the process, which is what C3 forbids.
+borrow
+collections
+iter
