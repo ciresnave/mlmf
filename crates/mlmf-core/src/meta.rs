@@ -1,8 +1,19 @@
 //! One metadata value, in the union of what the supported formats declare.
 //!
-//! These are GGUF's thirteen typed value kinds, chosen deliberately
-//! because they are the strict superset: safetensors' `__metadata__` is
-//! `HashMap<String, String>` and can only ever produce [`MetaValue::String`].
+//! **Fourteen variants: GGUF's thirteen typed value kinds, plus
+//! [`MetaValue::Bytes`].** The thirteen were chosen deliberately, because
+//! they are the strict superset of what the supported formats declare —
+//! safetensors' `__metadata__` is `HashMap<String, String>` and can only
+//! ever produce [`MetaValue::String`], so thirteen of the fourteen never
+//! appear from that format.
+//!
+//! `Bytes` is the fourteenth and is **not** a GGUF value type; it exists
+//! for the non-UTF-8 case described below, which GGUF's own type table has
+//! no way to name. The two numbers were conflated in four separate doc
+//! comments across three crates, every one of them saying "thirteen
+//! variants" and "twelve of thirteen". [`MetaValue::kind`] is why that can
+//! no longer drift: its match is exhaustive and lives in this crate, so a
+//! new variant fails to compile rather than fails to be counted.
 //!
 //! That asymmetry is *why* GGUF is one file rather than a directory — its
 //! metadata system is expressive enough to absorb what `config.json` and
@@ -69,6 +80,42 @@ pub enum MetaValue {
 }
 
 impl MetaValue {
+    /// The name of this variant, for a message that must say what a file
+    /// declared without pretending to convert it.
+    ///
+    /// **This match is load-bearing as an exhaustiveness gate, and its
+    /// location is part of the guarantee.** It has no wildcard arm, so
+    /// adding a variant to `MetaValue` without naming it here fails to
+    /// compile. That works only *inside this crate*: `MetaValue` is
+    /// `#[non_exhaustive]`, so the identical match written in an
+    /// integration test — or any other crate — is required to carry a `_`
+    /// arm and can never break. `mlmf-ggml`'s `GgmlType::row` carries the
+    /// same warning for the same reason.
+    ///
+    /// It exists because the variant COUNT was prose in four places and
+    /// wrong in all four. A number written beside the thing it counts is
+    /// checked by nothing; a match that must name every arm is checked by
+    /// the compiler.
+    #[must_use]
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            MetaValue::U8(_) => "U8",
+            MetaValue::I8(_) => "I8",
+            MetaValue::U16(_) => "U16",
+            MetaValue::I16(_) => "I16",
+            MetaValue::U32(_) => "U32",
+            MetaValue::I32(_) => "I32",
+            MetaValue::U64(_) => "U64",
+            MetaValue::I64(_) => "I64",
+            MetaValue::F32(_) => "F32",
+            MetaValue::F64(_) => "F64",
+            MetaValue::Bool(_) => "Bool",
+            MetaValue::String(_) => "String",
+            MetaValue::Bytes(_) => "Bytes",
+            MetaValue::Array(_) => "Array",
+        }
+    }
+
     /// The value as an unsigned integer, if it is one.
     ///
     /// Does not coerce across kinds: a [`MetaValue::String`] holding `"7"`
@@ -153,12 +200,76 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_variant_is_named_and_there_are_fourteen_of_them() {
+        // The number that was wrong in four doc comments across three
+        // crates, asserted here against one value of every variant.
+        //
+        // Two gates, and MEASURED rather than assumed, because the first
+        // draft of this comment claimed something sabotage then falsified.
+        //
+        // 1. Adding a variant to `MetaValue` breaks `kind()`'s exhaustive
+        //    match at COMPILE time — no wildcard arm, and the match lives
+        //    in this crate, which is the only place it can bind. Verified:
+        //    `error[E0004]: non-exhaustive patterns: ... not covered`.
+        // 2. Mis-NAMING an arm reddens this list. Verified by swapping
+        //    `String` and `Bytes`, which is the same-shape swap a width
+        //    assertion cannot see anywhere in this project.
+        //
+        // **What this test does NOT catch, measured:** adding a variant AND
+        // its `kind()` arm while leaving the sample below untouched stays
+        // GREEN. The sample is the test's own data, so nothing links it to
+        // the enum's arity — `std::mem::variant_count` is unstable and a
+        // hand-written count would be one more copied number, which is the
+        // defect this whole test exists to remove. Gate 1 is what makes
+        // that survivable: a new variant cannot reach a build without
+        // someone editing `kind()` twenty lines above, and this list is
+        // what they are looking at when they do.
+        //
+        // Thirteen of these are GGUF's value types. `Bytes` is the
+        // fourteenth and is not one — it exists for a declared string whose
+        // bytes are not valid UTF-8, which GGUF's type table cannot name.
+        let one_of_each = [
+            MetaValue::U8(0),
+            MetaValue::I8(0),
+            MetaValue::U16(0),
+            MetaValue::I16(0),
+            MetaValue::U32(0),
+            MetaValue::I32(0),
+            MetaValue::U64(0),
+            MetaValue::I64(0),
+            MetaValue::F32(0.0),
+            MetaValue::F64(0.0),
+            MetaValue::Bool(false),
+            MetaValue::String(String::new()),
+            MetaValue::Bytes(Vec::new()),
+            MetaValue::Array(Vec::new()),
+        ];
+        assert_eq!(
+            one_of_each.iter().map(MetaValue::kind).collect::<Vec<_>>(),
+            [
+                "U8", "I8", "U16", "I16", "U32", "I32", "U64", "I64", "F32", "F64", "Bool",
+                "String", "Bytes", "Array",
+            ]
+        );
+
+        // Exactly one of the fourteen is reachable from safetensors'
+        // `__metadata__`, which is the fact every one of those four doc
+        // comments was trying to state.
+        assert_eq!(
+            one_of_each.iter().filter(|v| v.kind() == "String").count(),
+            1
+        );
+    }
+
+    #[test]
     fn an_accessor_widens_within_a_family_and_never_parses() {
         // RULING: a variant reports how the FORMAT DECLARED a value, not
         // what the value means. GGUF declares `general.alignment` as U32;
         // safetensors' `__metadata__` is string -> string, so the same
-        // logical fact arrives as a String there and twelve of the thirteen
-        // variants never appear at all.
+        // logical fact arrives as a String there and THIRTEEN OF THE
+        // FOURTEEN variants never appear at all. Thirteen is GGUF's
+        // value-type count, not this enum's; `Bytes` is the fourteenth and
+        // is not a GGUF value type.
         //
         // So an accessor widens losslessly within its family and REFUSES to
         // parse. `None` means "this format did not declare that kind of

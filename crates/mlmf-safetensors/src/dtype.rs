@@ -9,8 +9,8 @@
 //! Measured rather than argued: the fifteen dtype strings safetensors
 //! defines map **one to one, onto and into**, the fifteen variants of
 //! `DType::ALL`. Nothing had to be widened and nothing goes unused. That is
-//! a stronger fit than `MetaValue` gets from this format, where twelve of
-//! thirteen variants never appear.
+//! a stronger fit than `MetaValue` gets from this format, where thirteen
+//! of its fourteen variants never appear.
 //!
 //! # Every safetensors tensor is [`mlmf_core::Encoding::Dense`]
 //!

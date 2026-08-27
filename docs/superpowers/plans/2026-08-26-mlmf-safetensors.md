@@ -84,7 +84,7 @@ Two files, one dtype, no aliasing, no overlaps, no non-UTF-8 names, no `F8` anyt
 
 **D1 — Rulings carried in from the scope, both made rather than inherited.**
 
-*A `MetaValue` variant reports how the format DECLARED a value, not what the value means.* Safetensors' `__metadata__` is `str -> str`, so every value from it is `MetaValue::String` and twelve variants never appear. `as_u64()` returning `None` there is **correct**: it means "this format did not declare a number here". Accessors widen losslessly within a family and never parse.
+*A `MetaValue` variant reports how the format DECLARED a value, not what the value means.* Safetensors' `__metadata__` is `str -> str`, so every value from it is `MetaValue::String` and the other thirteen never appear. (`MetaValue` has FOURTEEN variants — GGUF's thirteen value types plus `Bytes`. This line said "twelve", as did three doc comments; corrected in Task 7.) `as_u64()` returning `None` there is **correct**: it means "this format did not declare a number here". Accessors widen losslessly within a family and never parse.
 
 *Whether two tensors may share bytes is a FORMAT FACT.* GGUF collisions are malformed and `mlmf-gguf` reports them. **Safetensors tied weights — `lm_head` and `embed_tokens` on the same range — are a standard layout, and this crate must NOT report them.** Reporting one would blame a valid file.
 

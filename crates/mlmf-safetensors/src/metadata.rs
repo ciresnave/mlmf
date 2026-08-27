@@ -31,9 +31,15 @@ struct Entry {
 /// # Every value is a [`MetaValue::String`], and that is the ruling
 ///
 /// Safetensors' `__metadata__` is `string -> string`. There is no type tag
-/// anywhere in it, so **twelve of `MetaValue`'s thirteen variants can never
-/// come out of this type**, and a value that reads as `"32"` is the string
-/// `"32"` — [`MetaValue::as_u64`] on it answers `None`.
+/// anywhere in it, so **thirteen of `MetaValue`'s fourteen variants can
+/// never come out of this type**, and a value that reads as `"32"` is the
+/// string `"32"` — [`MetaValue::as_u64`] on it answers `None`.
+///
+/// Fourteen, not thirteen: thirteen is GGUF's value-type count, and
+/// `MetaValue` is those thirteen plus `MetaValue::Bytes`. This paragraph
+/// said twelve-of-thirteen while the one below said `Bytes` is "ALSO
+/// unreachable" — twelve plus `Bytes` plus `String` is fourteen, so the two
+/// contradicted each other sixteen lines apart.
 ///
 /// That is [`MetadataSource::get`]'s contract and not this crate's
 /// preference: a `MetaValue`'s variant reports **how the format declared
@@ -47,7 +53,8 @@ struct Entry {
 /// distinguished "reports the declaration" from "reports the meaning". This
 /// is the first code where the two give different answers.
 ///
-/// [`MetaValue::Bytes`] is also unreachable here, for a separate reason:
+/// [`MetaValue::Bytes`] is one of those thirteen, and it is unreachable for
+/// a reason of its own rather than for the string-to-string one:
 /// the block arrives through `serde_json`, which only produces `String`s
 /// that are already valid UTF-8. The non-UTF-8 case `MetaValue::Bytes`
 /// exists for is a GGUF fact — `gguf_string_t` is a length and raw bytes.

@@ -209,7 +209,10 @@ pub trait MetadataSource {
     /// value, not what the value means.** GGUF declares typed values —
     /// `general.alignment` arrives as `U32`. Safetensors' `__metadata__` is
     /// `string -> string`, so every value from it arrives as `String`, and
-    /// twelve of the thirteen variants never appear.
+    /// **thirteen of the fourteen** variants never appear. (Thirteen is
+    /// GGUF's value-type count; [`MetaValue`] is those thirteen plus
+    /// `Bytes`, which is not one. `MetaValue::kind` is the exhaustive match
+    /// that keeps the number honest.)
     ///
     /// This is deliberate and it is the charter: MLMF extracts what a file
     /// says. Deciding that the string `"32"` is the number 32 — or that

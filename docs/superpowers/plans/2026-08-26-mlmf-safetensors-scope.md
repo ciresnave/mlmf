@@ -61,11 +61,15 @@ header:  name -> { dtype: str, shape: [int], data_offsets: [start, end] }
 
 ### Q1 — Is `MetaValue` format-neutral, or GGUF's type system with a neutral name?
 
-`MetaValue` has thirteen variants. GGUF has thirteen value types. That is
-not a coincidence.
+`MetaValue` has **fourteen** variants. GGUF has thirteen value types. The
+thirteen are not a coincidence; the fourteenth, `Bytes`, is the one MLMF
+added for a declared string whose bytes are not valid UTF-8.
+
+*(This read "thirteen variants" and was the origin of a miscount that
+reached three crates' doc comments. Counted 2026-08-27 in Task 7.)*
 
 Safetensors metadata is `str -> str`, so a `MetadataSource` over it can only
-ever emit `MetaValue::String`, and twelve variants go unused. **The seam
+ever emit `MetaValue::String`, and the other thirteen go unused. **The seam
 accommodates that trivially, and that is the problem rather than the
 reassurance.** A consumer writing `source.get(k).as_u64()` gets a number
 from GGUF and a string from safetensors **for the same logical fact, and
