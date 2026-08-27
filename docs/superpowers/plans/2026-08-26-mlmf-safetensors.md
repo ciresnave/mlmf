@@ -4,7 +4,13 @@
 
 **Goal:** A second backend behind `mlmf-core`'s seam, so that "backend-agnostic" becomes a claim that can be falsified rather than a branch name.
 
-**Architecture:** Two stages, separate by construction as in `mlmf-gguf`: an 8-byte length prefix and a JSON header, then a tensor directory derived from that header. `SafetensorsFile` implements both `MetadataSource` and `TensorContainer`. Offsets are rebased once at parse time, from safetensors' own base — the end of the JSON header — which is a *different base from GGUF's* and is the point.
+**Architecture:** Two stages, separate by construction as in `mlmf-gguf`: an 8-byte length prefix and a JSON header, then a tensor directory derived from that header. `SafetensorsTensors` implements `TensorContainer` and `SafetensorsMetadata`
+implements `MetadataSource` — **two types, not one**, mirroring
+`mlmf-gguf`'s `GgufMetadata`/`GgufTensors` split. This line said
+`SafetensorsFile` until Task 4's implementer pointed out no such type was
+ever built; the split is better than the plan's original shape, because it
+keeps the two stages separate BY CONSTRUCTION rather than by discipline,
+which is D2's whole point. Offsets are rebased once at parse time, from safetensors' own base — the end of the JSON header — which is a *different base from GGUF's* and is the point.
 
 **Tech Stack:** Rust 2024, `#![forbid(unsafe_code)]`, no I/O in `src/` (`&[u8]` in, structures out), `mlmf-core` plus `serde_json` (see D3).
 
@@ -380,6 +386,26 @@ a task whose file list does not name the decision.
 
 - [ ] **Step 6: Commit.**
 
+## Task 4b: `SafetensorsMetadata` moves to its own module
+
+**Before Task 5, so Task 5's imports are written once.**
+
+Task 4 put `SafetensorsMetadata` in `crates/mlmf-safetensors/src/lib.rs`
+because its brief said so. **The brief was wrong**: the crate has
+`dtype.rs`, `error.rs`, `header.rs`, `tensors.rs`, and `mlmf-gguf` has
+`metadata.rs`. This is the only crate in the workspace where a public type
+lives in `lib.rs` beside the module list.
+
+**Files:** create `crates/mlmf-safetensors/src/metadata.rs`, modify
+`crates/mlmf-safetensors/src/lib.rs`.
+
+A rename plus a `mod` and a `pub use`. Its own commit and its own gate run:
+**a move that silently drops a `pub use` changes the crate's public surface
+with every test still green**, which is the exact hazard recorded for Task 7
+under `dtype_of`'s reachability.
+
+---
+
 ## Task 5: The cross-backend test, which is what this whole plan was for
 
 **Files:** `crates/mlmf-safetensors/tests/cross_backend.rs`.
@@ -394,6 +420,24 @@ This is the only test in the project that can fail because an abstraction is wro
     `mlmf-gguf` yields declaration order from a forward walk. Compare sorted
     sets, and state in the test that order is per-format because the seam
     does not promise one.
+  - **`keys()` compared as sorted sets too, for the same reason.** Task 4
+    measured the identical divergence in a second method:
+    `mlmf-safetensors` yields lexicographic order (`BTreeMap` again) and
+    `mlmf-gguf` yields declaration order. **Order is now unpromised in TWO
+    methods, not one** — say so in the test rather than letting the next
+    reader rediscover it.
+  - **`Declaration::Unreadable` from BOTH backends.** Task 4 built the
+    third state for safetensors (a `__metadata__` value that is not a
+    string); `mlmf-gguf` already had it (a value it cannot decode).
+    Verified before scheduling: `mlmf-gguf/src/metadata.rs:393` overrides
+    `declaration()` and returns `Unreadable`. **Assert that a key present
+    but undecodable is distinguishable from an absent key in both** — that
+    is the conflation `Declaration` exists to prevent, and until Task 4 it
+    could only be shown in one backend.
+  - **A tensor declared past the end of the file: KEPT and REPORTED by
+    both.** Task 2c made this assertable. Before it, `mlmf-gguf` kept
+    silently and `mlmf-safetensors` omitted, so the case could not be
+    asserted at all.
   - `tensor(name)`'s shape and encoding agree across backends.
   - `tensor_bytes()` returns byte-identical payloads.
   - **And the difference the seam permits, asserted as a difference:** the metadata key's `MetaValue` variant is `U32` from one and `String` from the other, and `as_u64()` answers `Some` and `None` respectively. **Pinning the divergence is the point** — it is ruling 1 stated as a test rather than as a doc comment, and it is unpinnable with one backend.
