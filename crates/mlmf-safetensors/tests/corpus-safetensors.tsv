@@ -1,0 +1,5 @@
+# Measured by docs/superpowers/plans/safetensors_recon.py --tsv.
+# Regenerate deliberately; do not hand-edit.
+file	size	header_len	data_start	n_tensors	first_name	first_dtype	first_lo	first_hi	first_abs_lo	first_abs_hi	furthest_end	dtypes	metadata
+SmolLM2-360M-Instruct/model.safetensors	723674912	32664	32672	290	model.embed_tokens.weight	BF16	0	94371840	32672	94404512	723674912	BF16=290	format=pt
+TinyLlama-1.1B-Chat-v1.0/model.safetensors	2200119864	23088	23096	201	lm_head.weight	BF16	0	131072000	23096	131095096	2200119864	BF16=201	format=pt
