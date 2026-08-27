@@ -201,6 +201,57 @@ added ahead of its use is one no review examines.
 
 - [ ] **Step 6: Commit.**
 
+## Task 2b: The two seam findings Task 2 produced
+
+**This is what the plan was for.** Tasks 0 and 1 showed the seam could be
+FITTED; Task 2 is the first that came back and said it is wrong. Both items
+are `mlmf-core` changes and both are in scope for this task.
+
+**Files:** `crates/mlmf-core/src/report.rs`,
+`crates/mlmf-safetensors/src/tensors.rs`.
+
+### 1. `TensorEncoding` cannot express a non-numeric declared type
+
+`UnrecognizedKind::TensorEncoding { name, family, code: u32 }`. **Safetensors
+declares a dtype as a STRING.** So the seam's own distinction — "cannot
+resolve the encoding" versus "declined for another reason" — is
+**inexpressible for a string-typed format**, and `mlmf-safetensors` currently
+reports `TensorDeclined` for both, collapsing a distinction the seam says
+matters.
+
+The distinction is worth keeping: *this build does not know this dtype* and
+*this tensor's range is bad* are different facts a consumer would act on
+differently. So the field must admit both shapes. Change `code: u32` to a
+small enum carrying either a numeric code or a declared name, pin both arms
+by identity, and update `mlmf-gguf`'s three construction sites.
+
+**Do not widen it to `String` and format the number into it.** That loses
+the numeric identity GGUF needs and reproduces the defect this project
+removed from `MetadataKey` — an explanation occupying a field documented as
+the file's own data.
+
+### 2. Both backends must agree on a range past the end of the file
+
+**They currently do not, and the seam was silent, which is why.**
+`mlmf-gguf` keeps the descriptor and fails at `tensor_bytes`;
+`mlmf-safetensors` omits it and reports. Each read a different seam doc, and
+both docs were right about what they said.
+
+**Ruled: KEEP and report.** `TensorDescriptor::bytes` now says so, and the
+`&blob[d.bytes]` licence that implied otherwise is corrected — a descriptor
+records what the file DECLARES, including a range the file cannot honour, and
+dropping it would be this crate deciding a declaration does not count.
+
+So **`mlmf-safetensors` changes**: a tensor whose rebased range lies past the
+end stays in `tensors()`, is named in the report, and fails at
+`tensor_bytes`. Its existing test asserts omission and must be inverted, with
+a sabotage proving the descriptor survives.
+
+**Task 5's cross-backend test depends on this ruling.** Until both backends
+answer the same way, it cannot assert agreement on the case at all.
+
+---
+
 ## Task 3: Dtypes, pinned arm by arm
 
 **Files:** `crates/mlmf-safetensors/src/dtype.rs`.
@@ -240,7 +291,13 @@ added ahead of its use is one no review examines.
 This is the only test in the project that can fail because an abstraction is wrong rather than because an implementation is.
 
 - [ ] **Step 1: Write it.** Build a GGUF and a safetensors file that declare **the same logical model** — same tensor names, same shapes, same dtype, same one metadata key. Then assert, **through `&dyn MetadataSource` and `&dyn TensorContainer` only**, with no concrete type in scope:
-  - `tensors()` yields the same names in the same order from both.
+  - `tensors()` yields the same names from both. **NOT the same order** —
+    that assumption was written before either backend existed and Task 2
+    measured it false: `mlmf-safetensors` yields lexicographic order,
+    because `serde_json` parses the header into a `BTreeMap`, while
+    `mlmf-gguf` yields declaration order from a forward walk. Compare sorted
+    sets, and state in the test that order is per-format because the seam
+    does not promise one.
   - `tensor(name)`'s shape and encoding agree across backends.
   - `tensor_bytes()` returns byte-identical payloads.
   - **And the difference the seam permits, asserted as a difference:** the metadata key's `MetaValue` variant is `U32` from one and `String` from the other, and `as_u64()` answers `Some` and `None` respectively. **Pinning the divergence is the point** — it is ruling 1 stated as a test rather than as a doc comment, and it is unpinnable with one backend.

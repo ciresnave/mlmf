@@ -33,10 +33,45 @@ pub struct TensorDescriptor {
     /// plausible-looking floats, and only one of them would be right.
     ///
     /// So the format crate rebases **once, at parse time** — GGUF stores
-    /// `data_offset + info.offset`, safetensors stores `header_len +
-    /// data_offsets.0` — and every consumer thereafter writes
-    /// `&blob[d.bytes]` with nothing added. Rebasing is a parser's job done
-    /// once, not a caller's job done at every use site.
+    /// `data_offset + info.offset`, safetensors stores `8 + header_len +
+    /// data_offsets.0` — and every consumer thereafter uses this range
+    /// directly, with nothing added. Rebasing is a parser's job done once,
+    /// not a caller's job done at every use site.
+    ///
+    /// **Read the bytes through [`crate::TensorContainer::tensor_bytes`],
+    /// not by slicing.** An earlier version of this doc licensed
+    /// `&blob[d.bytes]`, and that licence was wrong in a way one backend
+    /// could not reveal: it implies every descriptor's range is sliceable,
+    /// while `tensor_bytes` documents an error for a range lying outside
+    /// the container's data. Two seam docs pointing opposite ways, and a
+    /// second backend is what made them argue.
+    ///
+    /// The rule, now decided rather than implied: **a descriptor records
+    /// what the file DECLARES, including a range the file cannot honour.**
+    /// A tensor declared with a range past the end of the file IS declared,
+    /// and dropping it from the list would be this crate deciding the
+    /// declaration does not count — which is interpretation, and the
+    /// charter forbids it. The declaration survives, the report names the
+    /// problem, and `tensor_bytes` is where it fails.
+    ///
+    /// That leading `8` is not decoration and this doc omitted it until a
+    /// second backend was written against it. Safetensors begins with an
+    /// eight-byte little-endian length prefix, THEN the JSON header of that
+    /// length; `data_offsets` are relative to the end of the header, so the
+    /// base is `8 + header_len`. Measured on two real models:
+    /// `hlen=32664 -> data_start=32672` and `hlen=23088 -> 23096`, a
+    /// difference of exactly eight, byte-exact against a 2.2 GB file.
+    ///
+    /// **The error was off by eight, in the paragraph warning that a wrong
+    /// base reads as plausible-looking floats.** It does: reading a real
+    /// model from `header_len` instead of `8 + header_len` returns the
+    /// file's own length prefix and the opening `{\"em` of its JSON header,
+    /// decoded as six finite BF16 weights. Nothing errors.
+    ///
+    /// A prose description of an arithmetic fact is not checked by anything.
+    /// This one was wrong for as long as it had only one implementation to
+    /// be wrong about, which is the argument for a second backend stated as
+    /// small as it gets.
     ///
     /// It follows that [`Self::offset_alignment`] means something: it reports
     /// the alignment of a real address within the mapping, not of a relative
