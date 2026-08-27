@@ -145,6 +145,38 @@ impl TensorDescriptor {
     /// [`ErrorKind::SizeOverflow`] if the declared arithmetic does not fit
     /// in a `u64`.
     ///
+    /// # What this does NOT check
+    ///
+    /// **Whether the bytes are there.** Every number this method looks at
+    /// comes out of the same record: it compares the declared range against
+    /// the declared shape and encoding and asks whether they agree with each
+    /// other. It never sees the file, has no length to compare against, and
+    /// cannot acquire one — [`crate::TensorDescriptor`] does not carry the
+    /// container it came from.
+    ///
+    /// So a descriptor whose range lies wholly past the end of the file
+    /// validates cleanly, and that is a real case rather than a contrived
+    /// one: `71..83` is twelve bytes, a `[2, 3]` BF16 tensor needs twelve,
+    /// and both stay true when the file is 75 bytes long. It is exactly
+    /// what a format crate produces for a past-end-of-file declaration,
+    /// which [`Self::bytes`] rules must be KEPT rather than dropped —
+    /// a descriptor records what the file DECLARES.
+    ///
+    /// **`validate().is_ok()` therefore means "the record agrees with
+    /// itself", never "these bytes can be read".** The only answer to the
+    /// second question is [`crate::TensorContainer::tensor_bytes`], which is
+    /// fallible for precisely this reason, and the parse's
+    /// [`crate::Report`] is where a container names such a tensor at open
+    /// time.
+    ///
+    /// Written down because the NAME is louder than the contract. Nothing
+    /// in this method ever promised readability, and nothing tested the
+    /// gap either, so "validate" was free to read as a general-purpose
+    /// blessing. That is the same defect class as
+    /// [`crate::UnrecognizedKind::TensorDeclined`]'s former omission
+    /// promise: a guarantee carried by prose or by a name and checked by
+    /// nothing.
+    ///
     /// # Note
     ///
     /// This checks the declared range against shape and encoding using
@@ -273,6 +305,28 @@ mod tests {
             other => panic!("wrong kind: {other:?}"),
         }
         assert!(err.to_string().contains("blk.0.attn_q.weight"), "{err}");
+    }
+
+    #[test]
+    fn validate_is_silent_about_whether_the_bytes_exist() {
+        // The doc's "what this does NOT check", made checkable. Without
+        // this, that section is one more guarantee carried by prose.
+        //
+        // These are the exact numbers `mlmf-safetensors` produces for a
+        // past-end-of-file declaration in a 75-byte file, and the seam rules
+        // that such a descriptor is KEPT: 8 + 63 = 71 is the base, `[0, 12]`
+        // rebases to 71..83, and 2 x 3 BF16 elements need exactly the twelve
+        // bytes the range spans. The record agrees with itself perfectly.
+        // The last 8 bytes it names are not in the file, and nothing here
+        // can tell.
+        let d = TensorDescriptor {
+            name: "weight".into(),
+            shape: Shape::new([2usize, 3]),
+            encoding: Encoding::Dense(DType::BF16),
+            bytes: 71..83,
+        };
+        d.validate()
+            .expect("agrees with itself, which is all `validate` claims");
     }
 
     #[test]
