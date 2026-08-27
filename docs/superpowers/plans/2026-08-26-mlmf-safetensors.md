@@ -21,32 +21,25 @@
   status the *last* command's, and a check whose exit status is discarded is
   not a check. That has happened twice in this project.
 
-  **Run what CI runs, per crate — not `--workspace`.** The two are not the
-  same set and the difference is worth stating, because an earlier version of
-  this line said `--workspace` and that is what a reader would have trusted:
+  **Run `bash scripts/local-gates.sh`, which reads the workflow.** It
+  extracts every `run:` line from `.github/workflows/ci.yml` and executes
+  them in order, so it cannot drift from CI — it has no list of its own to
+  drift. It sets `CARGO_TERM_COLOR=always` and `RUSTDOCFLAGS=-D warnings`,
+  both of which CI sets and an interactive shell does not, and it refuses to
+  report success if it extracted zero commands, because an empty job list is
+  what a passing run looks like.
 
-  ```
-  cargo test   -p mlmf-core -p mlmf-ggml -p mlmf-gguf -p mlmf-safetensors --no-fail-fast
-  cargo test   -p mlmf-core --no-default-features
-  cargo clippy -p <each> --all-targets -- -D warnings
-  RUSTDOCFLAGS="-D warnings" cargo doc -p <each> --no-deps
-  cargo fmt --all -- --check
-  ```
+  It exists because a hand-written local set is a claim about CI's job list
+  that decays silently every time CI gains a job. The gap was real here: CI
+  runs `scripts/check-deps.sh` and my standing local set did not include it.
+  Nothing was missed, and nothing would have told me if it had been.
 
   `cargo test --workspace` additionally builds the **legacy root `mlmf`
-  package**, which CI excludes on the record: it needs `protoc` and a git
+  package**, which CI excludes on the record — it needs `protoc` and a git
   dependency, and spec §11 schedules it for rewrite rather than repair. On a
-  machine that has `protoc` it builds and passes, so `--workspace` is a
-  SUPERSET of CI rather than a different or unrunnable set — which is the
-  safe direction, and is why nothing was missed by using it. But a green from
-  it is not the green CI computes, and only the per-crate set is reproducible
-  on a runner.
-
-  **Also run the gates once with `CARGO_TERM_COLOR=always`.** CI sets it and
-  your shell does not, and it has produced a red in this repo that no plain
-  local run reproduces — a dependency-snapshot gate that parsed coloured
-  `cargo tree` output and reported crates as added that were already in the
-  snapshot.
+  machine with `protoc` it builds and passes, so `--workspace` is a SUPERSET
+  of CI rather than a different or unrunnable set. That is the safe
+  direction, but a green from it is not the green CI computes.
 
 ---
 
