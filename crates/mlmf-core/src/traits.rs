@@ -107,10 +107,45 @@ pub trait TensorContainer {
     /// records what the file DECLARES — [`TensorDescriptor::bytes`] carries
     /// that ruling and the argument for it — and dropping one would be this
     /// crate deciding a declaration does not count, which is interpretation.
-    /// So absence from this slice means *this build cannot describe it*,
-    /// never *this build cannot read it*; the two were briefly conflated
-    /// because one backend checked the file's length and the other did not,
-    /// and neither could tell it was disagreeing with the other.
+    ///
+    /// The line that separates the two, as far as the seam draws one:
+    /// **a descriptor is kept when the declaration is internally consistent
+    /// but unsatisfiable by the file's length, and dropped when there is no
+    /// single consistent declaration to record.** An unresolvable encoding
+    /// has no extent, so there is nothing to write down; a duplicate name
+    /// has two declarations claiming one key and a container cannot hold
+    /// both under it; a range past the end is one coherent declaration the
+    /// file simply cannot honour, and that is a fact about the bytes rather
+    /// than about the record.
+    ///
+    /// **That is a description, not a promise, and the exact set is
+    /// per-format.** `crate::UnrecognizedKind::TensorDeclined`'s doc says
+    /// the same thing from the other side. An earlier version of this
+    /// paragraph claimed absence "means *this build cannot describe it*,
+    /// never *this build cannot read it*", which reads as an absolute and is
+    /// false in this very workspace: `mlmf-gguf` drops the second of two
+    /// tensors declared under one name, and that tensor is perfectly
+    /// describable — its shape, encoding and bytes are all known — and it is
+    /// absent. **[`Self::tensor`] is the authoritative answer to whether a
+    /// given name is in the list.**
+    ///
+    /// # Order is unspecified
+    ///
+    /// Exactly as [`MetadataSource::keys`] is, and for the same reason:
+    /// a format crate yields whatever its own directory hands it, and the
+    /// two that exist do not agree. `mlmf-gguf` yields declaration order
+    /// from a forward walk of records; `mlmf-safetensors` yields
+    /// lexicographic order, because `serde_json` without `preserve_order`
+    /// backs a JSON object with a `BTreeMap`. **A consumer holding
+    /// `&dyn TensorContainer` must compare sets, not sequences.**
+    ///
+    /// Written down because it was measured false: the assumption that both
+    /// would agree predates either backend, and
+    /// `mlmf-conformance`'s cross-backend test asserts the raw orders
+    /// DIFFER, so the divergence is pinned outside this crate while the
+    /// trait said nothing about it. A format crate may promise more about
+    /// its own concrete type — `mlmf-gguf` does — and a caller holding a
+    /// trait object may not rely on it.
     fn tensors(&self) -> &[TensorDescriptor];
 
     /// The tensor declared under `name`, if any.
