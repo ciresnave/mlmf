@@ -7,6 +7,19 @@ members = ["crates/*"]
 # (C1/C2). The command a developer types, and the command any stock CI
 # template contains, checked nothing.
 default-members = [
+    # THE LEGACY ROOT PACKAGE, AND IT STAYS. Removing it is the obvious
+    # tidy-up — it is not a gated member, `gated_members()` walks `crates/*`
+    # only, and `ci.yml` excludes it on the record because it needs `protoc`
+    # and a long build. But CI excluding it and no gate naming it means
+    # `default-members` is the ONLY thing that builds this crate at all, and
+    # spec §11 schedules it for a REWRITE, which presupposes it still
+    # compiles when somebody starts. Deleting this line would let it rot
+    # unobserved and nothing would say so.
+    #
+    # `workspace.rs::every_gated_crate_is_reachable_from_a_bare_cargo_test`
+    # asserts containment rather than equality precisely so this entry does
+    # not fail it. Written here as well as there, because here is where the
+    # deletion would be typed.
     ".",
     "crates/mlmf-conformance",
     "crates/mlmf-core",

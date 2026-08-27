@@ -221,11 +221,17 @@ fn every_gated_crate_is_reachable_from_a_bare_cargo_test() {
     // bare run without anyone deciding to. Whether `"."` belongs there at
     // all is a live question and not this gate's to answer.
     //
-    // Measured while this was written: a bare `cargo test --no-run`
-    // compiles 5 packages and emits warnings from the legacy crate that CI
-    // never sees. The developer's set and CI's set already differ in BOTH
-    // directions. This closes one of those directions — a gated crate
-    // missing locally — and deliberately leaves the other alone.
+    // Measured while this was written: `cargo metadata --no-deps` reports
+    // SIX packages in the default set, and a bare `cargo test` builds the
+    // legacy root crate along with the five under `crates/`, emitting
+    // warnings CI never sees. The developer's set and CI's set already
+    // differ in BOTH directions. This closes one of those directions — a
+    // gated crate missing locally — and deliberately leaves the other alone.
+    //
+    // That number was "5" here, taken from `grep -c "^   Compiling"` on one
+    // run. That counts what NEEDED REBUILDING, not what is in the set, so it
+    // answers an adjacent question and happened to be one short. An
+    // instrument can be run correctly and still measure the wrong thing.
     let root = workspace_root();
     let text = fs::read_to_string(root.join("Cargo.toml")).expect("root manifest is readable");
     let listed = default_members(&text);
