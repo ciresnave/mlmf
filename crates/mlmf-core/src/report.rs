@@ -113,6 +113,12 @@ pub enum UnrecognizedKind {
     /// `encoding` is not optional — and fabricating one would let a caller
     /// compute a byte range for a tensor whose extent is genuinely unknown.
     ///
+    /// **That omission is seam-level and holds for every format**, unlike
+    /// [`Self::TensorDeclined`]'s, which does not: an unresolvable encoding
+    /// means the descriptor's `encoding` field cannot be filled at all, so
+    /// there is no descriptor to keep. A declined tensor's encoding
+    /// resolved, so a descriptor may well exist.
+    ///
     /// Omission is not silence: this entry names the tensor, the family
     /// that owns the type space, and the declared type itself, so a
     /// consumer can report exactly which tensor it cannot see and why.
@@ -133,11 +139,39 @@ pub enum UnrecognizedKind {
     },
     /// A tensor this build declined for a reason that is not its encoding.
     ///
-    /// Like [`Self::TensorEncoding`], the tensor is **omitted from the
-    /// container's list** — a consumer sees a shorter list and this entry is
-    /// the only other signal. Unlike it, there is no type code involved: the
-    /// encoding resolved fine, or the complaint is not about the encoding at
-    /// all. A duplicate name and an overlapping byte range are both this.
+    /// There is no type involved: the encoding resolved fine, or the
+    /// complaint is not about the encoding at all. A duplicate name, an
+    /// overlapping byte range and a range running past the end of the file
+    /// are all this.
+    ///
+    /// **This kind does NOT promise the tensor is omitted from the
+    /// container's list, and asking it is the wrong question.** Whether a
+    /// descriptor survives is per-format and per-reason: `mlmf-gguf` drops
+    /// a duplicate name, while `mlmf-safetensors` KEEPS a tensor whose
+    /// declared range runs past the end of the file, because
+    /// [`crate::TensorDescriptor::bytes`] rules that a descriptor records
+    /// what the file DECLARES, including a range the file cannot honour.
+    /// [`crate::TensorContainer::tensor`] is the authoritative answer to
+    /// "is it in the list"; this entry answers "this build has a complaint
+    /// about it".
+    ///
+    /// The two are independent, and today they differ in both directions:
+    /// `mlmf-gguf` keeps a past-end-of-file descriptor too, but has no
+    /// end-of-file check anywhere, so it keeps it **without** an entry here.
+    /// A reader must not infer retention from the presence of an entry, nor
+    /// an entry from retention.
+    ///
+    /// **No `retained: bool` field, deliberately.** A field copying that
+    /// answer out of the list can disagree with what it copies, and then
+    /// two places say different things about one tensor. The same reasoning
+    /// keeps `TensorDescriptor::bytes` a single rebased range rather than
+    /// something every consumer recomputes.
+    ///
+    /// This doc opened *"Like `Self::TensorEncoding`, the tensor is omitted
+    /// from the container's list"* for as long as one backend could reach
+    /// this kind, and every reason that backend produced did omit. It was a
+    /// seam-level promise resting on a single implementation, and a second
+    /// backend is what made it false.
     ///
     /// Separate from `TensorEncoding` rather than a `code: Option<u32>` added
     /// to it, because the two answer different questions and a reader

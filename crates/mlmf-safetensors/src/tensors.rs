@@ -8,11 +8,16 @@
 //! the JSON header — `8 + header_len` — and nothing else.
 //!
 //! [`mlmf_core::TensorDescriptor::bytes`] is absolute into the slice, so
-//! this module rebases **once, here**, and a consumer thereafter writes
-//! `&blob[d.bytes]` with nothing added. That field's doc argues that a
-//! consumer guessing the wrong base "would read plausible-looking floats,
-//! and only one of them would be right"; until this crate existed the
-//! argument had been validated against exactly one base.
+//! this module rebases **once, here**, and a consumer thereafter adds
+//! nothing to the range — it reads through
+//! [`mlmf_core::TensorContainer::tensor_bytes`], which is fallible, rather
+//! than slicing, which is not. This paragraph said "writes
+//! `&blob[d.bytes]`" and that licence has since been withdrawn from the
+//! field's own doc; see the ruling below. The rest of the argument stands:
+//! that doc says a consumer guessing the wrong base "would read
+//! plausible-looking floats, and only one of them would be right", and
+//! until this crate existed the argument had been validated against exactly
+//! one base.
 //!
 //! # What is refused, and what is merely reported
 //!
@@ -25,9 +30,8 @@
 //!   header.
 //! - An entry that parses and then **makes a claim this build will not act
 //!   on** — an inverted range, a width that disagrees with the shape, a
-//!   range past the end of the file, a dtype this build does not know —
-//!   costs exactly that one tensor. It is omitted from
-//!   [`mlmf_core::TensorContainer::tensors`] and named in the
+//!   dtype this build does not know — costs exactly that one tensor. It is
+//!   omitted from [`mlmf_core::TensorContainer::tensors`] and named in the
 //!   [`Report`], so `__metadata__` and every other tensor stay readable.
 //!
 //! An unknown dtype is the one of those reported as
@@ -36,6 +40,27 @@
 //! and it could not be said that way until `mlmf_core::DeclaredType` grew
 //! an arm for a type declared as a NAME. See this module's private
 //! `resolve`, whose doc enumerates every outcome.
+//!
+//! # A range past the end of the file is KEPT, and that is a ruling
+//!
+//! A tensor whose rebased range runs past the last byte of the file stays
+//! in [`mlmf_core::TensorContainer::tensors`] carrying the range the file
+//! declares, is named in the [`Report`], and fails at
+//! [`mlmf_core::TensorContainer::tensor_bytes`].
+//!
+//! It was omitted here until Task 2b, on a licence
+//! [`mlmf_core::TensorDescriptor::bytes`] used to give and no longer does.
+//! `mlmf-gguf` keeps such a descriptor and always has, so for as long as
+//! this crate dropped it the two backends answered one question two ways,
+//! each citing a different seam doc, and both docs were right about what
+//! they said. The seam now rules: **a descriptor records what the file
+//! DECLARES, including a range the file cannot honour**, and dropping it
+//! would be a reader deciding a declaration does not count.
+//!
+//! **The backends still differ on the REPORT.** `mlmf-gguf` has no
+//! end-of-file check anywhere in its directory parse, so it keeps such a
+//! descriptor *silently*; this crate names it. Recorded rather than
+//! smoothed over: the descriptors now agree and the reports do not.
 //!
 //! # Tied weights are not an error, and that is a ruling
 //!
@@ -226,23 +251,26 @@ fn read_entry(name: &str, value: &serde_json::Value) -> Result<RawEntry, Safeten
 
 /// Turn a record into a descriptor, or report why it cannot be one.
 ///
-/// `None` means the tensor is **omitted from the container's list** and the
-/// report names it. SEVEN things reach that outcome and all seven look the
-/// same to a consumer holding the list — a shorter list — so no path here
-/// returns `None` without pushing an entry:
+/// **SEVEN outcomes push a report entry. Six of the seven also return
+/// `None`; the seventh keeps its descriptor.** Enumerated rather than
+/// counted, because this doc said "six" while the code had seven — a bare
+/// number in prose is checked by nothing, and `mlmf-gguf`'s twin of this
+/// comment carries a parenthesis recording the identical defect being found
+/// there.
+///
+/// **Omitted** — `None`, so the consumer sees a shorter list and the report
+/// is the only other signal:
 ///
 /// 1. a `dtype` string this build does not know;
 /// 2. `data_offsets` that end before they start;
 /// 3. a dimension that does not fit this target's `usize`;
 /// 4. a shape product or byte size that overflows a `u64`;
 /// 5. a declared width that disagrees with the shape and dtype;
-/// 6. offsets that overflow a `u64` once the base is added;
-/// 7. a rebased range past the end of the file.
+/// 6. offsets that overflow a `u64` once the base is added.
 ///
-/// Enumerated rather than counted, because this doc said "six" while the
-/// code had seven — a bare number in prose is checked by nothing, and
-/// `mlmf-gguf`'s twin of this comment carries a parenthesis recording the
-/// identical defect being found there.
+/// **Kept** — the descriptor goes in the list and reading it is what fails:
+///
+/// 7. a rebased range past the end of the file.
 ///
 /// Outcome 1 is [`UnrecognizedKind::TensorEncoding`]; 2 through 7 are
 /// [`UnrecognizedKind::TensorDeclined`].
@@ -260,6 +288,18 @@ fn read_entry(name: &str, value: &serde_json::Value) -> Result<RawEntry, Safeten
 /// name; this crate takes the name arm and reports the dtype string the
 /// file spells.
 ///
+/// **Outcome 7 is kept rather than omitted, and that is the seam's ruling
+/// rather than this crate's taste.** [`TensorDescriptor::bytes`] says a
+/// descriptor records what the file DECLARES, including a range the file
+/// cannot honour; dropping it would be this crate deciding a declaration
+/// does not count, which is interpretation and the charter forbids it. It
+/// returned `None` until Task 2b, on a licence `TensorDescriptor::bytes`
+/// used to give — slice the blob with nothing added — which contradicted
+/// [`TensorContainer::tensor_bytes`], documented from the start to error on
+/// a range outside the container's data. `mlmf-gguf` read the second doc
+/// and kept its descriptor, so two backends answered the same file two ways
+/// and nothing in the seam decided which was right.
+///
 /// Every reason names the offsets **as the file declares them**, not as
 /// this function rebases them, except where the rebased pair is the fact
 /// being reported. An operator holding a report goes looking in the JSON
@@ -271,14 +311,19 @@ fn resolve(
     origin: &str,
     report: &mut Report,
 ) -> Option<TensorDescriptor> {
+    // Built rather than pushed, because outcome 7 pushes one of these and
+    // then goes on to return a descriptor. A closure that both pushed and
+    // returned `None` cannot be reused there, and the alternative was a
+    // second copy of this literal.
+    let declined = |reason: String| Unrecognized {
+        kind: UnrecognizedKind::TensorDeclined {
+            name: entry.name.clone(),
+            reason,
+        },
+        origin: origin.to_string(),
+    };
     let decline = |report: &mut Report, reason: String| {
-        report.push(Unrecognized {
-            kind: UnrecognizedKind::TensorDeclined {
-                name: entry.name.clone(),
-                reason,
-            },
-            origin: origin.to_string(),
-        });
+        report.push(declined(reason));
         None::<TensorDescriptor>
     };
 
@@ -297,7 +342,7 @@ fn resolve(
             },
             origin: origin.to_string(),
         });
-        // Still omitted, and that promise is seam-level:
+        // Still omitted, and that promise is seam-level and unchanged:
         // `TensorDescriptor::encoding` is not optional, so with no dtype
         // there is no descriptor to keep.
         return None;
@@ -393,18 +438,16 @@ fn resolve(
     // -------------------------------------------------------------------
 
     if end > file_len {
-        // Omitted rather than left in the list: `TensorDescriptor::bytes`
-        // licenses a consumer to write `&blob[d.bytes]` with nothing added,
-        // and that indexing panics. A descriptor in the list is a promise
-        // its bytes are there.
-        return decline(
-            report,
-            format!(
-                "data_offsets [{}, {}] rebase to {start}..{end}, past the end \
-                 of the {file_len}-byte file",
-                entry.start, entry.end
-            ),
-        );
+        // KEPT, not omitted — see outcome 7 in this function's doc. The
+        // declaration survives, this entry names the problem, and
+        // `tensor_bytes` is where reading it fails. There is deliberately no
+        // `return` here: falling through to the descriptor below is the
+        // whole of the behaviour change.
+        report.push(declined(format!(
+            "data_offsets [{}, {}] rebase to {start}..{end}, past the end \
+             of the {file_len}-byte file",
+            entry.start, entry.end
+        )));
     }
 
     Some(TensorDescriptor {
@@ -430,8 +473,12 @@ fn resolve(
 ///
 /// [`SafetensorsError::MalformedEntry`] if an entry in the header object is
 /// not shaped like a tensor record. A record that parses and then makes a
-/// claim this build will not act on is **not** an error: it is omitted and
-/// named in the returned [`Report`].
+/// claim this build will not act on is **not** an error: it is named in the
+/// returned [`Report`], and — for six of the seven such claims — omitted
+/// from the container. The seventh, a range past the end of the file, keeps
+/// its descriptor and fails at
+/// [`mlmf_core::TensorContainer::tensor_bytes`]. This module's private
+/// `resolve` enumerates all seven.
 pub fn parse_tensors<'a>(
     bytes: &'a [u8],
     header: &Header,
@@ -498,10 +545,15 @@ impl TensorContainer for SafetensorsTensors<'_> {
         // numbers are what let an operator tell a cut-off download from a
         // nonsense offset.
         //
-        // Unreachable for a descriptor this container produced —
-        // `parse_tensors` bounds every range against `bytes` before it
-        // builds a descriptor — and reachable for one a caller built or
-        // carried over from another container, which the signature permits.
+        // Reachable for a descriptor THIS container produced, and that is
+        // the point. `parse_tensors` no longer omits a tensor whose rebased
+        // range runs past the end of the file: it keeps the declaration and
+        // reports it, so this is where such a tensor fails. Also reachable
+        // for a descriptor a caller built or carried over from another
+        // container, which the signature permits.
+        //
+        // This comment claimed the first case was unreachable, and it was,
+        // for exactly as long as `resolve` dropped those tensors.
         let out_of_range = || {
             Error::from(ErrorKind::Truncated {
                 needed: descriptor.bytes.end,
@@ -767,22 +819,37 @@ mod tests {
     }
 
     #[test]
-    fn data_offsets_running_past_the_end_of_the_file_are_declined() {
+    fn data_offsets_running_past_the_end_of_the_file_keep_the_declaration_and_fail_at_read() {
         // Base 8 + 63 = 71, so `[0, 12]` is 71..83 — and this image carries
-        // only 4 bytes of tensor data, so the file ends at 75.
+        // only 4 bytes of tensor data, so the file ends at 75. Every number
+        // below is a literal; 71, 83 and 75 came out of that arithmetic
+        // written here in the comment and NOT in the test body, because a
+        // body that recomputes `8 + header_len + offset` agrees with the
+        // implementation however wrong both are.
         //
-        // Omitted rather than left in the list with a range nobody can
-        // read: `TensorDescriptor::bytes`'s own doc licenses a consumer to
-        // write `&blob[d.bytes]` with nothing added, and that indexing
-        // panics. A descriptor in the list is a promise those bytes exist.
+        // This test asserted `vec![]` — omission — until Task 2b, and the
+        // inversion is a seam ruling rather than a preference. A descriptor
+        // records what the file DECLARES, including a range the file cannot
+        // honour, so the declaration survives, the report names it, and
+        // `tensor_bytes` is the one place it fails. The comment that used
+        // to sit here cited `TensorDescriptor::bytes`'s licence to write
+        // `&blob[d.bytes]`; that licence has been withdrawn from the doc it
+        // was quoting, which is why the answer changed.
+        //
+        // Three facts in one whole-value comparison, because any two of
+        // them holding while the third does not is precisely the state the
+        // two backends were in: the descriptor is IN the list with the
+        // declared range, the report NAMES it, and reading it ERRORS.
         assert_eq!(
-            directory(&image(PAST_END, 4)),
+            directory_with_bytes(&image(PAST_END, 4)),
             Ok((
-                vec![],
+                vec![bf16_2x3("weight", 71, 83)],
                 declined(
                     "weight",
                     "data_offsets [0, 12] rebase to 71..83, past the end of the 75-byte file"
-                )
+                ),
+                vec![Err("truncated: needed 83 bytes, 75 available".to_string())],
+                vec![Some(bf16_2x3("weight", 71, 83))],
             ))
         );
     }

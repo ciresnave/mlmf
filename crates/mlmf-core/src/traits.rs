@@ -100,6 +100,17 @@ pub trait TensorContainer {
     /// because formats declare types both ways. A consumer that ignores the
     /// report sees only a shorter list, with no other signal that anything
     /// is missing.
+    ///
+    /// **A tensor whose declared byte range runs past the end of the file
+    /// is NOT absent.** It stays here with the range the file declares, and
+    /// [`Self::tensor_bytes`] is where reading it fails. A descriptor
+    /// records what the file DECLARES — [`TensorDescriptor::bytes`] carries
+    /// that ruling and the argument for it — and dropping one would be this
+    /// crate deciding a declaration does not count, which is interpretation.
+    /// So absence from this slice means *this build cannot describe it*,
+    /// never *this build cannot read it*; the two were briefly conflated
+    /// because one backend checked the file's length and the other did not,
+    /// and neither could tell it was disagreeing with the other.
     fn tensors(&self) -> &[TensorDescriptor];
 
     /// The tensor declared under `name`, if any.
@@ -144,7 +155,10 @@ pub trait TensorContainer {
     ///
     /// # Errors
     ///
-    /// If the descriptor's range lies outside the container's data.
+    /// If the descriptor's range lies outside the container's data —
+    /// **including a descriptor this very container produced.** A tensor
+    /// declared with a range past the end of the file keeps its descriptor
+    /// in [`Self::tensors`], and this method is where reading it fails.
     fn tensor_bytes(&self, descriptor: &TensorDescriptor) -> Result<Cow<'_, [u8]>>;
 }
 
