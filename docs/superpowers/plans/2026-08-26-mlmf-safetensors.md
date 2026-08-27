@@ -406,6 +406,57 @@ under `dtype_of`'s reachability.
 
 ---
 
+## Task 5 ruling: the test gets its own crate, `crates/mlmf-conformance`
+
+**Task 5's implementer found the file cannot live in
+`crates/mlmf-safetensors/tests/`.** It needs `mlmf-gguf`, which needs
+`[dev-dependencies]`, which
+`mlmf-core/tests/deps.rs::no_table_other_than_plain_dependencies_may_declare_an_edge`
+rejects on the TABLE, so no allow-list entry can satisfy it. Committing the
+test without the dependency fails to compile. Either way the tree goes red,
+and it correctly committed neither.
+
+**Ruled: option (b), a new gated member. NOT a dev-dependency exception.**
+
+The implementer recommended (a), allowing `[dev-dependencies]` behind its own
+allow-list, on the grounds that the gate's stated rationale covers C5/codegen
+and platform-invisibility but says nothing about dev-deps. **That reading of
+the gate is correct and the conclusion is still wrong**, for two reasons it
+could not have measured:
+
+**1. The architecture.** A dev-dependency from `mlmf-safetensors` to
+`mlmf-gguf` puts an edge between two sibling backends. **Neither backend
+should know the other exists** — that is what a seam is. It is also
+arbitrary: nothing says why safetensors would be the one that knows about
+GGUF rather than the reverse. **The cross-backend test is a CONSUMER test.**
+It does what Fuel and Lightbulb do — reach both backends through
+`mlmf-core` — so it belongs in a crate shaped like a consumer, depending on
+all three through plain `[dependencies]`. Inside a backend it is a backend
+testing its sibling, which is not a relationship the seam describes.
+
+**2. Every risk (b) was rejected for is already gated.** The implementer's
+stated cost was *"a new crate whose job is missing from ci.yml produces a
+test that never runs while everything looks green."* **Measured:
+`common::gated_members()` returns every directory under `crates/` holding a
+`Cargo.toml` — there is no opt-in.** So a new member is automatically forced
+into `ci_coverage.rs`'s CI-steps check (`crates/ contains members that CI
+does not gate`), automatically panics in `deps.rs::allow_list` until it has
+`tests/direct-deps.allow`, and automatically falls under the C3 I/O gate.
+**The failure mode it was avoiding cannot occur here**, because
+`local-gates.sh` and `ci_coverage.rs` exist precisely for it.
+
+**And the gate stays as it is.** Its module header says *"an unanticipated
+form fails loudly instead of being skipped"* — this IS that design working.
+The right response to a loud failure is to stop needing the exception, not to
+widen the gate until the failure stops.
+
+**C7 is satisfied, not waived:** `version.workspace = true` and
+`publish = false` are orthogonal fields. The crate declares the first (the
+gate reads that field) and the second because it must never ship. Say so in
+the manifest.
+
+---
+
 ## Task 5: The cross-backend test, which is what this whole plan was for
 
 **Files:** `crates/mlmf-safetensors/tests/cross_backend.rs`.
