@@ -250,6 +250,37 @@ a sabotage proving the descriptor survives.
 **Task 5's cross-backend test depends on this ruling.** Until both backends
 answer the same way, it cannot assert agreement on the case at all.
 
+### 3. `TensorDeclined`'s doc promises omission, and item 2 makes that false
+
+**Found while briefing this task, not by Task 2.** `UnrecognizedKind::
+TensorDeclined`'s doc opens *"Like `Self::TensorEncoding`, the tensor is
+**omitted from the container's list**"* — a seam-level promise. Item 2 keeps
+a past-EOF tensor in the list and reports it, so the promise breaks the
+moment item 2 lands.
+
+**This is the shape of defect this plan exists to catch:** a doc that was
+true when one backend could reach it, and that no per-task review would look
+at, because no task's file list names `report.rs` for a doc it does not
+otherwise touch.
+
+**Ruled: correct the doc; do NOT add a `retained: bool` field.**
+
+The tempting fix is a field on the entry saying whether the descriptor
+survived. Reject it. **The tensor list is the authoritative answer to
+"is it in the list", and a field copying that answer can disagree with it.**
+That is the same reasoning that keeps `TensorDescriptor::bytes` a single
+rebased range rather than something each consumer recomputes, and the same
+reasoning that removed explanations from `MetadataKey`'s `value`. A report
+entry names a tensor this build has a complaint about; whether a descriptor
+could still be built from the declaration is per-format, and `tensor(&name)`
+answers it without a second copy that can rot.
+
+**`TensorEncoding`'s omission promise STAYS**, and stays seam-level: an
+unresolvable encoding means `TensorDescriptor::encoding` cannot be filled at
+all, so no descriptor exists to keep. That is true of both backends and
+remains true after item 1 — safetensors' unknown dtype moves to this kind
+and is still omitted.
+
 ---
 
 ## Task 3: Dtypes, pinned arm by arm
