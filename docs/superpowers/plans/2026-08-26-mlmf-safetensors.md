@@ -499,7 +499,61 @@ This is the only test in the project that can fail because an abstraction is wro
 
 - [ ] **Step 4: Commit.**
 
+## Task 5b: `default-members` is a list nobody checks
+
+**Task 5's implementer found it.** Nothing asserts that every `crates/*`
+member appears in the root `default-members`. A member left out is still
+gated by CI (which uses `-p`), so it is not a coverage hole — but **bare
+`cargo test`, the command a developer types, would silently skip it.**
+
+**That is the same shape as the incident `ci_coverage.rs` exists for** —
+`mlmf-gguf` lived for six tasks with no CI step — one list over, and it is
+the list with no test.
+
+**Files:** `crates/mlmf-core/tests/workspace.rs` (C5/C7 workspace facts).
+
+Assert **containment, not equality**: every `gated_members()` crate must be
+in `default-members`. `"."` is deliberately also there and is not a gated
+member — it is the legacy root package, which CI excludes on the record
+(needs `protoc` and a git dependency; spec §11 schedules rewrite). **Say that
+in the test**, or the next reader will "fix" it into equality and drop the
+root package from a developer's bare run without deciding to.
+
+**Measured while ruling this:** bare `cargo test --no-run` succeeds on this
+machine and compiles 5 packages, emitting warnings from the legacy crate that
+CI never sees. **So a developer's bare command already covers a different set
+than CI does, in both directions.** Task 7 should rule on whether `"."`
+belongs in `default-members` at all; do not change it here.
+
+---
+
 ## Task 6: Corpus differential
+
+### What this corpus can and cannot falsify — measured 2026-08-27
+
+**State these numbers in the test itself, not as a vague caveat.** A
+differential that does not say what it is blind to reads as coverage.
+
+    C:/Models/SmolLM2-360M-Instruct/model.safetensors
+      size 723,674,912   header_len 32,664   data_start 32,672   290 tensors
+    C:/Models/TinyLlama-1.1B-Chat-v1.0/model.safetensors
+      size 2,200,119,864 header_len 23,088   data_start 23,096   201 tensors
+
+**Two files, against GGUF's 29.** And:
+
+- **Every tensor in both is `BF16`. One dtype across 491 tensors.** So this
+  corpus is **structurally incapable of falsifying 14 of the 15 dtype arms** —
+  the same blindness `dtype.rs` had before Task 3, now in the corpus. Authored
+  fixtures remain the only instrument for the other fourteen.
+- **`__metadata__` is `{"format": "pt"}` in both — one key, non-numeric.** So
+  it **cannot falsify the numeric-string ruling** either. X3 in
+  `mlmf-conformance` is the only control for that.
+- **Both files' furthest tensor end equals the file size EXACTLY.** So the
+  corpus **can** falsify the `>` / `>=` boundary, which is the one thing a
+  real corpus is better at than a fixture — the last tensor of a well-formed
+  file touches the last byte every time. **`mlmf-gguf`'s corpus caught exactly
+  that off-by-one on a real 88,202,080-byte model.** Make a `>=` mutation part
+  of the sabotage set and confirm it reddens here too.
 
 **Files:** `crates/mlmf-safetensors/tests/corpus-safetensors.tsv`, `tests/corpus.rs`.
 
