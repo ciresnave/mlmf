@@ -7,7 +7,7 @@ mod fixture;
 
 use fixture::GgufBuilder;
 use mlmf_core::{
-    Declaration, ErrorKind, MetaValue, MetadataSource, TensorContainer, Unrecognized,
+    Declaration, DeclaredType, ErrorKind, MetaValue, MetadataSource, TensorContainer, Unrecognized,
     UnrecognizedKind,
 };
 use mlmf_gguf::{GgufError, GgufMetadata, Stage, parse_tensors};
@@ -410,7 +410,7 @@ fn a_retired_type_code_is_reported_and_only_that_tensor_is_lost() {
             kind: UnrecognizedKind::TensorEncoding {
                 name: "old".into(),
                 family: "ggml",
-                code: 4,
+                declared: DeclaredType::Code(4),
             },
             origin: "authored".into(),
         }],

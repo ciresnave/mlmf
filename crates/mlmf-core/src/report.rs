@@ -22,6 +22,43 @@
 
 use crate::MetaValue;
 
+/// A tensor's type exactly as the file declares it.
+///
+/// Two arms because formats declare a tensor's type two ways and the seam
+/// must not force one into the other. GGUF declares a **numeric code** in a
+/// family's code space — `2` is a ggml type and means nothing without
+/// "ggml" beside it. Safetensors declares a **name**, `"BF16"` or
+/// `"F4_E2M1"`, and there is no number anywhere in that file to report.
+///
+/// **Deliberately not one `String` with the number formatted into it.**
+/// That loses the numeric identity GGUF needs — a consumer matching on a
+/// code would have to parse it back out of prose — and it reproduces the
+/// defect this enum's [`UnrecognizedKind::MetadataKey`] sibling was
+/// repaired for: a rendering occupying a field documented as the file's own
+/// data.
+///
+/// Named `DeclaredType` and not `DeclaredEncoding`, deliberately.
+/// [`crate::Encoding`] here is the **resolved** encoding, the thing a
+/// [`crate::TensorDescriptor`] carries once the type resolved; a name one
+/// letter away from it would invite a reader to think the two convert. This
+/// is what the file said *before* anything resolved, which is exactly the
+/// fact worth reporting when nothing could.
+///
+/// Its existence is a seam repair, not a generalization for its own sake:
+/// `TensorEncoding` carried a bare `code: u32` for as long as GGUF was the
+/// only backend, which made the kind — and therefore the seam's own
+/// distinction between "cannot resolve the encoding" and "declined for
+/// another reason" — **inexpressible for a string-typed format**.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DeclaredType {
+    /// A numeric code in the family's code space, e.g. a ggml type code.
+    Code(u32),
+    /// A type name spelled as the file spells it, e.g. safetensors'
+    /// `"F4_E2M1"`.
+    Name(String),
+}
+
 /// Something a parse encountered and did not understand.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -77,18 +114,22 @@ pub enum UnrecognizedKind {
     /// compute a byte range for a tensor whose extent is genuinely unknown.
     ///
     /// Omission is not silence: this entry names the tensor, the family
-    /// that owns the code space, and the code itself, so a consumer can
-    /// report exactly which tensor it cannot see and why. Whether an
-    /// unresolvable code is merely loud (this) or fatal
+    /// that owns the type space, and the declared type itself, so a
+    /// consumer can report exactly which tensor it cannot see and why.
+    /// Whether an unresolvable type is merely loud (this) or fatal
     /// ([`crate::ErrorKind::UnknownTypeCode`]) is a property of the
     /// container — see this module's header.
     TensorEncoding {
         /// Tensor name exactly as declared.
         name: String,
-        /// Family owning the code space, e.g. `"ggml"`.
+        /// Family owning the type space, e.g. `"ggml"` or `"safetensors"`.
         family: &'static str,
-        /// The code exactly as declared.
-        code: u32,
+        /// The type exactly as the file declares it: a numeric code from a
+        /// format that declares codes, a name from one that declares names.
+        ///
+        /// Called `declared` and not `code` because it is no longer always
+        /// a code — see [`DeclaredType`].
+        declared: DeclaredType,
     },
     /// A tensor this build declined for a reason that is not its encoding.
     ///
@@ -291,7 +332,7 @@ mod tests {
             kind: UnrecognizedKind::TensorEncoding {
                 name: "blk.0.attn_q.weight".into(),
                 family: "ggml",
-                code: 9999,
+                declared: DeclaredType::Code(9999),
             },
             origin: "model.gguf".into(),
         });
@@ -301,31 +342,100 @@ mod tests {
             kind: UnrecognizedKind::TensorEncoding {
                 name: "blk.1.attn_q.weight".into(),
                 family: "ggml",
-                code: 9999,
+                declared: DeclaredType::Code(9999),
             },
             origin: "shard-2.gguf".into(),
         });
         a.merge(b);
 
-        assert_eq!(a.entries().len(), 2);
-        match &a.entries()[0].kind {
-            UnrecognizedKind::TensorEncoding { name, family, code } => {
-                assert_eq!(name, "blk.0.attn_q.weight");
-                assert_eq!(*family, "ggml");
-                assert_eq!(*code, 9999);
-            }
-            other => panic!("wrong kind: {other:?}"),
-        }
-        assert_eq!(a.entries()[0].origin, "model.gguf");
-        match &a.entries()[1].kind {
-            UnrecognizedKind::TensorEncoding { name, family, code } => {
-                assert_eq!(name, "blk.1.attn_q.weight");
-                assert_eq!(*family, "ggml");
-                assert_eq!(*code, 9999);
-            }
-            other => panic!("wrong kind: {other:?}"),
-        }
-        assert_eq!(a.entries()[1].origin, "shard-2.gguf");
+        // Whole values including origin, in order. The previous version of
+        // this test walked the fields one at a time behind a `match`, and a
+        // chain of field assertions cannot see the two entries swapped —
+        // which here would attribute shard 2's complaint to shard 1.
+        assert_eq!(
+            a.entries(),
+            &[
+                Unrecognized {
+                    kind: UnrecognizedKind::TensorEncoding {
+                        name: "blk.0.attn_q.weight".into(),
+                        family: "ggml",
+                        declared: DeclaredType::Code(9999),
+                    },
+                    origin: "model.gguf".into(),
+                },
+                Unrecognized {
+                    kind: UnrecognizedKind::TensorEncoding {
+                        name: "blk.1.attn_q.weight".into(),
+                        family: "ggml",
+                        declared: DeclaredType::Code(9999),
+                    },
+                    origin: "shard-2.gguf".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_declared_type_is_a_code_or_a_name_because_formats_declare_types_both_ways() {
+        // The seam repair as a value rather than as a doc comment. GGUF
+        // declares `9999`, a number in ggml's code space; safetensors
+        // declares `"F4_E2M1"`, a string, and its file contains no number
+        // to report. Both are the SAME kind — "this build cannot resolve
+        // the encoding" — because that is the fact a consumer branches on,
+        // and before `DeclaredType` existed the string-typed one could not
+        // be said at all and had to be reported as `TensorDeclined`.
+        //
+        // Whole values, not `matches!`. `matches!(declared,
+        // DeclaredType::Code(_))` is satisfied by every u32 a body could
+        // return, including a defaulted 0, which is the exact lie the
+        // `MetadataKey` repair removed from this enum.
+        let mut gguf = Report::new();
+        gguf.push(Unrecognized {
+            kind: UnrecognizedKind::TensorEncoding {
+                name: "blk.0.future".into(),
+                family: "ggml",
+                declared: DeclaredType::Code(9999),
+            },
+            origin: "model.gguf".into(),
+        });
+        let mut safetensors = Report::new();
+        safetensors.push(Unrecognized {
+            kind: UnrecognizedKind::TensorEncoding {
+                name: "model.layers.0.mlp.down_proj.weight".into(),
+                family: "safetensors",
+                declared: DeclaredType::Name("F4_E2M1".into()),
+            },
+            origin: "model.safetensors".into(),
+        });
+        gguf.merge(safetensors);
+
+        assert_eq!(
+            gguf.entries(),
+            &[
+                Unrecognized {
+                    kind: UnrecognizedKind::TensorEncoding {
+                        name: "blk.0.future".into(),
+                        family: "ggml",
+                        declared: DeclaredType::Code(9999),
+                    },
+                    origin: "model.gguf".into(),
+                },
+                Unrecognized {
+                    kind: UnrecognizedKind::TensorEncoding {
+                        name: "model.layers.0.mlp.down_proj.weight".into(),
+                        family: "safetensors",
+                        declared: DeclaredType::Name("F4_E2M1".into()),
+                    },
+                    origin: "model.safetensors".into(),
+                },
+            ]
+        );
+
+        // And the two arms are not interchangeable renderings of each
+        // other: a build that formatted the number into a string would make
+        // these equal, and a consumer matching on a code would have to
+        // parse it back out of prose.
+        assert_ne!(DeclaredType::Code(9999), DeclaredType::Name("9999".into()));
     }
 
     fn key(k: &str, v: u32, origin: &str) -> Unrecognized {
@@ -414,9 +524,14 @@ mod tests {
     fn a_declined_tensor_says_why_without_inventing_a_type_code() {
         // `TensorEncoding` answers "this build cannot resolve the encoding".
         // A duplicate name and an overlapping range are neither, and forcing
-        // them into it means a `code` field holding a number the file never
-        // declared. That is the defect this enum's MetadataKey sibling was
-        // repaired for.
+        // them into it means a `declared` field holding a
+        // `DeclaredType::Code(0)` the file never declared — which for a
+        // ggml file names F32, a type this build resolves perfectly, and
+        // sends an operator after a library upgrade that would change
+        // nothing. That is the defect this enum's MetadataKey sibling was
+        // repaired for. Widening `declared` to admit a NAME as well as a
+        // code did not soften this: a name invented for a tensor whose
+        // complaint is not about its type is the same lie in a new shape.
         let mut r = Report::new();
         r.push(Unrecognized {
             kind: UnrecognizedKind::TensorDeclined {

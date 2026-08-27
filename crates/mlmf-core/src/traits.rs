@@ -90,13 +90,16 @@ pub trait TensorContainer {
     ///   the format forbids sharing.
     ///
     /// A tensor whose declared encoding could not be resolved — an
-    /// unrecognized ggml type code, for instance — is absent from this
-    /// slice. [`TensorDescriptor`] has no way to say "length unknown," so
-    /// there is no descriptor to put here; instead the parse's
-    /// [`crate::Report`] gains a
-    /// [`crate::UnrecognizedKind::TensorEncoding`] entry naming the tensor,
-    /// the family, and the code. A consumer that ignores the report sees
-    /// only a shorter list, with no other signal that anything is missing.
+    /// unrecognized ggml type code, or a safetensors dtype string this
+    /// build does not know — is absent from this slice.
+    /// [`TensorDescriptor`] has no way to say "length unknown," so there is
+    /// no descriptor to put here; instead the parse's [`crate::Report`]
+    /// gains a [`crate::UnrecognizedKind::TensorEncoding`] entry naming the
+    /// tensor, the family, and the type it declares — a
+    /// [`crate::DeclaredType::Code`] or a [`crate::DeclaredType::Name`],
+    /// because formats declare types both ways. A consumer that ignores the
+    /// report sees only a shorter list, with no other signal that anything
+    /// is missing.
     fn tensors(&self) -> &[TensorDescriptor];
 
     /// The tensor declared under `name`, if any.

@@ -30,6 +30,13 @@
 //!   [`mlmf_core::TensorContainer::tensors`] and named in the
 //!   [`Report`], so `__metadata__` and every other tensor stay readable.
 //!
+//! An unknown dtype is the one of those reported as
+//! [`mlmf_core::UnrecognizedKind::TensorEncoding`] rather than
+//! `TensorDeclined`: it is the seam's own "cannot resolve the encoding",
+//! and it could not be said that way until `mlmf_core::DeclaredType` grew
+//! an arm for a type declared as a NAME. See this module's private
+//! `resolve`, whose doc enumerates every outcome.
+//!
 //! # Tied weights are not an error, and that is a ruling
 //!
 //! Two tensors declaring **identical `data_offsets`** — `lm_head` and
@@ -57,8 +64,8 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use mlmf_core::{
-    Encoding, Error, ErrorKind, Report, Shape, TensorContainer, TensorDescriptor, Unrecognized,
-    UnrecognizedKind,
+    DeclaredType, Encoding, Error, ErrorKind, Report, Shape, TensorContainer, TensorDescriptor,
+    Unrecognized, UnrecognizedKind,
 };
 
 use crate::dtype::dtype_of;
@@ -220,19 +227,38 @@ fn read_entry(name: &str, value: &serde_json::Value) -> Result<RawEntry, Safeten
 /// Turn a record into a descriptor, or report why it cannot be one.
 ///
 /// `None` means the tensor is **omitted from the container's list** and the
-/// report names it. Six things reach that outcome and all six look the same
-/// to a consumer holding the list — a shorter list — so no path here
-/// returns `None` without pushing an entry.
+/// report names it. SEVEN things reach that outcome and all seven look the
+/// same to a consumer holding the list — a shorter list — so no path here
+/// returns `None` without pushing an entry:
 ///
-/// All six are [`UnrecognizedKind::TensorDeclined`], **including the
-/// unresolvable dtype**, and that last one is forced rather than chosen.
+/// 1. a `dtype` string this build does not know;
+/// 2. `data_offsets` that end before they start;
+/// 3. a dimension that does not fit this target's `usize`;
+/// 4. a shape product or byte size that overflows a `u64`;
+/// 5. a declared width that disagrees with the shape and dtype;
+/// 6. offsets that overflow a `u64` once the base is added;
+/// 7. a rebased range past the end of the file.
+///
+/// Enumerated rather than counted, because this doc said "six" while the
+/// code had seven — a bare number in prose is checked by nothing, and
+/// `mlmf-gguf`'s twin of this comment carries a parenthesis recording the
+/// identical defect being found there.
+///
+/// Outcome 1 is [`UnrecognizedKind::TensorEncoding`]; 2 through 7 are
+/// [`UnrecognizedKind::TensorDeclined`].
+///
+/// **Outcome 1 was `TensorDeclined` until the seam grew an arm for it, and
+/// that was forced rather than chosen.**
 /// [`UnrecognizedKind::TensorEncoding`] is the kind whose doc describes
 /// exactly this case — "a tensor whose declared encoding this build cannot
-/// resolve" — but it carries `code: u32`, and safetensors declares a type
-/// *string*. There is no honest number to put in that field, and putting a
-/// dishonest one there would name a ggml code this build recognises. So the
-/// distinction `mlmf-gguf` draws between the two kinds cannot be drawn
-/// here, and this crate's report is uniform where GGUF's is not.
+/// resolve" — but it carried `code: u32`, and safetensors declares a type
+/// *string*. There was no honest number to put in that field, and a
+/// dishonest one would have named a ggml code this build recognises. So the
+/// distinction `mlmf-gguf` draws between the two kinds could not be drawn
+/// here at all, and this crate's report was uniform where GGUF's was not.
+/// The field is now [`mlmf_core::DeclaredType`], which carries a code or a
+/// name; this crate takes the name arm and reports the dtype string the
+/// file spells.
 ///
 /// Every reason names the offsets **as the file declares them**, not as
 /// this function rebases them, except where the rebased pair is the fact
@@ -257,13 +283,24 @@ fn resolve(
     };
 
     let Some(dtype) = dtype_of(&entry.dtype) else {
-        return decline(
-            report,
-            format!(
-                "dtype {:?} is not a dtype this build knows",
-                entry.dtype.as_str()
-            ),
-        );
+        // `TensorEncoding`, not `TensorDeclined`: this is the seam's own
+        // "cannot resolve the encoding", and the two are different facts a
+        // consumer acts on differently — an unknown dtype points at a
+        // library upgrade, a bad range points at a corrupt file. The
+        // declared type is a NAME because safetensors declares names; there
+        // is no number in the file and none is invented.
+        report.push(Unrecognized {
+            kind: UnrecognizedKind::TensorEncoding {
+                name: entry.name.clone(),
+                family: "safetensors",
+                declared: DeclaredType::Name(entry.dtype.clone()),
+            },
+            origin: origin.to_string(),
+        });
+        // Still omitted, and that promise is seam-level:
+        // `TensorDescriptor::encoding` is not optional, so with no dtype
+        // there is no descriptor to keep.
+        return None;
     };
 
     // ORDERING FIRST, and on the file's own numbers before anything is
@@ -606,13 +643,30 @@ mod tests {
         Ok((tensors.tensors().to_vec(), report, payloads, by_name))
     }
 
-    /// One `TensorDeclined` entry, the only report shape this module emits.
+    /// One `TensorDeclined` entry: six of the seven complaints this module
+    /// emits. The seventh is [`unresolvable_dtype`].
     fn declined(name: &str, reason: &str) -> Report {
         let mut r = Report::new();
         r.push(Unrecognized {
             kind: UnrecognizedKind::TensorDeclined {
                 name: name.to_string(),
                 reason: reason.to_string(),
+            },
+            origin: ORIGIN.to_string(),
+        });
+        r
+    }
+
+    /// One `TensorEncoding` entry, which is what an unknown dtype is: the
+    /// seam's "cannot resolve the encoding", carrying the type the file
+    /// declares as a NAME because safetensors declares names.
+    fn unresolvable_dtype(name: &str, dtype: &str) -> Report {
+        let mut r = Report::new();
+        r.push(Unrecognized {
+            kind: UnrecognizedKind::TensorEncoding {
+                name: name.to_string(),
+                family: "safetensors",
+                declared: DeclaredType::Name(dtype.to_string()),
             },
             origin: ORIGIN.to_string(),
         });
@@ -752,21 +806,27 @@ mod tests {
     }
 
     #[test]
-    fn a_dtype_this_build_does_not_know_is_declined_rather_than_guessed() {
-        // `TensorDeclined`, not `TensorEncoding`, and that is forced rather
-        // than chosen: `UnrecognizedKind::TensorEncoding` carries
-        // `code: u32`, which assumes a format that declares a NUMERIC type
-        // code. Safetensors declares a string and there is no honest u32 to
-        // put there. Recorded as a seam finding in this task's report.
+    fn a_dtype_this_build_does_not_know_is_an_unresolvable_encoding_not_a_generic_decline() {
+        // `TensorEncoding`, carrying `DeclaredType::Name("F4_E2M1")`.
+        //
+        // This asserted `TensorDeclined` until Task 2b, and that was forced
+        // rather than chosen: the variant carried `code: u32`, which
+        // assumes a format declaring a NUMERIC type code, and safetensors
+        // declares a string. There was no honest u32 to put there, so the
+        // seam's own distinction — cannot resolve the encoding, versus
+        // declined for another reason — was inexpressible here and the two
+        // facts collapsed into one kind. They are different facts: an
+        // unknown dtype points a consumer at a library upgrade, a bad range
+        // points at a corrupt file.
+        //
+        // The whole `Report` is compared, not the kind's discriminant. A
+        // `matches!(declared, DeclaredType::Name(_))` is satisfied by the
+        // tensor's own name, by the empty string, and by every other string
+        // a body could return; only the value pins which string the file
+        // actually declared.
         assert_eq!(
             directory(&image_with_payload(UNKNOWN_DTYPE)),
-            Ok((
-                vec![],
-                declined(
-                    "weight",
-                    "dtype \"F4_E2M1\" is not a dtype this build knows"
-                )
-            ))
+            Ok((vec![], unresolvable_dtype("weight", "F4_E2M1")))
         );
     }
 

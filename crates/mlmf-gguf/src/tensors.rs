@@ -8,7 +8,7 @@ use crate::metadata::GgufMetadata;
 // import of it is unused and `-D warnings` refuses it. The tests name it,
 // and import it themselves.
 use mlmf_core::{
-    Error, ErrorKind, Report, Shape, TensorContainer, TensorDescriptor, Unrecognized,
+    DeclaredType, Error, ErrorKind, Report, Shape, TensorContainer, TensorDescriptor, Unrecognized,
     UnrecognizedKind,
 };
 use mlmf_ggml::GgmlType;
@@ -148,11 +148,12 @@ pub(crate) fn data_start(dir_end: u64, alignment: u64) -> Option<u64> {
 /// The other THREE are [`UnrecognizedKind::TensorDeclined`] — the two
 /// rebase overflows and the `usize` narrowing — and that distinction is
 /// NOT interpretation: in all three the
-/// encoding resolved perfectly. Reporting `TensorEncoding { code: 0 }` for
-/// an F32 tensor would name a code this build recognises and point an
-/// operator at a library upgrade that would change nothing. The fact is a
-/// declared offset no address space can hold, and `TensorDeclined` exists
-/// to say exactly that.
+/// encoding resolved perfectly. Reporting
+/// `TensorEncoding { declared: DeclaredType::Code(0) }` for an F32 tensor
+/// would name a code this build recognises and point an operator at a
+/// library upgrade that would change nothing. The fact is a declared offset
+/// no address space can hold, and `TensorDeclined` exists to say exactly
+/// that.
 pub(crate) fn resolve(
     info: &RawInfo,
     data_start: u64,
@@ -167,7 +168,11 @@ pub(crate) fn resolve(
             kind: UnrecognizedKind::TensorEncoding {
                 name: info.name.clone(),
                 family: "ggml",
-                code: info.code,
+                // `DeclaredType::Code`, because GGUF declares a NUMBER in
+                // ggml's code space. Safetensors declares a name and takes
+                // the other arm; the field admits both so the seam does not
+                // have to render one as the other.
+                declared: DeclaredType::Code(info.code),
             },
             origin: origin.to_string(),
         });
@@ -726,7 +731,7 @@ mod tests {
                 kind: UnrecognizedKind::TensorEncoding {
                     name: "blk.0.future".into(),
                     family: "ggml",
-                    code: 9999,
+                    declared: DeclaredType::Code(9999),
                 },
                 origin: "t.gguf".into(),
             }]
@@ -775,7 +780,7 @@ mod tests {
                 kind: UnrecognizedKind::TensorEncoding {
                     name: "ragged".into(),
                     family: "ggml",
-                    code: 2,
+                    declared: DeclaredType::Code(2),
                 },
                 origin: "t.gguf".into(),
             }]
