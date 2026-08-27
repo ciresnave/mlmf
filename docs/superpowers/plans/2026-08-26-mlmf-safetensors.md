@@ -611,6 +611,30 @@ is a note about reading plans, not a systemic staleness.
 
 ---
 
+## Carried past this plan — open at completion, deliberately
+
+Plan 5 is complete: tasks 0-7 done, Task 7's six Important findings verified
+and fixed, CI green at `3bdb346`. **These two are open and are stated here so
+they are inherited rather than lost.**
+
+- [ ] **The `SKIPPED` convention is a literal string with no gate.**
+      `scripts/local-gates.sh` greps for `SKIPPED` to surface a corpus
+      notice. Both corpus tests emit exactly that word today. **A third
+      differential writing `skipped` or `NOT RUN` would be swallowed exactly
+      as before, and its author would have no way to learn the harness has a
+      convention.** This coupling was created by the I6 fix and is
+      unguarded — the fix for one silent-swallow introduced a narrower one.
+
+- [ ] **Both corpus roots are hardcoded Windows paths** — `C:/Models` and
+      `C:/Models/gguf-corpus`. On any other machine both differentials SKIP,
+      **so the byte-level half of both suites has only ever run on one
+      machine.** The notices now reach a human running the mandated command,
+      which makes it visible; **nothing counts how often they fire**, so
+      "verified against the corpus" remains a claim about one developer's
+      disk.
+
+---
+
 ## Deliberately not in this plan
 
 Each labelled by kind, because "we are not doing X" and "we measured and X is not available" look identical once written down.
