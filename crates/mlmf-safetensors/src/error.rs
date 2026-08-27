@@ -129,10 +129,16 @@ pub enum SafetensorsError {
     /// then makes a false claim — an inverted range, a width that disagrees
     /// with the shape, a dtype this build does not know — because those
     /// cost exactly one tensor and are reported through
-    /// [`mlmf_core::Report`] with the tensor omitted, the way `mlmf-gguf`
-    /// reports a type code it cannot resolve. Refusing the whole file for
-    /// one bad tensor would make every other tensor and all of
-    /// `__metadata__` unreachable.
+    /// [`mlmf_core::Report`], the way `mlmf-gguf` reports a type code it
+    /// cannot resolve. Refusing the whole file for one bad tensor would make
+    /// every other tensor and all of `__metadata__` unreachable.
+    ///
+    /// The three named above are also omitted from the tensor list.
+    /// **Whether a reported tensor is omitted is per-reason and this
+    /// variant's doc deliberately does not say**: a range running past the
+    /// end of the file is reported and KEPT, because a descriptor records
+    /// what the file declares. `crate::tensors`'s `resolve` enumerates every
+    /// outcome and which side of that line it falls on.
     ///
     /// # Why this variant exists rather than [`Self::Malformed`]
     ///

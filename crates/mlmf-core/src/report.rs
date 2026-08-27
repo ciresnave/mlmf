@@ -155,11 +155,19 @@ pub enum UnrecognizedKind {
     /// "is it in the list"; this entry answers "this build has a complaint
     /// about it".
     ///
-    /// The two are independent, and today they differ in both directions:
-    /// `mlmf-gguf` keeps a past-end-of-file descriptor too, but has no
-    /// end-of-file check anywhere, so it keeps it **without** an entry here.
-    /// A reader must not infer retention from the presence of an entry, nor
-    /// an entry from retention.
+    /// **A reader must not infer retention from the presence of an entry,
+    /// nor an entry from retention.** The two are independent facts and
+    /// nothing here reports the first.
+    ///
+    /// This paragraph used to make that point by observing that `mlmf-gguf`
+    /// kept a past-end-of-file descriptor *without* an entry here, while
+    /// `mlmf-safetensors` named one. That divergence was real when this was
+    /// written and is gone: `mlmf-gguf` now bounds every rebased range
+    /// against the file length and reports it too, so both backends keep AND
+    /// report. The independence still holds — a duplicate name is reported
+    /// and dropped, a past-end-of-file range is reported and kept — but the
+    /// example is history and is written as history, because a live claim
+    /// about another crate's behaviour is exactly what went stale here.
     ///
     /// **No `retained: bool` field, deliberately.** A field copying that
     /// answer out of the list can disagree with what it copies, and then

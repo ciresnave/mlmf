@@ -31,8 +31,11 @@
 //! - An entry that parses and then **makes a claim this build will not act
 //!   on** — an inverted range, a width that disagrees with the shape, a
 //!   dtype this build does not know — costs exactly that one tensor. It is
-//!   omitted from [`mlmf_core::TensorContainer::tensors`] and named in the
-//!   [`Report`], so `__metadata__` and every other tensor stay readable.
+//!   named in the [`Report`], and for six of the seven such claims also
+//!   omitted from [`mlmf_core::TensorContainer::tensors`], so
+//!   `__metadata__` and every other tensor stay readable. **The seventh is
+//!   KEPT** — see the ruling two sections below, and `resolve`, which
+//!   enumerates all seven rather than counting them.
 //!
 //! An unknown dtype is the one of those reported as
 //! [`mlmf_core::UnrecognizedKind::TensorEncoding`] rather than
@@ -57,10 +60,14 @@
 //! DECLARES, including a range the file cannot honour**, and dropping it
 //! would be a reader deciding a declaration does not count.
 //!
-//! **The backends still differ on the REPORT.** `mlmf-gguf` has no
-//! end-of-file check anywhere in its directory parse, so it keeps such a
-//! descriptor *silently*; this crate names it. Recorded rather than
-//! smoothed over: the descriptors now agree and the reports do not.
+//! **Both backends now keep AND report.** For one task they differed on the
+//! second half — `mlmf-gguf` had no end-of-file check anywhere in its
+//! directory parse, so it kept such a descriptor silently while this crate
+//! named it — and Task 2c closed that. `mlmf-conformance`'s
+//! `a_tensor_declared_past_the_end_of_the_file_is_kept_and_reported_by_both`
+//! is what holds the two together now; this paragraph is history, and it is
+//! written as history because the live version of it went stale one task
+//! after it was written.
 //!
 //! # Tied weights are not an error, and that is a ruling
 //!
