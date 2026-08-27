@@ -422,6 +422,44 @@ The differential must **enumerate** — exact row count, exact dtype distributio
 - [ ] **Verify every Important finding yourself before fixing it.**
 - [ ] Record the rate, and compare to plan 3's eleven and plan 4's two.
 
+### Three API-shape questions, deferred here on purpose
+
+Each was found while doing a task whose file list did not name the decision.
+They are recorded rather than fixed because **deciding a seam question inside
+a task scoped to something else is exactly how `TensorDeclined`'s false
+omission promise got written.**
+
+- [ ] **`UnrecognizedKind::TensorEncoding::family` is a bare `&'static str`
+      with no registry, and now carries two different KINDS of name.**
+      `"ggml"` is a type system that is not the container format;
+      `"safetensors"` is the container format, because its dtype-string space
+      belongs to it. Both satisfy the field's doc. Nothing stops a third
+      backend picking a colliding name. **Rule: open string or closed set.**
+- [ ] **`dtype_of` is `pub` and nothing pins that it stays reachable.** Its
+      tests are all `super::*` unit tests, so a change to the module's
+      re-export would move the crate's public surface with the suite green.
+- [ ] **The `UNSPELLED` reason in `mlmf-safetensors::dtype` is unconstrained.**
+      The gate requires a `&str` beside the type and never reads it;
+      `(DType::F16, "")` passes. **A field whose presence is checked and whose
+      content is not** — the same shape as a report `reason`, one level down.
+      A non-empty assertion is barely better than none; decide whether these
+      reasons are for people or for machines before adding one.
+
+### And a methodology note this plan earned
+
+**Task 3's TDD steps were stale, and the failure mode is worth naming.** The
+plan gave it "write the failing test / stub / implement", but Task 2 had
+already built `dtype_of` complete. **Following those steps literally would
+mean deleting working code to watch a test go red — sabotage wearing a TDD
+label**, which proves the test can fail but tells you nothing about whether
+the code was ever right.
+
+**When a plan's TDD steps meet code that already exists, the honest shape is
+write the tests, run them GREEN, then sabotage.** The red comes from the
+mutation, not from an artificial absence. Task 4 was checked and does NOT
+have this problem — `mlmf-safetensors` has no `MetadataSource` impl — so this
+is a note about reading plans, not a systemic staleness.
+
 ---
 
 ## Deliberately not in this plan
