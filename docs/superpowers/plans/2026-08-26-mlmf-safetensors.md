@@ -103,9 +103,42 @@ A hand-rolled subset parser was considered and rejected. The header is JSON that
 
 ---
 
+## Before dispatching any task: who owns each file?
+
+**For every file this plan names, which task's `Files:` line claims it?** A
+file a plan schedules and no task owns is a file no per-task review looks
+at — and it has now happened twice on the same filename. `mlmf-gguf`'s
+`error.rs` still told consumers the tensor stage was unreachable after that
+stage had landed, because plan 4 scheduled the file and each of its eight
+tasks touched something else. This plan's Task 2 omitted
+`crates/mlmf-safetensors/src/error.rs` for the same reason, caught by Task
+1's implementer rather than by the plan.
+
+Twice, same filename, same cause, is a pattern in the planning method rather
+than two coincidences. So the check runs before dispatch: extract the files
+the plan names, extract the files each task claims, and diff.
+
+**And name every file the same way every time.** The check's own first run
+reported `src/error.rs` owned by Task 1 and
+`crates/mlmf-safetensors/src/error.rs` owned by Task 2 — **one file reading
+as two, each apparently owned**. A genuine orphan can hide behind an
+inconsistent spelling, which makes path-form consistency load-bearing rather
+than cosmetic. Both were normalised to full paths.
+
+It also found `tests/direct-deps.allow` genuinely orphaned: Task 0's prose
+creates it, its `Files:` line did not claim it. No harm resulted because the
+same task did the work, but the check does not know that and should not have
+to.
+
+---
+
 ## Task 0: Crate skeleton and the gates that must cover it
 
-**Files:** `crates/mlmf-safetensors/{Cargo.toml,src/lib.rs}`, `crates/mlmf-safetensors/tests/{direct-deps.allow,allowed-std.list}`, `.github/workflows/ci.yml`, root `Cargo.toml`.
+**Files:** `crates/mlmf-safetensors/Cargo.toml`,
+`crates/mlmf-safetensors/src/lib.rs`,
+`crates/mlmf-safetensors/tests/direct-deps.allow`,
+`crates/mlmf-safetensors/tests/allowed-std.list`,
+`.github/workflows/ci.yml`, `Cargo.toml`.
 
 The gates are the deliverable, not scaffolding. `mlmf-gguf` existed for six tasks before CI named it, and every green in that window was honest and meaningless.
 
@@ -121,7 +154,7 @@ The gates are the deliverable, not scaffolding. `mlmf-gguf` existed for six task
 
 ## Task 1: The header — length prefix and JSON
 
-**Files:** `crates/mlmf-safetensors/src/header.rs`, `src/error.rs`.
+**Files:** `crates/mlmf-safetensors/src/header.rs`, `crates/mlmf-safetensors/src/error.rs`.
 
 - [ ] **Step 1: Write the failing tests.** Cases, each with a whole-value assertion: a well-formed minimal header; a length prefix larger than the file (truncated, not an allocation); a length prefix of 0; a header that is not valid UTF-8; a header that is valid UTF-8 and not valid JSON; a header whose top level is an array rather than an object. **Every "refused" case asserts the error's stage and kind, not merely that it is an error.**
 
