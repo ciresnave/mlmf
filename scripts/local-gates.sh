@@ -41,6 +41,29 @@ WORKFLOW="${1:-.github/workflows/ci.yml}"
 export CARGO_TERM_COLOR=always
 export RUSTDOCFLAGS="-D warnings"
 
+# REFUSE on a block scalar before extracting anything.
+#
+# `run: |` and `run: >` put the commands on FOLLOWING lines, which the
+# extraction below cannot see. Measured, on a workflow whose only step was a
+# `run: |` block holding two real gates: the extraction yields the single
+# token `|`, `eval "|"` is a syntax error, and the script reports
+# "1 of 1 CI commands FAILED". So it does not silently pass -- but it runs
+# nothing, blames a command line reading `|`, and tells you nothing about
+# the two gates it never saw.
+#
+# Refusing is what the script already claims to do. Before this check it
+# refused only on ZERO extracted commands; a step it could not parse was
+# executed as garbage instead. A published note asserted the stronger
+# property, which is the defect that note is about.
+if grep -qE '^[[:space:]]*run:[[:space:]]*[|>]' "$WORKFLOW"; then
+  echo "$WORKFLOW uses a multi-line \`run: |\` or \`run: >\` block." >&2
+  echo "This script extracts single-line \`run:\` steps only, so the commands" >&2
+  echo "inside such a block are INVISIBLE to it. Refusing rather than running" >&2
+  echo "a subset: a partial job list is what a passing run looks like." >&2
+  echo "Teach the extraction to read block scalars, or keep CI single-line." >&2
+  exit 2
+fi
+
 mapfile -t CMDS < <(grep -oE '^\s*run: .*' "$WORKFLOW" | sed -E 's/^\s*run: //' | grep -v '^\s*$')
 
 if [ "${#CMDS[@]}" -eq 0 ]; then
@@ -78,6 +101,15 @@ for cmd in "${CMDS[@]}"; do
   else
     echo "FAILED"
     failed=$((failed + 1))
+    # PRINT it. Capturing stderr and then dropping it is worse than never
+    # capturing: the diagnosis existed and was thrown away, and the comment
+    # above said "CAPTURED -- not discarded" while this branch discarded it.
+    # A failing gate whose output you cannot see is a gate you will rerun by
+    # hand to find out what it said.
+    if [ -n "$err" ]; then
+      printf '%s
+' "$err" | sed 's/^/      /' >&2
+    fi
   fi
   # Surfaced whether the command passed or failed. A notice is not an error
   # and must not need one to be seen.
