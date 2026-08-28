@@ -918,6 +918,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mlmf-conformance"
+version = "0.4.0"
+dependencies = [
+ "mlmf-core",
+ "mlmf-gguf",
+ "mlmf-safetensors",
+]
+
+[[package]]
 name = "mlmf-core"
 version = "0.4.0"
 dependencies = [
@@ -939,6 +948,14 @@ version = "0.4.0"
 dependencies = [
  "mlmf-core",
  "mlmf-ggml",
+]
+
+[[package]]
+name = "mlmf-safetensors"
+version = "0.4.0"
+dependencies = [
+ "mlmf-core",
+ "serde_json",
 ]
 
 [[package]]

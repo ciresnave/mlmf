@@ -22,6 +22,43 @@
 
 use crate::MetaValue;
 
+/// A tensor's type exactly as the file declares it.
+///
+/// Two arms because formats declare a tensor's type two ways and the seam
+/// must not force one into the other. GGUF declares a **numeric code** in a
+/// family's code space — `2` is a ggml type and means nothing without
+/// "ggml" beside it. Safetensors declares a **name**, `"BF16"` or
+/// `"F4_E2M1"`, and there is no number anywhere in that file to report.
+///
+/// **Deliberately not one `String` with the number formatted into it.**
+/// That loses the numeric identity GGUF needs — a consumer matching on a
+/// code would have to parse it back out of prose — and it reproduces the
+/// defect this enum's [`UnrecognizedKind::MetadataKey`] sibling was
+/// repaired for: a rendering occupying a field documented as the file's own
+/// data.
+///
+/// Named `DeclaredType` and not `DeclaredEncoding`, deliberately.
+/// [`crate::Encoding`] here is the **resolved** encoding, the thing a
+/// [`crate::TensorDescriptor`] carries once the type resolved; a name one
+/// letter away from it would invite a reader to think the two convert. This
+/// is what the file said *before* anything resolved, which is exactly the
+/// fact worth reporting when nothing could.
+///
+/// Its existence is a seam repair, not a generalization for its own sake:
+/// `TensorEncoding` carried a bare `code: u32` for as long as GGUF was the
+/// only backend, which made the kind — and therefore the seam's own
+/// distinction between "cannot resolve the encoding" and "declined for
+/// another reason" — **inexpressible for a string-typed format**.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DeclaredType {
+    /// A numeric code in the family's code space, e.g. a ggml type code.
+    Code(u32),
+    /// A type name spelled as the file spells it, e.g. safetensors'
+    /// `"F4_E2M1"`.
+    Name(String),
+}
+
 /// Something a parse encountered and did not understand.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -76,32 +113,110 @@ pub enum UnrecognizedKind {
     /// `encoding` is not optional — and fabricating one would let a caller
     /// compute a byte range for a tensor whose extent is genuinely unknown.
     ///
+    /// **That omission is seam-level and holds for every format**, unlike
+    /// [`Self::TensorDeclined`]'s, which does not: an unresolvable encoding
+    /// means the descriptor's `encoding` field cannot be filled at all, so
+    /// there is no descriptor to keep. A declined tensor's encoding
+    /// resolved, so a descriptor may well exist.
+    ///
     /// Omission is not silence: this entry names the tensor, the family
-    /// that owns the code space, and the code itself, so a consumer can
-    /// report exactly which tensor it cannot see and why. Whether an
-    /// unresolvable code is merely loud (this) or fatal
+    /// that owns the type space, and the declared type itself, so a
+    /// consumer can report exactly which tensor it cannot see and why.
+    /// Whether an unresolvable type is merely loud (this) or fatal
     /// ([`crate::ErrorKind::UnknownTypeCode`]) is a property of the
     /// container — see this module's header.
     TensorEncoding {
         /// Tensor name exactly as declared.
         name: String,
-        /// Family owning the code space, e.g. `"ggml"`.
+        /// **The namespace in which [`Self::TensorEncoding::declared`] is
+        /// meaningful**, e.g. `"ggml"` or `"safetensors"`.
+        ///
+        /// That is the whole invariant, and it is why this stays an open
+        /// `&'static str` rather than becoming a closed enum. A ggml code
+        /// `2` means nothing without "ggml" beside it; a safetensors dtype
+        /// name means nothing without "safetensors". Both values satisfy the
+        /// invariant, and the fact that one names a type system while the
+        /// other names a container format is not a difference this field is
+        /// about.
+        ///
+        /// **A closed set would make `mlmf-core` enumerate its backends**,
+        /// which is the failure [`DeclaredType`] was created to remove: a
+        /// format crate must be able to arrive without editing the seam.
+        /// `crate::BlockSpec::family` is open for the identical reason, and
+        /// `encoding.rs` deliberately exercises a `family: "future"` that
+        /// belongs to no crate.
+        ///
+        /// **Openness has a cost and it is unguarded here:** nothing stops
+        /// two backends choosing one string, and a consumer branching on it
+        /// would then attribute one format's complaint to another.
+        /// `mlmf-conformance` carries the control — it asserts the exact set
+        /// of family strings the workspace's backends emit — because that is
+        /// a fact about which backends exist, which this crate must not know.
         family: &'static str,
-        /// The code exactly as declared.
-        code: u32,
+        /// The type exactly as the file declares it: a numeric code from a
+        /// format that declares codes, a name from one that declares names.
+        ///
+        /// Called `declared` and not `code` because it is no longer always
+        /// a code — see [`DeclaredType`].
+        declared: DeclaredType,
     },
     /// A tensor this build declined for a reason that is not its encoding.
     ///
-    /// Like [`Self::TensorEncoding`], the tensor is **omitted from the
-    /// container's list** — a consumer sees a shorter list and this entry is
-    /// the only other signal. Unlike it, there is no type code involved: the
-    /// encoding resolved fine, or the complaint is not about the encoding at
-    /// all. A duplicate name and an overlapping byte range are both this.
+    /// There is no type involved: the encoding resolved fine, or the
+    /// complaint is not about the encoding at all. A duplicate name, an
+    /// overlapping byte range and a range running past the end of the file
+    /// are all this.
+    ///
+    /// **This kind does NOT promise the tensor is omitted from the
+    /// container's list, and asking it is the wrong question.** Whether a
+    /// descriptor survives is per-format and per-reason: `mlmf-gguf` drops
+    /// a duplicate name, while `mlmf-safetensors` KEEPS a tensor whose
+    /// declared range runs past the end of the file, because
+    /// [`crate::TensorDescriptor::bytes`] rules that a descriptor records
+    /// what the file DECLARES, including a range the file cannot honour.
+    /// [`crate::TensorContainer::tensor`] is the authoritative answer to
+    /// "is it in the list"; this entry answers "this build has a complaint
+    /// about it".
+    ///
+    /// **A reader must not infer retention from the presence of an entry,
+    /// nor an entry from retention.** The two are independent facts and
+    /// nothing here reports the first.
+    ///
+    /// This paragraph used to make that point by observing that `mlmf-gguf`
+    /// kept a past-end-of-file descriptor *without* an entry here, while
+    /// `mlmf-safetensors` named one. That divergence was real when this was
+    /// written and is gone: `mlmf-gguf` now bounds every rebased range
+    /// against the file length and reports it too, so both backends keep AND
+    /// report. The independence still holds — a duplicate name is reported
+    /// and dropped, a past-end-of-file range is reported and kept — but the
+    /// example is history and is written as history, because a live claim
+    /// about another crate's behaviour is exactly what went stale here.
+    ///
+    /// **No `retained: bool` field, deliberately.** A field copying that
+    /// answer out of the list can disagree with what it copies, and then
+    /// two places say different things about one tensor. The same reasoning
+    /// keeps `TensorDescriptor::bytes` a single rebased range rather than
+    /// something every consumer recomputes.
+    ///
+    /// This doc opened *"Like `Self::TensorEncoding`, the tensor is omitted
+    /// from the container's list"* for as long as one backend could reach
+    /// this kind, and every reason that backend produced did omit. It was a
+    /// seam-level promise resting on a single implementation, and a second
+    /// backend is what made it false.
     ///
     /// Separate from `TensorEncoding` rather than a `code: Option<u32>` added
     /// to it, because the two answer different questions and a reader
     /// branching on the kind should not have to check whether a field is
     /// meaningful before trusting it.
+    ///
+    /// **The overlapping-range example above is one format's rule, not this
+    /// crate's.** [`crate::TensorContainer::tensors`] carries the ruling:
+    /// whether two tensors may share bytes is a fact about the format —
+    /// malformed in GGUF, a standard tied-weight layout in safetensors — so
+    /// a format crate reports it only when its own format forbids it. This
+    /// doc naming it as a reason, while the only sweep producing it lived in
+    /// one backend, is what made a seam-level rule look decided when it had
+    /// not been.
     TensorDeclined {
         /// Tensor name exactly as declared.
         name: String,
@@ -282,7 +397,7 @@ mod tests {
             kind: UnrecognizedKind::TensorEncoding {
                 name: "blk.0.attn_q.weight".into(),
                 family: "ggml",
-                code: 9999,
+                declared: DeclaredType::Code(9999),
             },
             origin: "model.gguf".into(),
         });
@@ -292,31 +407,100 @@ mod tests {
             kind: UnrecognizedKind::TensorEncoding {
                 name: "blk.1.attn_q.weight".into(),
                 family: "ggml",
-                code: 9999,
+                declared: DeclaredType::Code(9999),
             },
             origin: "shard-2.gguf".into(),
         });
         a.merge(b);
 
-        assert_eq!(a.entries().len(), 2);
-        match &a.entries()[0].kind {
-            UnrecognizedKind::TensorEncoding { name, family, code } => {
-                assert_eq!(name, "blk.0.attn_q.weight");
-                assert_eq!(*family, "ggml");
-                assert_eq!(*code, 9999);
-            }
-            other => panic!("wrong kind: {other:?}"),
-        }
-        assert_eq!(a.entries()[0].origin, "model.gguf");
-        match &a.entries()[1].kind {
-            UnrecognizedKind::TensorEncoding { name, family, code } => {
-                assert_eq!(name, "blk.1.attn_q.weight");
-                assert_eq!(*family, "ggml");
-                assert_eq!(*code, 9999);
-            }
-            other => panic!("wrong kind: {other:?}"),
-        }
-        assert_eq!(a.entries()[1].origin, "shard-2.gguf");
+        // Whole values including origin, in order. The previous version of
+        // this test walked the fields one at a time behind a `match`, and a
+        // chain of field assertions cannot see the two entries swapped —
+        // which here would attribute shard 2's complaint to shard 1.
+        assert_eq!(
+            a.entries(),
+            &[
+                Unrecognized {
+                    kind: UnrecognizedKind::TensorEncoding {
+                        name: "blk.0.attn_q.weight".into(),
+                        family: "ggml",
+                        declared: DeclaredType::Code(9999),
+                    },
+                    origin: "model.gguf".into(),
+                },
+                Unrecognized {
+                    kind: UnrecognizedKind::TensorEncoding {
+                        name: "blk.1.attn_q.weight".into(),
+                        family: "ggml",
+                        declared: DeclaredType::Code(9999),
+                    },
+                    origin: "shard-2.gguf".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_declared_type_is_a_code_or_a_name_because_formats_declare_types_both_ways() {
+        // The seam repair as a value rather than as a doc comment. GGUF
+        // declares `9999`, a number in ggml's code space; safetensors
+        // declares `"F4_E2M1"`, a string, and its file contains no number
+        // to report. Both are the SAME kind — "this build cannot resolve
+        // the encoding" — because that is the fact a consumer branches on,
+        // and before `DeclaredType` existed the string-typed one could not
+        // be said at all and had to be reported as `TensorDeclined`.
+        //
+        // Whole values, not `matches!`. `matches!(declared,
+        // DeclaredType::Code(_))` is satisfied by every u32 a body could
+        // return, including a defaulted 0, which is the exact lie the
+        // `MetadataKey` repair removed from this enum.
+        let mut gguf = Report::new();
+        gguf.push(Unrecognized {
+            kind: UnrecognizedKind::TensorEncoding {
+                name: "blk.0.future".into(),
+                family: "ggml",
+                declared: DeclaredType::Code(9999),
+            },
+            origin: "model.gguf".into(),
+        });
+        let mut safetensors = Report::new();
+        safetensors.push(Unrecognized {
+            kind: UnrecognizedKind::TensorEncoding {
+                name: "model.layers.0.mlp.down_proj.weight".into(),
+                family: "safetensors",
+                declared: DeclaredType::Name("F4_E2M1".into()),
+            },
+            origin: "model.safetensors".into(),
+        });
+        gguf.merge(safetensors);
+
+        assert_eq!(
+            gguf.entries(),
+            &[
+                Unrecognized {
+                    kind: UnrecognizedKind::TensorEncoding {
+                        name: "blk.0.future".into(),
+                        family: "ggml",
+                        declared: DeclaredType::Code(9999),
+                    },
+                    origin: "model.gguf".into(),
+                },
+                Unrecognized {
+                    kind: UnrecognizedKind::TensorEncoding {
+                        name: "model.layers.0.mlp.down_proj.weight".into(),
+                        family: "safetensors",
+                        declared: DeclaredType::Name("F4_E2M1".into()),
+                    },
+                    origin: "model.safetensors".into(),
+                },
+            ]
+        );
+
+        // And the two arms are not interchangeable renderings of each
+        // other: a build that formatted the number into a string would make
+        // these equal, and a consumer matching on a code would have to
+        // parse it back out of prose.
+        assert_ne!(DeclaredType::Code(9999), DeclaredType::Name("9999".into()));
     }
 
     fn key(k: &str, v: u32, origin: &str) -> Unrecognized {
@@ -405,9 +589,14 @@ mod tests {
     fn a_declined_tensor_says_why_without_inventing_a_type_code() {
         // `TensorEncoding` answers "this build cannot resolve the encoding".
         // A duplicate name and an overlapping range are neither, and forcing
-        // them into it means a `code` field holding a number the file never
-        // declared. That is the defect this enum's MetadataKey sibling was
-        // repaired for.
+        // them into it means a `declared` field holding a
+        // `DeclaredType::Code(0)` the file never declared — which for a
+        // ggml file names F32, a type this build resolves perfectly, and
+        // sends an operator after a library upgrade that would change
+        // nothing. That is the defect this enum's MetadataKey sibling was
+        // repaired for. Widening `declared` to admit a NAME as well as a
+        // code did not soften this: a name invented for a tensor whose
+        // complaint is not about its type is the same lie in a new shape.
         let mut r = Report::new();
         r.push(Unrecognized {
             kind: UnrecognizedKind::TensorDeclined {

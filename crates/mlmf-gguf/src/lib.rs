@@ -19,11 +19,21 @@
 //! [`GgufMetadata`], because R1 requires that reading metadata cannot
 //! fail on tensor content and a caller who never calls it cannot be
 //! failed by it. It yields [`GgufTensors`], which implements
-//! `mlmf_core::TensorContainer` and rebases every offset once so a
-//! consumer writes `&blob[d.bytes]` with nothing added.
+//! `mlmf_core::TensorContainer` and rebases every offset once, so a
+//! consumer adds nothing to the range — and reads it through
+//! [`mlmf_core::TensorContainer::tensor_bytes`], which is fallible, rather
+//! than slicing, which is not.
 //!
-//! Three behaviours a consumer should know before trusting the tensor
-//! list, all of which report rather than refuse:
+//! **This paragraph licensed `&blob[d.bytes]` until that licence was
+//! withdrawn** from `mlmf_core::TensorDescriptor::bytes`, whose doc now
+//! rules that a descriptor records what the file DECLARES including a range
+//! the file cannot honour. The licence was survivable while it was merely
+//! wrong; the fourth bullet below made it reachable, because this crate now
+//! hands out a descriptor whose range is past the end of the file and
+//! slicing that panics.
+//!
+//! Four behaviours a consumer should know before trusting the tensor list,
+//! all of which report rather than refuse:
 //!
 //! - A tensor whose ggml type code this build cannot resolve is
 //!   **omitted from the list** and named in the report.
@@ -36,6 +46,16 @@
 //! - **Overlapping byte ranges** are reported and both tensors stay
 //!   readable. Refusing the open would make one bad tensor cost the
 //!   whole file.
+//! - A tensor whose declared range **runs past the end of the file** is
+//!   reported and **KEPT**, with the range the file declares, and fails at
+//!   `tensor_bytes`. A descriptor records what the file DECLARES, so
+//!   dropping it would be this crate deciding a declaration does not count.
+//!
+//! That list was **three** until the fourth behaviour was added and nothing
+//! brought this file with it — no task's file list named `lib.rs`, so no
+//! per-task review opened it. A counted list beside the thing it counts is
+//! checked by nothing; this one is short enough to enumerate and is
+//! enumerated.
 //!
 //! # What this crate will not do
 //!

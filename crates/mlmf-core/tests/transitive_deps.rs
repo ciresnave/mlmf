@@ -4,6 +4,29 @@
 //! which nothing invoked: there is no CI in this repository, `cargo test`
 //! does not run shell scripts, and the plan's per-task command is
 //! `cargo test -p mlmf-core`. Spec §3.3 calls C2 "the operative control"
+//!
+//! **Why this covers `mlmf-core` ONLY, stated because the previous
+//! justification has expired.** It used to be "no format crate declares an
+//! external dependency, so `mlmf-core`'s transitive set IS theirs".
+//! `mlmf-safetensors` declaring `serde_json` ended that. Measured at the
+//! commit that did: `mlmf-core` 9 transitive nodes, `mlmf-safetensors` 15.
+//!
+//! The scope is still right, for three reasons that do not expire:
+//!
+//! * **C2's subject is the floor.** Spec §3.3 asks for `mlmf-core`'s exact
+//!   set because `mlmf-core` is what every consumer takes. A format crate's
+//!   dependencies are opt-in with the format. `mlmf-core` is untouched at 9.
+//! * **`deps.rs` gates every crate's DIRECT dependencies** against its own
+//!   allow-list, so a format crate gaining an external dependency is a
+//!   deliberate, reviewed act. That is exactly how `serde_json` arrived, and
+//!   the allow-list carries the argument beside the entry.
+//! * **`Cargo.lock` is committed**, so a TRANSITIVE change — a patch release
+//!   pulling in something new — is a diff a human reads. That is the
+//!   property a single-crate snapshot cannot supply, and it is why the lock
+//!   was committed rather than the snapshot re-blessed.
+//!
+//! An expired precondition and a live one look identical once written down,
+//! which is why this says which it is.
 //! and says these contracts are "enforced in CI, not by review" — so the
 //! operative control was enforced by a human remembering to type a command
 //! on a POSIX shell, on a Windows-primary repository.

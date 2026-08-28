@@ -8,7 +8,7 @@ use crate::metadata::GgufMetadata;
 // import of it is unused and `-D warnings` refuses it. The tests name it,
 // and import it themselves.
 use mlmf_core::{
-    Error, ErrorKind, Report, Shape, TensorContainer, TensorDescriptor, Unrecognized,
+    DeclaredType, Error, ErrorKind, Report, Shape, TensorContainer, TensorDescriptor, Unrecognized,
     UnrecognizedKind,
 };
 use mlmf_ggml::GgmlType;
@@ -138,6 +138,27 @@ pub(crate) fn data_start(dir_end: u64, alignment: u64) -> Option<u64> {
 /// not fit this target's `usize` — existed in the code and not in this
 /// list, which read as exhaustive and was consulted as though it were.)
 ///
+/// **An EIGHTH outcome pushes an entry and KEEPS the descriptor**: a
+/// rebased range running past the end of the file. It is separated from the
+/// seven above rather than counted with them, because the count above is
+/// about omission and this one is not — and a doc that folded it in would
+/// be the "six versus seven" defect again in a new place.
+///
+/// That outcome is [`UnrecognizedKind::TensorDeclined`], and it exists
+/// because the seam's ruling is **keep and report**
+/// ([`TensorDescriptor::bytes`]): a descriptor records what the file
+/// DECLARES, including a range the file cannot honour. This crate kept such
+/// a descriptor from the start and said nothing about it, which is half the
+/// ruling — a consumer handed the same defect by this backend and by
+/// `mlmf-safetensors` got silence from one and a diagnostic from the other.
+///
+/// **The bound in [`TensorContainer::tensor_bytes`] is unaffected and must
+/// stay.** This adds a report entry; it removes no check. The entry is what
+/// an operator reads at open time, the error is what a caller gets at read
+/// time, and neither substitutes for the other — a descriptor built by a
+/// caller, or carried over from another container, never passes through
+/// here at all.
+///
 /// Four of the seven are reported as
 /// [`UnrecognizedKind::TensorEncoding`], and they are deliberately not
 /// distinguished from one another — a code this build does not know, a
@@ -148,14 +169,16 @@ pub(crate) fn data_start(dir_end: u64, alignment: u64) -> Option<u64> {
 /// The other THREE are [`UnrecognizedKind::TensorDeclined`] — the two
 /// rebase overflows and the `usize` narrowing — and that distinction is
 /// NOT interpretation: in all three the
-/// encoding resolved perfectly. Reporting `TensorEncoding { code: 0 }` for
-/// an F32 tensor would name a code this build recognises and point an
-/// operator at a library upgrade that would change nothing. The fact is a
-/// declared offset no address space can hold, and `TensorDeclined` exists
-/// to say exactly that.
+/// encoding resolved perfectly. Reporting
+/// `TensorEncoding { declared: DeclaredType::Code(0) }` for an F32 tensor
+/// would name a code this build recognises and point an operator at a
+/// library upgrade that would change nothing. The fact is a declared offset
+/// no address space can hold, and `TensorDeclined` exists to say exactly
+/// that.
 pub(crate) fn resolve(
     info: &RawInfo,
     data_start: u64,
+    file_len: u64,
     origin: &str,
     report: &mut Report,
 ) -> Option<TensorDescriptor> {
@@ -167,7 +190,11 @@ pub(crate) fn resolve(
             kind: UnrecognizedKind::TensorEncoding {
                 name: info.name.clone(),
                 family: "ggml",
-                code: info.code,
+                // `DeclaredType::Code`, because GGUF declares a NUMBER in
+                // ggml's code space. Safetensors declares a name and takes
+                // the other arm; the field admits both so the seam does not
+                // have to render one as the other.
+                declared: DeclaredType::Code(info.code),
             },
             origin: origin.to_string(),
         });
@@ -236,6 +263,34 @@ pub(crate) fn resolve(
         );
     };
 
+    if end > file_len {
+        // KEPT, not omitted — the eighth outcome in this function's doc.
+        // There is deliberately no `return`: falling through to the
+        // descriptor below is the whole point, because the seam rules that
+        // a declaration the file cannot honour is still a declaration.
+        //
+        // `>` and not `>=`: a tensor ending exactly at the last byte of the
+        // file is entirely present, and reporting it would blame every
+        // well-formed model whose final tensor runs to the end — which is
+        // most of them.
+        //
+        // The reason names the file's OWN number first, `info.offset`,
+        // which is what an operator finds in the tensor directory, and then
+        // the rebased pair, which appears nowhere in the file. The same
+        // rule `mlmf-safetensors` follows.
+        report.push(Unrecognized {
+            kind: UnrecognizedKind::TensorDeclined {
+                name: info.name.clone(),
+                reason: format!(
+                    "declared offset {} rebases to {start}..{end}, past the \
+                     end of the {file_len}-byte file",
+                    info.offset
+                ),
+            },
+            origin: origin.to_string(),
+        });
+    }
+
     Some(TensorDescriptor {
         name: info.name.clone(),
         shape: Shape::new(dims),
@@ -290,6 +345,9 @@ impl GgufTensors<'_> {
 /// [`GgufError::Truncated`] or [`GgufError::Malformed`] with
 /// `Stage::TensorDirectory` if a record is unreadable. A tensor whose TYPE
 /// this build cannot resolve is not an error — it is omitted and reported.
+/// A tensor whose declared range runs past the end of the file is neither
+/// an error nor omitted: it is KEPT with the range the file declares, named
+/// in the report, and fails at [`TensorContainer::tensor_bytes`].
 pub fn parse_tensors<'a>(
     bytes: &'a [u8],
     meta: &GgufMetadata<'a>,
@@ -319,6 +377,13 @@ pub fn parse_tensors<'a>(
     // declares `n_tensors` 0. Validating here would refuse every
     // vocab-only GGUF, which is exactly what a metadata consumer opens.
     // The bound that matters is per-tensor, in `tensor_bytes`.
+    //
+    // Task 2c added a SECOND per-tensor bound, in `resolve`, which reports
+    // a past-end-of-file range rather than erroring on it. It cannot fire
+    // on any of those 19 files: a bound that runs once per tensor runs zero
+    // times on a file declaring zero tensors. That is why the measurement
+    // above does not transfer, and why this line is still deliberately
+    // unvalidated rather than validated now that a length is in scope.
     let data_start = data_start(dir_end, meta.alignment()).ok_or(GgufError::Malformed {
         stage: Stage::TensorDirectory,
         offset: dir_end,
@@ -328,7 +393,7 @@ pub fn parse_tensors<'a>(
     let mut descriptors = Vec::new();
     let mut index = HashMap::new();
     for raw in &raws {
-        let Some(d) = resolve(raw, data_start, origin, &mut report) else {
+        let Some(d) = resolve(raw, data_start, bytes.len() as u64, origin, &mut report) else {
             continue;
         };
         if index.contains_key(&d.name) {
@@ -690,7 +755,11 @@ mod tests {
             code: 0, // F32
             offset: 512,
         };
-        let d = resolve(&info, 1_000_000, "t.gguf", &mut report).expect("resolves");
+        // A 2 MB file, which comfortably covers 1_000_512..1_001_536. Not
+        // an arbitrary large number: it makes the empty-report assertion
+        // below a real control on the end-of-file bound rather than a bound
+        // that was never in a position to fire.
+        let d = resolve(&info, 1_000_000, 2_000_000, "t.gguf", &mut report).expect("resolves");
         assert_eq!(
             (d.name.as_str(), d.shape.dims(), d.bytes.clone()),
             (
@@ -717,7 +786,10 @@ mod tests {
             code: 9999,
             offset: 0,
         };
-        assert!(resolve(&info, 0, "t.gguf", &mut report).is_none());
+        // `u64::MAX` as the file length throughout the arms below: each of
+        // them returns before the end-of-file bound, and a bound that
+        // cannot fire is the honest way to say this test is not about it.
+        assert!(resolve(&info, 0, u64::MAX, "t.gguf", &mut report).is_none());
         // The WHOLE entry. `!report.is_empty()` cannot see the wrong tensor
         // named, the wrong family, or the code silently defaulted.
         assert_eq!(
@@ -726,7 +798,7 @@ mod tests {
                 kind: UnrecognizedKind::TensorEncoding {
                     name: "blk.0.future".into(),
                     family: "ggml",
-                    code: 9999,
+                    declared: DeclaredType::Code(9999),
                 },
                 origin: "t.gguf".into(),
             }]
@@ -746,7 +818,7 @@ mod tests {
             code: 4, // Q4_2, retired
             offset: 0,
         };
-        assert!(resolve(&info, 0, "t.gguf", &mut report).is_none());
+        assert!(resolve(&info, 0, u64::MAX, "t.gguf", &mut report).is_none());
         assert_eq!(report.entries().len(), 1);
     }
 
@@ -764,7 +836,7 @@ mod tests {
             code: 2,
             offset: 0,
         };
-        assert!(resolve(&info, 0, "t.gguf", &mut report).is_none());
+        assert!(resolve(&info, 0, u64::MAX, "t.gguf", &mut report).is_none());
         // The WHOLE entry, not a count. Switching this arm from `complain`
         // to `decline` left the workspace green — two of the four
         // TensorEncoding causes had their kind pinned and two did not, and
@@ -775,11 +847,76 @@ mod tests {
                 kind: UnrecognizedKind::TensorEncoding {
                     name: "ragged".into(),
                     family: "ggml",
-                    code: 2,
+                    declared: DeclaredType::Code(2),
                 },
                 origin: "t.gguf".into(),
             }]
         );
+    }
+
+    #[test]
+    fn a_range_past_the_end_of_the_file_is_kept_and_named_rather_than_dropped() {
+        // The seam's ruling stated at the level where the arithmetic is
+        // visible. Every number here is a literal and the provenance is in
+        // this comment, not in the body: `data_start` 128 plus the declared
+        // offset 64 is 192, and 16 F32 elements are 64 bytes, so the tensor
+        // claims 192..256 while the file stops at 200. A body that wrote
+        // `128 + 64` would be evaluating the implementation's own
+        // expression a second time and would agree with it however wrong
+        // both were.
+        let mut report = Report::new();
+        let info = RawInfo {
+            name: "blk.0.attn_q.weight".into(),
+            dims: vec![16],
+            code: 0, // F32
+            offset: 64,
+        };
+        let d = resolve(&info, 128, 200, "t.gguf", &mut report).expect("KEPT, not dropped");
+
+        // The descriptor carries the range the FILE declares, unclamped and
+        // untruncated. A reader that silently shortened it to 192..200
+        // would hand out a tensor of the wrong length and no error.
+        assert_eq!(d.bytes, 192..256);
+
+        // The WHOLE entry, including the reason text. A length check cannot
+        // see the wrong tensor blamed, and a `matches!` on the kind cannot
+        // see the reason naming the rebased pair where an operator expects
+        // the file's own offset — `192..256` appears nowhere in a GGUF
+        // tensor directory, and `64` does.
+        assert_eq!(
+            report.entries(),
+            [Unrecognized {
+                kind: UnrecognizedKind::TensorDeclined {
+                    name: "blk.0.attn_q.weight".into(),
+                    reason: "declared offset 64 rebases to 192..256, past the end of the \
+                             200-byte file"
+                        .into(),
+                },
+                origin: "t.gguf".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_tensor_ending_exactly_at_the_last_byte_is_not_reported() {
+        // The off-by-one control, and it is not optional. `>=` in place of
+        // `>` reports every well-formed model whose final tensor runs to
+        // the end of the file, which is most of them — and a check that
+        // reports everything is indistinguishable from a working one until
+        // someone opens a healthy file.
+        //
+        // Literals again: base 128 plus offset 64 is 192, plus 64 bytes is
+        // 256, and the file is 256 bytes. The last byte the tensor claims
+        // is the last byte the file has.
+        let mut report = Report::new();
+        let info = RawInfo {
+            name: "blk.0.attn_q.weight".into(),
+            dims: vec![16],
+            code: 0,
+            offset: 64,
+        };
+        let d = resolve(&info, 128, 256, "t.gguf", &mut report).expect("resolves");
+        assert_eq!((d.bytes, report.entries()), (192..256, [].as_slice()));
     }
 
     #[test]
@@ -803,7 +940,7 @@ mod tests {
         // On a 64-bit host this fails in `nbytes` on overflow, not on the
         // `usize` conversion. Either way: no descriptor, one entry, and the
         // file is not called malformed.
-        assert!(resolve(&info, 0, "t.gguf", &mut report).is_none());
+        assert!(resolve(&info, 0, u64::MAX, "t.gguf", &mut report).is_none());
         assert_eq!(report.entries().len(), 1);
     }
 
@@ -827,7 +964,7 @@ mod tests {
             code: 0,
             offset: u64::MAX,
         };
-        assert!(resolve(&info, 1_000_000, "t.gguf", &mut report).is_none());
+        assert!(resolve(&info, 1_000_000, u64::MAX, "t.gguf", &mut report).is_none());
         // The WHOLE entry, including the reason text: a length check cannot
         // see this entry arrive with the other kind, and the two kinds are
         // what tell a consumer whether to go looking for a newer build.
@@ -859,7 +996,7 @@ mod tests {
             code: 0,
             offset: 1 << 63,
         };
-        assert!(resolve(&info, 0, "t.gguf", &mut report).is_none());
+        assert!(resolve(&info, 0, u64::MAX, "t.gguf", &mut report).is_none());
         assert_eq!(
             report.entries(),
             [Unrecognized {
@@ -906,6 +1043,12 @@ mod tests {
         // `data_start` eagerly and bounds-checks it against the file length
         // refuses a MAJORITY OF THE CORPUS, and refuses precisely the files
         // a metadata-only consumer opens.
+        //
+        // The per-tensor end-of-file bound Task 2c added cannot reach these
+        // files, and the empty report below is the control that says so: a
+        // check that runs once per tensor runs zero times here. Moving that
+        // bound up to `data_start` would redden this test rather than pass
+        // it quietly, which is the whole reason it is a per-tensor bound.
         let bytes = gguf_with_tensors(&[], &[]);
         let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
         let (t, report) = parse_tensors(&bytes, &m, "t.gguf").expect("opens");
@@ -931,16 +1074,87 @@ mod tests {
     }
 
     #[test]
-    fn a_declared_range_past_the_end_is_an_error_not_a_panic() {
+    fn a_declared_range_past_the_end_is_kept_named_and_an_error_only_at_read() {
         // A file may declare an offset its own bytes do not cover. That is
-        // the file's fault and it must surface as an error, not a slice
-        // panic — and not at parse time either, because the other tensors
-        // are still readable. R1's shape, one stage over.
+        // the file's fault, and three things must be true at once: the
+        // OPEN survives, because the other tensors are still readable
+        // (R1's shape, one stage over); the declaration is KEPT, because a
+        // descriptor records what the file declares; and reading it is an
+        // error rather than a slice panic.
+        //
+        // The fourth is what Task 2c added: the report NAMES it. This crate
+        // kept the descriptor and said nothing from the start, which is
+        // half the seam's keep-and-report ruling — a consumer handed this
+        // same defect by `mlmf-safetensors` got a diagnostic, and here got
+        // silence.
         let bytes = gguf_with_tensors(&[("t", &[16], 0, 1 << 40)], &[0u8; 64]);
         let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
-        let (t, _) = parse_tensors(&bytes, &m, "t.gguf").expect("the OPEN survives");
+        let (t, report) = parse_tensors(&bytes, &m, "t.gguf").expect("the OPEN survives");
         let d = t.tensor("t").expect("still declared");
         assert!(t.tensor_bytes(d).is_err(), "but reading it fails");
+
+        // The name is pinned by identity here; the REASON text and the
+        // rebase arithmetic are pinned by
+        // `a_range_past_the_end_of_the_file_is_kept_and_named_rather_than_dropped`
+        // above, which builds the numbers from literals. Reconstructing the
+        // reason here would mean writing `t.data_start() + (1 << 40)` in a
+        // test body, which is the implementation's own expression copied
+        // into the control.
+        assert_eq!(report.entries().len(), 1);
+        match &report.entries()[0].kind {
+            UnrecognizedKind::TensorDeclined { name, reason } => {
+                assert_eq!(name, "t");
+                assert!(reason.contains("past the end"), "{reason}");
+            }
+            other => panic!("wrong kind: {other:?}"),
+        }
+        assert_eq!(report.entries()[0].origin, "t.gguf");
+    }
+
+    #[test]
+    fn a_file_whose_tensors_all_fit_gains_no_report_entry() {
+        // The other direction, and the direction that is easy to skip. A
+        // bound that fires on everything passes every test written about
+        // the failing case and is discovered when someone opens a normal
+        // model. So: a healthy file, four tensors, every byte present, and
+        // the assertion is that the report is EMPTY and all four read back.
+        //
+        // 64 bytes each at offsets 0, 64, 128, 192 fills the 256-byte data
+        // region exactly, so the LAST tensor also exercises the `end ==
+        // file_len` boundary through the whole-file path.
+        let payload: Vec<u8> = (0..=255u8).collect();
+        let bytes = gguf_with_tensors(
+            &[
+                ("a", &[16], 0, 0),
+                ("b", &[16], 0, 64),
+                ("c", &[16], 0, 128),
+                ("d", &[16], 0, 192),
+            ],
+            &payload,
+        );
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        let (t, report) = parse_tensors(&bytes, &m, "t.gguf").expect("opens");
+        assert_eq!(
+            (
+                t.tensors()
+                    .iter()
+                    .map(|d| d.name.clone())
+                    .collect::<Vec<_>>(),
+                report.entries(),
+                t.tensors()
+                    .iter()
+                    .map(|d| t
+                        .tensor_bytes(d)
+                        .map(|b| b.len())
+                        .map_err(|e| e.to_string()))
+                    .collect::<Vec<_>>(),
+            ),
+            (
+                vec!["a".to_string(), "b".into(), "c".into(), "d".into()],
+                [].as_slice(),
+                vec![Ok(64), Ok(64), Ok(64), Ok(64)],
+            )
+        );
     }
 
     #[test]

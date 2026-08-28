@@ -7,7 +7,7 @@ mod fixture;
 
 use fixture::GgufBuilder;
 use mlmf_core::{
-    Declaration, ErrorKind, MetaValue, MetadataSource, TensorContainer, Unrecognized,
+    Declaration, DeclaredType, ErrorKind, MetaValue, MetadataSource, TensorContainer, Unrecognized,
     UnrecognizedKind,
 };
 use mlmf_gguf::{GgufError, GgufMetadata, Stage, parse_tensors};
@@ -354,9 +354,52 @@ fn a_data_region_declared_past_the_end_of_the_file_still_opens() {
         t.data_start() > bytes.len() as u64,
         "the fixture is only a fixture if the region really is past the end",
     );
-    // Nothing is WRONG with this file, so nothing is reported. The cost of
-    // the declared region lands where it belongs: on the read.
-    assert!(report.is_empty());
+    // BOTH tensors are named in the report, and this assertion used to read
+    // `assert!(report.is_empty())` under the comment "nothing is WRONG with
+    // this file, so nothing is reported".
+    //
+    // That comment was true of a data region's START and false of this
+    // fixture. A `data_start` past the end of the file is legitimate — 19 of
+    // the 28 corpus files are that shape, because a writer emits no padding
+    // when there is nothing to pad for. But this file declares TWO tensors
+    // of 128 bytes each while carrying zero bytes of tensor data, and a file
+    // that declares 256 bytes it does not have is a truncated file. The
+    // silence was not a judgement that the file was fine; it was the absence
+    // of anything able to look.
+    //
+    // The seam's ruling is keep AND report. Everything above this line is
+    // unchanged — the open survives, both descriptors are kept with the
+    // ranges the file declares, and `tensor_bytes` below still carries the
+    // same two numbers — because this adds a diagnostic and removes no
+    // check.
+    //
+    // The whole entries, in order. A length check cannot see one tensor's
+    // complaint attributed to the other, and the reasons here reuse the
+    // literals this test already asserts independently above: base 96,
+    // ranges 96..224 and 224..352, file length 90.
+    assert_eq!(
+        report.entries(),
+        [
+            Unrecognized {
+                kind: UnrecognizedKind::TensorDeclined {
+                    name: "a".into(),
+                    reason: "declared offset 0 rebases to 96..224, past the end of the \
+                             90-byte file"
+                        .into(),
+                },
+                origin: "authored".into(),
+            },
+            Unrecognized {
+                kind: UnrecognizedKind::TensorDeclined {
+                    name: "b".into(),
+                    reason: "declared offset 128 rebases to 224..352, past the end of the \
+                             90-byte file"
+                        .into(),
+                },
+                origin: "authored".into(),
+            },
+        ]
+    );
 
     let d = t.tensor("a").expect("still declared");
     let err = t.tensor_bytes(d).expect_err("but reading it cannot work");
@@ -410,7 +453,7 @@ fn a_retired_type_code_is_reported_and_only_that_tensor_is_lost() {
             kind: UnrecognizedKind::TensorEncoding {
                 name: "old".into(),
                 family: "ggml",
-                code: 4,
+                declared: DeclaredType::Code(4),
             },
             origin: "authored".into(),
         }],

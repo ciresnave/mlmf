@@ -33,10 +33,45 @@ pub struct TensorDescriptor {
     /// plausible-looking floats, and only one of them would be right.
     ///
     /// So the format crate rebases **once, at parse time** — GGUF stores
-    /// `data_offset + info.offset`, safetensors stores `header_len +
-    /// data_offsets.0` — and every consumer thereafter writes
-    /// `&blob[d.bytes]` with nothing added. Rebasing is a parser's job done
-    /// once, not a caller's job done at every use site.
+    /// `data_offset + info.offset`, safetensors stores `8 + header_len +
+    /// data_offsets.0` — and every consumer thereafter uses this range
+    /// directly, with nothing added. Rebasing is a parser's job done once,
+    /// not a caller's job done at every use site.
+    ///
+    /// **Read the bytes through [`crate::TensorContainer::tensor_bytes`],
+    /// not by slicing.** An earlier version of this doc licensed
+    /// `&blob[d.bytes]`, and that licence was wrong in a way one backend
+    /// could not reveal: it implies every descriptor's range is sliceable,
+    /// while `tensor_bytes` documents an error for a range lying outside
+    /// the container's data. Two seam docs pointing opposite ways, and a
+    /// second backend is what made them argue.
+    ///
+    /// The rule, now decided rather than implied: **a descriptor records
+    /// what the file DECLARES, including a range the file cannot honour.**
+    /// A tensor declared with a range past the end of the file IS declared,
+    /// and dropping it from the list would be this crate deciding the
+    /// declaration does not count — which is interpretation, and the
+    /// charter forbids it. The declaration survives, the report names the
+    /// problem, and `tensor_bytes` is where it fails.
+    ///
+    /// That leading `8` is not decoration and this doc omitted it until a
+    /// second backend was written against it. Safetensors begins with an
+    /// eight-byte little-endian length prefix, THEN the JSON header of that
+    /// length; `data_offsets` are relative to the end of the header, so the
+    /// base is `8 + header_len`. Measured on two real models:
+    /// `hlen=32664 -> data_start=32672` and `hlen=23088 -> 23096`, a
+    /// difference of exactly eight, byte-exact against a 2.2 GB file.
+    ///
+    /// **The error was off by eight, in the paragraph warning that a wrong
+    /// base reads as plausible-looking floats.** It does: reading a real
+    /// model from `header_len` instead of `8 + header_len` returns the
+    /// file's own length prefix and the opening `{\"em` of its JSON header,
+    /// decoded as six finite BF16 weights. Nothing errors.
+    ///
+    /// A prose description of an arithmetic fact is not checked by anything.
+    /// This one was wrong for as long as it had only one implementation to
+    /// be wrong about, which is the argument for a second backend stated as
+    /// small as it gets.
     ///
     /// It follows that [`Self::offset_alignment`] means something: it reports
     /// the alignment of a real address within the mapping, not of a relative
@@ -109,6 +144,38 @@ impl TensorDescriptor {
     /// whole number of blocks, or [`ErrorKind::ShapeOverflow`] /
     /// [`ErrorKind::SizeOverflow`] if the declared arithmetic does not fit
     /// in a `u64`.
+    ///
+    /// # What this does NOT check
+    ///
+    /// **Whether the bytes are there.** Every number this method looks at
+    /// comes out of the same record: it compares the declared range against
+    /// the declared shape and encoding and asks whether they agree with each
+    /// other. It never sees the file, has no length to compare against, and
+    /// cannot acquire one — [`crate::TensorDescriptor`] does not carry the
+    /// container it came from.
+    ///
+    /// So a descriptor whose range lies wholly past the end of the file
+    /// validates cleanly, and that is a real case rather than a contrived
+    /// one: `71..83` is twelve bytes, a `[2, 3]` BF16 tensor needs twelve,
+    /// and both stay true when the file is 75 bytes long. It is exactly
+    /// what a format crate produces for a past-end-of-file declaration,
+    /// which [`Self::bytes`] rules must be KEPT rather than dropped —
+    /// a descriptor records what the file DECLARES.
+    ///
+    /// **`validate().is_ok()` therefore means "the record agrees with
+    /// itself", never "these bytes can be read".** The only answer to the
+    /// second question is [`crate::TensorContainer::tensor_bytes`], which is
+    /// fallible for precisely this reason, and the parse's
+    /// [`crate::Report`] is where a container names such a tensor at open
+    /// time.
+    ///
+    /// Written down because the NAME is louder than the contract. Nothing
+    /// in this method ever promised readability, and nothing tested the
+    /// gap either, so "validate" was free to read as a general-purpose
+    /// blessing. That is the same defect class as
+    /// [`crate::UnrecognizedKind::TensorDeclined`]'s former omission
+    /// promise: a guarantee carried by prose or by a name and checked by
+    /// nothing.
     ///
     /// # Note
     ///
@@ -238,6 +305,28 @@ mod tests {
             other => panic!("wrong kind: {other:?}"),
         }
         assert!(err.to_string().contains("blk.0.attn_q.weight"), "{err}");
+    }
+
+    #[test]
+    fn validate_is_silent_about_whether_the_bytes_exist() {
+        // The doc's "what this does NOT check", made checkable. Without
+        // this, that section is one more guarantee carried by prose.
+        //
+        // These are the exact numbers `mlmf-safetensors` produces for a
+        // past-end-of-file declaration in a 75-byte file, and the seam rules
+        // that such a descriptor is KEPT: 8 + 63 = 71 is the base, `[0, 12]`
+        // rebases to 71..83, and 2 x 3 BF16 elements need exactly the twelve
+        // bytes the range spans. The record agrees with itself perfectly.
+        // The last 8 bytes it names are not in the file, and nothing here
+        // can tell.
+        let d = TensorDescriptor {
+            name: "weight".into(),
+            shape: Shape::new([2usize, 3]),
+            encoding: Encoding::Dense(DType::BF16),
+            bytes: 71..83,
+        };
+        d.validate()
+            .expect("agrees with itself, which is all `validate` claims");
     }
 
     #[test]

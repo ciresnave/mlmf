@@ -215,9 +215,21 @@ promise cannot drift apart.
    stage that fails, fails. The metadata stage has no access to the type table,
    so it cannot fail against it — R1 holds by *shape*, not by discipline.
 2. **Unrecognized tensor handling.** Excluded from `tensors()`, reported via
-   `UnrecognizedKind::TensorEncoding { name, family, code }`. **Landed in
+   `UnrecognizedKind::TensorEncoding { name, family, declared }`. **Landed in
    `mlmf-core` already** (final review of the `mlmf-ggml` plan), along with the
    contract on `TensorContainer::tensors()`.
+
+   **Amended 2026-08-27, plan 5 Task 2b.** The field was `code: u32` when
+   this was written, and it is now `declared: DeclaredType`, an enum of
+   `Code(u32)` or `Name(String)`. Nothing about GGUF changes — it still
+   reports `DeclaredType::Code(info.code)`. What changed is that a second
+   backend arrived declaring its types as STRINGS, which made this
+   commitment unkeepable for safetensors: with no honest `u32` to report,
+   an unknown dtype had to be reported as `TensorDeclined`, collapsing the
+   seam's own distinction between "cannot resolve the encoding" and
+   "declined for another reason". Recorded here rather than silently
+   rewritten, because the commitment as originally written is what made the
+   defect findable.
 3. **Type lookup is the last step, not the first.** The container reads name,
    dims and offset out of the tensor info *before* consulting the table, so a
    report entry is complete whether or not the code resolves — and no geometry

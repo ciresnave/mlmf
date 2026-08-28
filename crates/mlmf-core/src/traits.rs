@@ -66,14 +66,86 @@ pub trait RangedSource {
 pub trait TensorContainer {
     /// Every tensor this container declares **that this build can describe**.
     ///
+    /// **Descriptors MAY name overlapping byte ranges, and what an overlap
+    /// MEANS is a fact about the format rather than about this trait.**
+    ///
+    /// In GGUF every tensor carries its own explicit offset and a writer has
+    /// no reason to make two of them collide, so `mlmf-gguf` treats an
+    /// overlap as malformed and reports it. In safetensors, tied weights —
+    /// `lm_head` and `embed_tokens` referring to the same bytes — are a
+    /// standard layout that real models use, and reporting one would blame
+    /// a valid file.
+    ///
+    /// The rule therefore belongs to each format crate, not here. Recorded
+    /// because it was previously implicit: one backend's sweep existed and
+    /// `crate::UnrecognizedKind::TensorDeclined`'s doc named an overlapping
+    /// range as a reason, which together read as a seam-level rule that had
+    /// never been decided.
+    ///
+    /// Two consequences for a consumer:
+    ///
+    /// - An empty report does **not** prove the ranges are disjoint. It
+    ///   proves this format's reader found nothing worth reporting.
+    /// - A reported overlap does **not** prove corruption unless you know
+    ///   the format forbids sharing.
+    ///
     /// A tensor whose declared encoding could not be resolved — an
-    /// unrecognized ggml type code, for instance — is absent from this
-    /// slice. [`TensorDescriptor`] has no way to say "length unknown," so
-    /// there is no descriptor to put here; instead the parse's
-    /// [`crate::Report`] gains a
-    /// [`crate::UnrecognizedKind::TensorEncoding`] entry naming the tensor,
-    /// the family, and the code. A consumer that ignores the report sees
-    /// only a shorter list, with no other signal that anything is missing.
+    /// unrecognized ggml type code, or a safetensors dtype string this
+    /// build does not know — is absent from this slice.
+    /// [`TensorDescriptor`] has no way to say "length unknown," so there is
+    /// no descriptor to put here; instead the parse's [`crate::Report`]
+    /// gains a [`crate::UnrecognizedKind::TensorEncoding`] entry naming the
+    /// tensor, the family, and the type it declares — a
+    /// [`crate::DeclaredType::Code`] or a [`crate::DeclaredType::Name`],
+    /// because formats declare types both ways. A consumer that ignores the
+    /// report sees only a shorter list, with no other signal that anything
+    /// is missing.
+    ///
+    /// **A tensor whose declared byte range runs past the end of the file
+    /// is NOT absent.** It stays here with the range the file declares, and
+    /// [`Self::tensor_bytes`] is where reading it fails. A descriptor
+    /// records what the file DECLARES — [`TensorDescriptor::bytes`] carries
+    /// that ruling and the argument for it — and dropping one would be this
+    /// crate deciding a declaration does not count, which is interpretation.
+    ///
+    /// The line that separates the two, as far as the seam draws one:
+    /// **a descriptor is kept when the declaration is internally consistent
+    /// but unsatisfiable by the file's length, and dropped when there is no
+    /// single consistent declaration to record.** An unresolvable encoding
+    /// has no extent, so there is nothing to write down; a duplicate name
+    /// has two declarations claiming one key and a container cannot hold
+    /// both under it; a range past the end is one coherent declaration the
+    /// file simply cannot honour, and that is a fact about the bytes rather
+    /// than about the record.
+    ///
+    /// **That is a description, not a promise, and the exact set is
+    /// per-format.** `crate::UnrecognizedKind::TensorDeclined`'s doc says
+    /// the same thing from the other side. An earlier version of this
+    /// paragraph claimed absence "means *this build cannot describe it*,
+    /// never *this build cannot read it*", which reads as an absolute and is
+    /// false in this very workspace: `mlmf-gguf` drops the second of two
+    /// tensors declared under one name, and that tensor is perfectly
+    /// describable — its shape, encoding and bytes are all known — and it is
+    /// absent. **[`Self::tensor`] is the authoritative answer to whether a
+    /// given name is in the list.**
+    ///
+    /// # Order is unspecified
+    ///
+    /// Exactly as [`MetadataSource::keys`] is, and for the same reason:
+    /// a format crate yields whatever its own directory hands it, and the
+    /// two that exist do not agree. `mlmf-gguf` yields declaration order
+    /// from a forward walk of records; `mlmf-safetensors` yields
+    /// lexicographic order, because `serde_json` without `preserve_order`
+    /// backs a JSON object with a `BTreeMap`. **A consumer holding
+    /// `&dyn TensorContainer` must compare sets, not sequences.**
+    ///
+    /// Written down because it was measured false: the assumption that both
+    /// would agree predates either backend, and
+    /// `mlmf-conformance`'s cross-backend test asserts the raw orders
+    /// DIFFER, so the divergence is pinned outside this crate while the
+    /// trait said nothing about it. A format crate may promise more about
+    /// its own concrete type — `mlmf-gguf` does — and a caller holding a
+    /// trait object may not rely on it.
     fn tensors(&self) -> &[TensorDescriptor];
 
     /// The tensor declared under `name`, if any.
@@ -118,7 +190,10 @@ pub trait TensorContainer {
     ///
     /// # Errors
     ///
-    /// If the descriptor's range lies outside the container's data.
+    /// If the descriptor's range lies outside the container's data —
+    /// **including a descriptor this very container produced.** A tensor
+    /// declared with a range past the end of the file keeps its descriptor
+    /// in [`Self::tensors`], and this method is where reading it fails.
     fn tensor_bytes(&self, descriptor: &TensorDescriptor) -> Result<Cow<'_, [u8]>>;
 }
 
@@ -129,6 +204,30 @@ pub trait TensorContainer {
 /// config accessors and chat-template extraction are written once.
 pub trait MetadataSource {
     /// The value declared under `key`, if any.
+    ///
+    /// **A [`MetaValue`]'s variant reports HOW THE FORMAT DECLARED the
+    /// value, not what the value means.** GGUF declares typed values —
+    /// `general.alignment` arrives as `U32`. Safetensors' `__metadata__` is
+    /// `string -> string`, so every value from it arrives as `String`, and
+    /// **thirteen of the fourteen** variants never appear. (Thirteen is
+    /// GGUF's value-type count; [`MetaValue`] is those thirteen plus
+    /// `Bytes`, which is not one. `MetaValue::kind` is the exhaustive match
+    /// that keeps the number honest.)
+    ///
+    /// This is deliberate and it is the charter: MLMF extracts what a file
+    /// says. Deciding that the string `"32"` is the number 32 — or that
+    /// `"0x20"` is, or that `"true"` is a boolean — is format knowledge, and
+    /// a format that did not declare a number did not declare a number.
+    ///
+    /// **So [`MetaValue::as_u64`] and its siblings widen losslessly within a
+    /// family and NEVER parse.** `as_u64` accepts `U8`/`U16`/`U32`/`U64`
+    /// and returns `None` for a `String`. A `None` from an accessor means
+    /// **"this format did not declare that kind of value here"**, which is a
+    /// fact about the file, not a failure of this crate.
+    ///
+    /// A consumer that wants a number out of a string-valued format must
+    /// parse it deliberately, at a layer that knows which format it is
+    /// reading. That layer is not this one.
     ///
     /// `None` means **not declared**. It never means a default (spec §5) —
     /// but see [`Self::index_complete`] for when "not declared" is a fact

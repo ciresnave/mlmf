@@ -38,6 +38,53 @@ const BUILD_SCRIPT_ALLOWED: &[&str] = &["mlmf", "mlmf-onnx"];
 mod common;
 use common::workspace_root;
 
+/// The paths listed under `[workspace] default-members`.
+///
+/// A hand parser for the same reason every other manifest reader in this
+/// file is one: adding a TOML dependency to `mlmf-core` so that
+/// `mlmf-core`'s own dependency gates can read a manifest would be
+/// circular, and C2 pins the dependency set these gates exist to protect.
+fn default_members(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut inside = false;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if !inside {
+            // `default-members = [` opens the list. The inline form
+            // `default-members = ["a", "b"]` runs through the same body,
+            // because entries are pulled out of whatever follows the
+            // bracket and the closing bracket ends collection either way.
+            if line.starts_with("default-members") && line.contains('[') {
+                inside = true;
+                let after = line.split_once('[').expect("just checked").1;
+                collect_quoted(after, &mut out);
+                if after.contains(']') {
+                    break;
+                }
+            }
+            continue;
+        }
+        collect_quoted(line, &mut out);
+        if line.contains(']') {
+            break;
+        }
+    }
+    out
+}
+
+/// Every double-quoted run in `line`, appended to `out`.
+fn collect_quoted(line: &str, out: &mut Vec<String>) {
+    let mut cur: Option<String> = None;
+    for c in line.chars() {
+        match (&mut cur, c) {
+            (None, '"') => cur = Some(String::new()),
+            (Some(_), '"') => out.push(cur.take().expect("just matched Some")),
+            (Some(buf), other) => buf.push(other),
+            (None, _) => {}
+        }
+    }
+}
+
 /// Every manifest in the workspace: the root package plus `crates/*`.
 fn member_manifests() -> Vec<PathBuf> {
     let root = workspace_root();
@@ -149,6 +196,74 @@ fn every_package_carries_the_one_workspace_version() {
 }
 
 #[test]
+fn every_gated_crate_is_reachable_from_a_bare_cargo_test() {
+    // CI names every crate with `-p`, so a member missing from
+    // `default-members` is still gated THERE. What it is missing from is the
+    // command a developer types: `cargo test` with no arguments selects
+    // `default-members`, so a crate absent from that list is built and
+    // tested by CI and silently skipped locally — and the local run still
+    // prints ok.
+    //
+    // That is the shape `ci_coverage.rs` exists for, one list over. A gate
+    // running correctly over the WRONG SET produces a real, passing,
+    // plausible result with no cue anywhere that it is not the result you
+    // think you are reading. `ci_coverage.rs` closed that for the workflow
+    // and left this list untested, which is how `crates/mlmf-conformance`
+    // could have been added to one and not the other.
+    //
+    // **CONTAINMENT, NOT EQUALITY, AND THAT IS DELIBERATE.**
+    // `default-members` also lists `"."`, the legacy root `mlmf` package,
+    // which is NOT a gated member: `gated_members()` walks `crates/*` only,
+    // and `ci.yml` excludes the root package on the record because it needs
+    // `protoc` and a long build. Tightening this to equality would fail on
+    // that entry, and the obvious way to "fix" such a failure is to delete
+    // `"."` — which would drop the legacy crate out of every developer's
+    // bare run without anyone deciding to. Whether `"."` belongs there at
+    // all is a live question and not this gate's to answer.
+    //
+    // Measured while this was written: `cargo metadata --no-deps` reports
+    // SIX packages in the default set, and a bare `cargo test` builds the
+    // legacy root crate along with the five under `crates/`, emitting
+    // warnings CI never sees. The developer's set and CI's set already
+    // differ in BOTH directions. This closes one of those directions — a
+    // gated crate missing locally — and deliberately leaves the other alone.
+    //
+    // That number was "5" here, taken from `grep -c "^   Compiling"` on one
+    // run. That counts what NEEDED REBUILDING, not what is in the set, so it
+    // answers an adjacent question and happened to be one short. An
+    // instrument can be run correctly and still measure the wrong thing.
+    let root = workspace_root();
+    let text = fs::read_to_string(root.join("Cargo.toml")).expect("root manifest is readable");
+    let listed = default_members(&text);
+    assert!(
+        !listed.is_empty(),
+        "no `default-members` list was parsed from the root manifest. An \
+         empty list is exactly what a passing run looks like here, so it is \
+         refused rather than trivially satisfied."
+    );
+
+    let mut missing = Vec::new();
+    for dir in common::gated_members() {
+        let name = dir
+            .file_name()
+            .expect("a crate directory has a name")
+            .to_string_lossy()
+            .to_string();
+        let path = format!("crates/{name}");
+        if !listed.contains(&path) {
+            missing.push(path);
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "these gated crates are absent from `default-members`, so a bare \
+         `cargo test` skips them while CI runs them and both report ok:\n  {}\n\
+         Add them to [workspace] default-members in the root Cargo.toml.",
+        missing.join("\n  ")
+    );
+}
+
+#[test]
 fn the_gates_can_fail() {
     // AD-2, for the two parsers these gates rest on.
     assert_eq!(
@@ -180,4 +295,27 @@ fn the_gates_can_fail() {
     assert!(!declares_build_dependencies(
         "[dependencies]\nbytemuck = \"1\"\n"
     ));
+    // The `default-members` parser the containment gate rests on. A parser
+    // returning an empty list would make that gate pass over nothing, so
+    // the empty case is asserted as a NEGATIVE here rather than left to the
+    // gate's own guard.
+    assert_eq!(
+        default_members("[workspace]\ndefault-members = [\n  \".\",\n  \"crates/a\",\n]\n"),
+        vec![".".to_string(), "crates/a".to_string()]
+    );
+    assert_eq!(
+        default_members("[workspace]\ndefault-members = [\"crates/a\", \"crates/b\"]\n"),
+        vec!["crates/a".to_string(), "crates/b".to_string()],
+        "the inline form is the same list"
+    );
+    assert_eq!(
+        default_members("[workspace]\nmembers = [\"crates/*\"]\n"),
+        Vec::<String>::new(),
+        "`members` is a different key and must not be read as this one"
+    );
+    assert_eq!(
+        default_members("[workspace]\ndefault-members = [\"crates/a\"]\n\n[x]\ny = [\"z\"]\n"),
+        vec!["crates/a".to_string()],
+        "collection stops at the closing bracket, not at end of file"
+    );
 }

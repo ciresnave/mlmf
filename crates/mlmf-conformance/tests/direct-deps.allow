@@ -1,0 +1,15 @@
+# C2: mlmf-conformance's direct dependencies. Changing this file is a
+# deliberate act. Keep sorted.
+#
+# All three, and that combination is the entire reason this crate exists. It
+# is the only place in the workspace where more than one backend is linked
+# into one binary, which is what a cross-backend conformance test needs and
+# what neither backend may have -- a dependency between two sibling backends
+# is not a relationship the seam describes.
+#
+# A missing file here is a loud panic in deps.rs::allow_list rather than a
+# trivially-satisfied empty list, which is why this file is written out
+# rather than left absent.
+mlmf-core
+mlmf-gguf
+mlmf-safetensors

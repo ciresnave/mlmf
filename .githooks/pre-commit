@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Refuse a commit whose staged Rust files are not rustfmt-clean.
 #
 # Checks the STAGED FILES specifically, not the whole tree. An earlier
@@ -14,27 +14,41 @@
 # nearly every rustfmt hook makes, and the failure direction is a false
 # positive the committer can see and fix, never a false negative.
 #
+# `bash`, not `sh`, and `-z`, because that last sentence was FALSE before.
+# The previous version word-split `$(git diff --cached --name-only)` in a
+# `for` loop, so a path containing a space became two paths, neither of
+# which exists, and `[ -f "$f" ] || continue` skipped both. An unformatted
+# file with a space in its name PASSED THE GATE SILENTLY — a false negative,
+# in a hook whose comment promised it could not produce one. NUL-delimited
+# output and `read -d ''` are bash, and this repo already requires bash for
+# `scripts/local-gates.sh`, so the portability cost is one already paid.
+#
+# Process substitution rather than a pipe, deliberately: a `while` loop on
+# the right of a pipe runs in a SUBSHELL, so `bad` would be assigned in a
+# child and read back empty in the parent. The gate would find every
+# unformatted file and then report none.
+#
 # Enable once per clone:  git config core.hooksPath .githooks
-
-staged=$(git diff --cached --name-only --diff-filter=ACM | grep '\.rs$')
-[ -z "$staged" ] && exit 0
 
 if ! command -v rustfmt >/dev/null 2>&1; then
     echo "pre-commit: rustfmt not on PATH; skipping the format gate." >&2
     exit 0
 fi
 
-bad=""
-for f in $staged; do
+bad=()
+while IFS= read -r -d '' f; do
+    case "$f" in *.rs) ;; *) continue ;; esac
     [ -f "$f" ] || continue
-    rustfmt --edition 2024 --check "$f" >/dev/null 2>&1 || bad="$bad $f"
-done
+    rustfmt --edition 2024 --check "$f" >/dev/null 2>&1 || bad+=("$f")
+done < <(git diff --cached --name-only -z --diff-filter=ACM)
 
-if [ -n "$bad" ]; then
+if [ "${#bad[@]}" -gt 0 ]; then
     echo >&2
     echo "pre-commit: these STAGED files are not rustfmt-clean:" >&2
-    for f in $bad; do echo "  $f" >&2; done
+    printf '  %s\n' "${bad[@]}" >&2
     echo >&2
     echo "Run 'cargo fmt --all', re-stage, and commit again." >&2
+    echo "(If one of these does not PARSE, rustfmt fails the same way and" >&2
+    echo " formatting will not fix it — check for a syntax error first.)" >&2
     exit 1
 fi
