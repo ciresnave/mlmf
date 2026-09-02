@@ -33,6 +33,16 @@
 #   `mlmf_core::Error::with_path` already accepts and the type a consumer
 #   already holds.
 #
+# Task 2, `RangedSource`. One entry, and it is not optional:
+#
+# `ops` -- `RangedSource::read_range(&self, range: Range<u64>, ...)` is
+#   declared with `std::ops::Range` in `mlmf-core`'s `traits.rs`, which
+#   writes `use std::ops::Range;` at its own line 8 for the same reason.
+#   An implementation of that method cannot spell its own signature
+#   without naming the type, so this entry is forced by the seam rather
+#   than chosen by this crate. `PathBuf` came with it and cost nothing:
+#   `path` was already listed above.
+#
 # `io` is NOT here and its absence is load-bearing rather than incidental:
 #   `std::fs::read` returns `std::io::Result`, and the error conversion
 #   reaches that type without naming it only because the `map_err` closure
@@ -42,4 +52,5 @@
 #   typed.
 fmt
 fs
+ops
 path
