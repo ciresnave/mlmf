@@ -225,6 +225,195 @@ fn every_gated_crate_is_run_with_default_features_off() {
     );
 }
 
+/// The `default` feature list a crate declares, if it declares a non-empty one.
+///
+/// Hand-parsed, like every other manifest reader in these gates: a TOML
+/// dependency in `mlmf-core` to read `mlmf-core`'s own dependency gates would
+/// be circular against the set C2 pins.
+fn non_empty_default_features(dir: &std::path::Path) -> Option<String> {
+    default_features_in(&fs::read_to_string(dir.join("Cargo.toml")).ok()?)
+}
+
+/// Split out so it can be driven by fixtures, and because the first version
+/// had a defect that only an enumeration of its paths revealed.
+///
+/// ⚠️ **It matched the key with `strip_prefix("default")`, which also matches
+/// `default-tls`** — a real `reqwest` feature name. The `= ` strip then failed
+/// on `-tls = [...]` and the `?` returned `None` **for the whole crate**, so a
+/// crate declaring any `default`-prefixed feature *silently escaped the gate*.
+///
+/// **That is the dangerous direction and the reason to enumerate rather than
+/// chase a complexity threshold.** Too strict demands a no-op CI step, which
+/// somebody notices within a run. Too permissive lets a crate out of the gate,
+/// which is the exact defect this gate exists to catch and which nothing else
+/// reports.
+///
+/// The key is now compared for equality after a single split, which is also
+/// why this reads shorter than what it replaced.
+fn default_features_in(manifest: &str) -> Option<String> {
+    let mut in_features = false;
+    for line in manifest.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_features = line == "[features]";
+            continue;
+        }
+        if !in_features || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "default" {
+            continue;
+        }
+        let value = value.trim();
+        // `default = []` DECLARES that there is no second configuration. It
+        // must not arm the gate, or the gate demands a step that changes
+        // nothing.
+        if value.trim_matches(['[', ']', ' ']).is_empty() {
+            return None;
+        }
+        return Some(value.to_string());
+    }
+    None
+}
+
+#[test]
+fn the_default_feature_parser_reads_the_key_and_not_a_prefix_of_it() {
+    // The defect this test exists for: `default-tls` is a real feature name
+    // and the first version of the parser treated it as the `default` key,
+    // then bailed out of the whole crate when the `=` strip failed.
+    let with_prefixed_sibling = "[features]
+         default-tls = [\"dep:x\"]
+         default = [\"mmap\"]
+";
+    assert_eq!(
+        default_features_in(with_prefixed_sibling).as_deref(),
+        Some("[\"mmap\"]"),
+        "a feature merely BEGINNING with `default` must not be read as the key,          and must not make the crate escape the gate"
+    );
+
+    // The arms that decide arming, each stated rather than implied.
+    assert_eq!(
+        default_features_in(
+            "[features]
+default = [\"mmap\"]
+"
+        )
+        .as_deref(),
+        Some("[\"mmap\"]"),
+        "a non-empty default arms the gate"
+    );
+    assert_eq!(
+        default_features_in(
+            "[features]
+default = []
+"
+        ),
+        None,
+        "an EMPTY default declares no second configuration and must not arm"
+    );
+    assert_eq!(
+        default_features_in(
+            "[package]
+name = \"x\"
+"
+        ),
+        None,
+        "no [features] table at all"
+    );
+    assert_eq!(
+        default_features_in(
+            "[features]
+# default = [\"mmap\"]
+"
+        ),
+        None,
+        "a commented-out default is not a declaration"
+    );
+    assert_eq!(
+        default_features_in(
+            "[features]
+default = [\"a\"]
+[dependencies]
+default = [\"b\"]
+"
+        )
+        .as_deref(),
+        Some("[\"a\"]"),
+        "only the [features] table is read"
+    );
+}
+
+/// A crate with a real second configuration must be LINTED and DOCUMENTED in
+/// it, not merely tested in it.
+///
+/// **C6 was enforced by halves and this is the other one.** The clause reads
+/// *"CI builds **and runs** the full parser suite with
+/// `--no-default-features`, proving the mmap-free path is functional rather
+/// than merely compilable"* — and the sibling gate above enforces the running.
+/// Measured when this gate was written: **twelve `cargo test` steps covered
+/// both configurations while all six `clippy` and all six `cargo doc` steps
+/// saw only the default.** So the `mmap = off` arm of `mlmf-source-file` was
+/// run and never linted, in the one path C6 names.
+///
+/// **A clause satisfied precisely defines a boundary that nothing guards on
+/// the other side.**
+///
+/// # Why this is conditional rather than "every crate"
+///
+/// Five of six crates have no second configuration — four declare no
+/// `[features]` table and `mlmf-core` declares `default = []`, so the flag is
+/// a no-op for them. **Requiring twelve steps would add ten that assert
+/// nothing**, and a gate that is mostly ceremony is one somebody eventually
+/// disables wholesale. Keyed on a non-empty `default` instead, it is two steps
+/// today and arms itself the moment another crate takes a real feature.
+#[test]
+fn a_crate_with_a_second_configuration_is_linted_and_documented_in_it() {
+    let commands = workflow_run_commands();
+    let mut missing = Vec::new();
+    let mut armed = Vec::new();
+
+    for dir in common::gated_members() {
+        let Some(default) = non_empty_default_features(&dir) else {
+            continue;
+        };
+        let name = dir
+            .file_name()
+            .expect("a crate directory has a name")
+            .to_string_lossy()
+            .to_string();
+        armed.push(format!("{name} (default = {default})"));
+
+        for required in [
+            format!("cargo clippy -p {name} --all-targets --no-default-features -- -D warnings"),
+            format!("cargo doc -p {name} --no-deps --no-default-features"),
+        ] {
+            if !commands.contains(&required) {
+                missing.push(required);
+            }
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "these crates declare a non-empty `default` feature list, so          `--no-default-features` is a REAL second configuration — and it is          tested there but not linted or documented there:
+  {}",
+        missing.join("
+  ")
+    );
+
+    // A gate that arms for nobody and a gate that cannot arm are the same
+    // output. `mlmf-source-file` declares `default = ["mmap"]` today, so an
+    // empty list means the manifest parse stopped working, not that the
+    // workspace stopped having features.
+    assert!(
+        !armed.is_empty(),
+        "no crate armed this gate. At least `mlmf-source-file` declares a          non-empty `default`, so this means the manifest scan is broken."
+    );
+}
+
 #[test]
 fn rustdoc_warnings_are_fatal_for_every_documented_crate() {
     // `cargo doc` exits 0 on a broken intra-doc link unless RUSTDOCFLAGS
@@ -239,7 +428,7 @@ fn rustdoc_warnings_are_fatal_for_every_documented_crate() {
     // unrelated to the property it was asserting.
     let workflow = workflow_without_comments();
     let mut toothless = Vec::new();
-    let mut found = 0usize;
+    let mut documented: Vec<String> = Vec::new();
 
     // Steps are `- name: ...` blocks; splitting on that boundary gives one
     // chunk per step, each carrying its own `env:` and `run:`.
@@ -250,7 +439,14 @@ fn rustdoc_warnings_are_fatal_for_every_documented_crate() {
         else {
             continue;
         };
-        found += 1;
+        // Which crate this step documents, so coverage is checked per CRATE
+        // rather than by a total. A count of six can be six steps for three
+        // crates; a set cannot.
+        if let Some(rest) = run.split(" -p ").nth(1)
+            && let Some(name) = rest.split_whitespace().next()
+        {
+            documented.push(name.to_string());
+        }
         if !step.contains("RUSTDOCFLAGS: -D warnings") {
             toothless.push(run.trim().to_string());
         }
@@ -259,19 +455,36 @@ fn rustdoc_warnings_are_fatal_for_every_documented_crate() {
     // ENUMERATE, do not merely iterate. This loop walks the doc steps that
     // are PRESENT, so with zero present it has nothing to complain about and
     // passes — measured: deleting every `cargo doc` step from the workflow
-    // left this test green. The deletion was caught, but by the sibling gate
-    // above, which enumerates the crates it requires. That is coverage by
-    // ADJACENCY rather than by design, and it evaporates the moment the
-    // sibling changes.
+    // left an earlier version of this test green.
     //
     // The general shape, from KISS: a wrong VALUE is compared and fails; a
     // wrong KEY is never compared at all. An instrument that validates its
     // numbers but not its own dimension set fails open on the cheap
     // direction — and deleting a row is cheaper than changing one.
-    assert_eq!(
-        found,
-        common::gated_members().len(),
-        "expected one `cargo doc` step per gated crate and found {found}; a          step that is absent cannot be toothless, so this check has nothing          to say about it"
+    //
+    // This was `assert_eq!(found, gated_members().len())` — a COUNT — until
+    // a crate legitimately needed a second doc step for its
+    // `--no-default-features` configuration. A count forbids that while
+    // permitting six steps spread over three crates. Set membership permits
+    // the first and forbids the second, so this is a strengthening rather
+    // than a relaxation.
+    let undocumented: Vec<String> = common::gated_members()
+        .iter()
+        .map(|d| {
+            d.file_name()
+                .expect("a crate directory has a name")
+                .to_string_lossy()
+                .to_string()
+        })
+        .filter(|name| !documented.contains(name))
+        .collect();
+
+    assert!(
+        undocumented.is_empty(),
+        "these gated crates have no `cargo doc` step at all, and a step that          is absent cannot be toothless — so this check has nothing to say          about them:
+  {}",
+        undocumented.join("
+  ")
     );
 
     assert!(

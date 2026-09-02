@@ -175,6 +175,31 @@ jobs:
       - name: cargo clippy -p mlmf-source-file
         run: cargo clippy -p mlmf-source-file --all-targets -- -D warnings
 
+      # The OTHER half of C6, and the half that was missing.
+      #
+      # C6 reads "builds AND RUNS the full parser suite with
+      # --no-default-features, proving the mmap-free path is functional
+      # rather than merely compilable". The test step above enforces the
+      # RUNNING. Until these two steps existed, twelve `cargo test` steps
+      # covered both configurations while all six `clippy` and all six
+      # `cargo doc` steps saw only the default -- so the `mmap = off` arm of
+      # src/file.rs was run and never linted, in the one path C6 names.
+      #
+      # Only this crate needs them: it is the only one declaring a non-empty
+      # `default`. mlmf-core declares `default = []` and the other four have
+      # no [features] table, so the flag is a no-op for five of six and
+      # twelve steps would be ten that assert nothing.
+      # `ci_coverage.rs::a_crate_with_a_second_configuration_is_linted_and_documented_in_it`
+      # is keyed on that condition and arms itself for the next crate that
+      # takes a real feature.
+      - name: cargo clippy -p mlmf-source-file --no-default-features
+        run: cargo clippy -p mlmf-source-file --all-targets --no-default-features -- -D warnings
+
+      - name: cargo doc -p mlmf-source-file --no-default-features
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-source-file --no-deps --no-default-features
+
 # NOT gated here, deliberately and on the record: the legacy root `mlmf`
 # package. It depends on `candlelight` from git and runs a `prost-build`
 # build script, so it needs `protoc` and a long build. Spec §11 schedules it
