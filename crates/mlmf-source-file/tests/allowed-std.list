@@ -50,6 +50,25 @@
 #   ordinary readability edit and the gate reports it -- measured, in both
 #   directions. `src/file.rs` carries that note where the edit would be
 #   typed.
+#
+# Task 4, directory enumeration. One entry, and it is the API decision
+# rather than an incidental import:
+#
+# `ffi` -- `DirEntry { name: std::ffi::OsString, .. }`. `std::fs::DirEntry`
+#   hands out an `OsString` because a filename is not text: bytes with no
+#   encoding attached on Unix, UTF-16 code units whose surrogates need not
+#   pair up on Windows. Spelling the field `String` instead would cost
+#   nothing here and would silently lose names -- `to_string_lossy` yields
+#   a name that no longer opens the file -- and spec §9 clause 2.1 forbids
+#   exactly that: "round-trip byte-exact ... the failure is silent". So this
+#   line is the price of the losslessness, paid on purpose. `src/dir.rs`
+#   carries the ruling and `tests/dir.rs` carries the control that shows a
+#   name actually at risk.
+#
+#   `std::os::windows::ffi` and `std::os::unix::ffi` are what CONSTRUCT such
+#   a name, and neither is here or needed: only `tests/dir.rs` names them,
+#   and `purity.rs` does not scan `tests/`.
+ffi
 fmt
 fs
 ops

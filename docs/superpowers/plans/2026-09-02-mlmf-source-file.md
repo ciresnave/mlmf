@@ -501,6 +501,28 @@ silently matching a mangled one.
 
 - [ ] **Step 1: Write the failing test.** A directory holding `model.safetensors`, `model.gguf`, `README.md` and a subdirectory `nested/`. Assert **all four** are returned, sorted, with `is_dir` true for exactly one. Assert a file inside `nested/` is **not** returned.
 
+  ⚠️ **Two details of that fixture are load-bearing and the plan states
+  neither. Both were measured by Task 4's implementer.**
+
+  **The capital letters in `README.md` are what give "sorted" a red state.**
+  An NTFS directory index returns entries in a case-folded order, so
+  `README.md` comes back LAST from the OS and FIRST under the byte order
+  `OsString: Ord` gives. Measured, by deleting the sort: the assertion
+  reddens with `["model.gguf", "model.safetensors", "nested", "README.md"]`
+  on the left. **Spell it `readme.md` and that sabotage reddens nothing** —
+  measured on the same host, OS order and byte order become the same four
+  names, so a `read_dir` that never sorts passes the assertion that says it
+  does. The fixture is right; it is right by an accident of capitalisation
+  that a tidy-up would undo.
+
+  **And the recursion sabotage's only subject is the FILE inside `nested/`,
+  not `nested/` itself.** "A subdirectory `nested/`" is satisfiable with an
+  empty one, and against an empty one a `read_dir` that recurses returns the
+  same four entries in the same order: measured, the all-four test stays
+  **GREEN** under the recursion mutation and only the not-returned test
+  reddens. The last sentence of this step is carrying the whole of Step 5's
+  second sabotage.
+
   **And a name with NO `String` representation at all.** Not merely non-ASCII:
   `模型.safetensors` is valid UTF-8, so `to_string_lossy()` is the identity on
   it and **a `String`-typed field would round-trip it perfectly.** Measured —
@@ -521,9 +543,26 @@ silently matching a mangled one.
   the OsString ruling's claim, *"a listing whose entries cannot be opened"*,
   rather than arguing it.
 
-- [ ] **Step 2: Run, confirm failure.**
+- [ ] **Step 2: Run, confirm failure.** **A COMPILE error, and worth naming
+      because `EXIT=101` alone does not distinguish one from a red test:**
+      `error[E0432]: unresolved import mlmf_source_file::read_dir` — *"no
+      `read_dir` in the root"*. Not a failing assertion. Unlike Task 3's
+      test, this one **does** have a real red state once it compiles; every
+      sabotage at Step 5 produces one.
 
-- [ ] **Step 3: Implement.** Names and a directory flag. **Fully qualify
+- [ ] **Step 3: Implement.** Names and a directory flag.
+
+      ⚠️ **`is_dir` needs a symlink ruling and this plan does not make one.**
+      *(Found by Task 4's implementer, who had to make it.)*
+      `std::fs::DirEntry::file_type()` describes the ENTRY and does not
+      follow a link; `std::fs::metadata(entry.path())` follows it. Shipped as
+      `file_type()`, so a symlink pointing at a directory reports `false` —
+      chosen for a consequence rather than for tidiness: resolving the target
+      **fails on a dangling link**, so one broken symlink anywhere in a
+      checkpoint directory would take the whole listing down with it. That is
+      the third of the three losses the `OsString` ruling above rejects,
+      arriving through the other field. The HF cache is built out of
+      symlinks, so this is not a hypothetical shape. **Fully qualify
       `std::fs::read_dir` inside `src/dir.rs`** — this crate's own `read_dir`
       and `DirEntry` shadow the `std::fs` names, and an unqualified call
       recurses into itself. **No extension mapping, no sniffing, no guessing which file is a model** — that is interpretation, and the charter forbids it: *"MLMF is never intended to be an interpreter of the content of model files."*
@@ -537,6 +576,51 @@ silently matching a mangled one.
       with it.** *(Against `模型.safetensors` this mutation is GREEN — measured.
       A sabotage that cannot fail against your fixture means the fixture is
       wrong, not that the code is right.)*
+
+      **All three executed. The first two land as written** — the filter
+      reddens two tests, the all-four assertion showing
+      `left: ["model.safetensors"]` against a right-hand side naming all
+      four; the recursion reddens one, listing
+      `["buried.safetensors", "deeper", "model.safetensors", "nested"]`.
+      Both are test failures, not compile errors.
+
+      ⚠️ **The third is two different mutations and the sentence does not say
+      which.** *(Found by Task 4's implementer.)* Read as a **type** change —
+      `pub name: String`, which is what the whole ruling above is about — it
+      is **nine compile errors in `tests/dir.rs`** (*"can't compare `String`
+      with `OsString`"*), because the test was written against the honest
+      type. Nothing reddens; there is no assertion left to redden. Read as a
+      **value** change — the field stays `OsString`, constructed from
+      `entry.file_name().to_string_lossy().into_owned()` — the surrogate test
+      reddens alone, U+FFFD on the left against U+D800 on the right, and the
+      counter-example test on `模型.safetensors` stays **green**, which is
+      this plan's own falsification reproduced as a standing control in the
+      suite rather than a measurement in a document. **Only the value form
+      measures anything.**
+
+      ⚠️ **And "the reopen-by-name assertion with it" cannot happen.** The
+      byte-exact assertion fires first and a panic ends the test, so the
+      assertion this plan calls *"the assertion worth writing"* is never
+      reached by the mutation the plan pairs it with: present, never
+      exercised. Shown to have a red state of its own by neutralising the two
+      assertions above it and re-running the same mutation — *"the listed
+      name must open the file: Error { kind: Source(Os { code: 2, kind:
+      NotFound, … }), path: Some(…surrogate-U+FFFD.safetensors) }"*. Order
+      the assertions knowing that, or the strongest one in the file is the
+      one nothing proves.
+
+      **A fourth sabotage, because "sorted" was a success criterion nothing
+      mutated:** delete the sort → the all-four assertion reddens with the
+      OS's own order. See Step 1 for why that only works because of a capital
+      letter.
+
+      **A fifth, because an allow-list entry is a permission and a permission
+      needs a positive control:** remove `ffi` from `tests/allowed-std.list`
+      → `purity.rs::every_gated_crate_performs_no_io` fails naming
+      `src/dir.rs` **twice**, *"import names `std::ffi`"* and *"path names
+      `std::ffi`"* — one `use` line seen by both of `scan_text`'s two scans.
+      A test failure, not a compile error. The entry is forced rather than
+      precautionary.
 
 - [ ] **Step 6: Commit.**
 

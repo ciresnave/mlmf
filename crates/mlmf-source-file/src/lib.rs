@@ -56,6 +56,24 @@
 //! only, and a reader who carries it across to the other one will size a
 //! process wrongly by the size of the model.
 //!
+//! # It also lists a directory, and that is the whole of what it knows
+//!
+//! [`read_dir`] returns the immediate children of a local directory, sorted
+//! by name, each with a flag saying whether it is itself a directory.
+//! Spec §3.2 assigns the walk here — *"`mlmf-source-file` walks a local
+//! directory"* — and assigns the reading of it elsewhere: `mlmf-hf-layout`
+//! *"never enumerates a directory"*. **The split is the point.** This crate
+//! does not know what a checkpoint looks like, does not map an extension to
+//! a format, and does not decide which of the files it found is a model.
+//! Given a directory holding `model.safetensors`, `model.gguf` and a
+//! `README.md`, it returns all three, because the charter says *"MLMF is
+//! never intended to be an interpreter of the content of model files"* and
+//! an enumerator that filtered would be interpreting.
+//!
+//! [`DirEntry::name`] is an [`std::ffi::OsString`], which is the one API
+//! decision in that module worth arguing about; its own documentation makes
+//! the argument.
+//!
 //! # Why this crate does not `forbid(unsafe_code)`
 //!
 //! `memmap2::Mmap::map` is an `unsafe fn` — a mapping is a window onto bytes
@@ -77,6 +95,16 @@
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+// Both modules are declared here and nowhere else. A `.rs` file under
+// `src/` that no `mod` names is not compiled and its tests never run, with
+// nothing going red — `mlmf-core/tests/module_registration.rs` is the gate
+// that says so, in those words.
+mod dir;
 mod file;
 
+// Re-exported flat, so a consumer writes `mlmf_source_file::read_dir` and
+// not `mlmf_source_file::dir::read_dir`. The modules are an organisation of
+// this crate's source and not part of its surface: `file` and `dir` are
+// private, so moving an item between them is not a breaking change.
+pub use dir::{DirEntry, read_dir};
 pub use file::FileSource;
