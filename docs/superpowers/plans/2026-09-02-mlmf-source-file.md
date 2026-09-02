@@ -31,9 +31,20 @@
 
 `std::fs`, `std::io` and `std::path` are **not forbidden by any gate.** `purity.rs::FORBIDDEN_CRATES` is fifteen *crate* names with no `std::` entry; `std` is checked against **each crate's own `tests/allowed-std.list`**. A crate gets `std::fs` by writing `fs` in its own list, exactly as `mlmf-safetensors` gets `iter` today. **There is nothing to relax and no gate to change for the `std` half.**
 
+⚠️ **And the modules this crate actually needs are `fs`, `ops`, `path`, `ffi`
+— not the `fs`/`io`/`path` triple this box uses as its example.** Measured by
+running the real `purity.rs` over a realistic `src/` written to this plan's
+own interfaces: with only `fs`/`path` allowed it reports `std::ops`, twice,
+because `RangedSource::read_range(&self, range: Range<u64>, …)` forces
+`use std::ops::Range;` — `traits.rs:8` does the same in core. `ffi` is added
+by the `OsString` ruling in Task 4. **`io` is NOT needed**: error conversion
+goes through `ErrorKind::Source(Box::new(e))` and names no `std::io` path.
+Do not pre-populate the file from the example above.
+
 Measured in an isolated copy of the gates: a fake source crate using `std::fs`, `std::io`, `std::path` **and** `memmap2`, with `fs`/`io`/`path` in its allow-list, produced **two violations, both `memmap2`**. With the allow-list narrowed to `path` alone, the same scan produced six, naming `std::fs` and `std::io` — so the scanner would have found them had they been forbidden. **They are unlisted by choice, not forbidden.**
 
-**Three gates reject this crate, not two:**
+**Three gates stand between this crate and a green run, not two** — the third
+only if the implementer reaches for the obvious tool:
 
 | Gate | Why | Fixed by |
 |---|---|---|
@@ -45,7 +56,7 @@ Measured in an isolated copy of the gates: a fake source crate using `std::fs`, 
 
 ---
 
-## Every precondition a new gated crate must satisfy — measured, all fourteen
+## Every precondition a new gated crate must satisfy — fourteen today, fifteen after Task 0
 
 Derived by reading every test that iterates `common::gated_members()`. **The first draft of this plan named six.**
 
@@ -64,7 +75,12 @@ Derived by reading every test that iterates `common::gated_members()`. **The fir
 | 11 | Root `default-members` contains `crates/<name>` | `workspace.rs::every_gated_crate_is_reachable_from_a_bare_cargo_test` |
 | 12 | ci.yml has `cargo test -p`, `cargo doc -p … --no-deps`, `cargo clippy -p … --all-targets` | `ci_coverage.rs::every_gated_crate_is_tested_documented_and_linted_by_ci` |
 | 13 | **Exactly one `- name:` step per crate whose `run:` starts `cargo doc`, each carrying `RUSTDOCFLAGS: -D warnings` in its own `env:`** | `ci_coverage.rs::rustdoc_warnings_are_fatal_for_every_documented_crate` |
-| 14 | Any test writing to `std::io::stderr()` names `NOTICE_TOKEN` | `skip_notice.rs` |
+| 14 | Any test writing to `std::io::stderr()` names `NOTICE_TOKEN` **or contains the token literally** | `skip_notice.rs` |
+| **15** | **`tests/axis` exists and reads exactly `format` or `source`** | **`common::axis()`, created by Task 0 — a loud panic without it** |
+
+⚠️ **Row 15 is created by this plan and exists nowhere else in the ecosystem**,
+so the next crate author will not know about it. It is in this table because
+this table is the artefact they will read.
 
 **Note on 7:** `purity.rs` scans `src/**` *including `#[cfg(test)]` modules*, and does **not** scan `tests/`. **This crate puts its tests in `tests/`**, so `allowed-std.list` records only what production code reaches. `mlmf-safetensors`' own list documents the opposite case for `iter`.
 
@@ -79,6 +95,12 @@ Derived by reading every test that iterates `common::gated_members()`. **The fir
 **Why, and it is not a shortcut.** `RangedSource::read_range` takes `&self`. A `seek`+`read_exact` implementation compiles — `std` has `impl Seek for &File` — but it mutates a **shared file cursor through a shared reference**, so two concurrent calls interleave their seeks and return the wrong bytes **with `Ok(())`**. The broken state is indistinguishable from the healthy one. A slice copy has no such state.
 
 **And "materialized" is the wrong worry for mmap:** the OS pages a mapping lazily, so the default path does not hold the file in RAM. `RangedSource`'s doc explains it exists so an *HTTP range* or *IPC* source is expressible later. **That is a fact about other implementations, not a promise this one must keep by avoiding a slice.**
+
+⚠️ **State plainly in the crate doc that `RangedSource` offers no memory
+benefit on the `--no-default-features` build.** That path allocates the whole
+file through `std::fs::read`. The lazy-paging argument above is true of the
+default build only, and C6 is prominent enough in this plan that a reader
+will otherwise carry the hedge across to the build C6 exists to protect.
 
 ---
 
@@ -101,7 +123,31 @@ Derived by reading every test that iterates `common::gated_members()`. **The fir
 
 **`mlmf-conformance` is assigned `format`.** It is a consumer-shaped crate with no library code and §3.1's diagram does not contain it, so this is a ruling rather than a reading. It links two format crates and does no I/O; `format` is the stricter of the two and therefore the safe assignment.
 
-- [ ] **Step 1: Extract a testable seam in `deps.rs`.** `purity.rs` already has `scan_text(label, src, allowed)` driven by fixtures. **`deps.rs` has none** — its forbidden-crate scan is written inline in the `#[test]` body. Extract it to a function taking `(label, manifest_text, axis)` so Step 2 can drive it with fixtures instead of real crates.
+- [ ] **Step 1: Make both scanners axis-aware, and they are NOT symmetric.**
+
+      **`deps.rs` needs an extraction.** Its forbidden-crate scan is written
+      inline in the `#[test]` body. Move it to `scan_manifest(label, text, axis)`.
+      **Verified safe:** the extraction was performed in an isolated copy and
+      `the_gate_can_fail` and `the_gate_does_not_cry_wolf` both stayed green,
+      because they drive `parse_manifest`, which it does not touch.
+
+      ⚠️ **`purity.rs` needs no extraction and is the side that breaks.** It
+      already has `scan_text(label, src, allowed)`, but threading an axis
+      through it touches **three existing call sites** — `purity.rs:545`,
+      `:559`, `:588` — two inside `the_gate_can_fail` and one inside
+      `the_gate_does_not_cry_wolf`. **Pin all three to `Axis::Format`.**
+
+      **Passing `Axis::Source` at the self-test sites is the plausible mistake**,
+      because the file's other call site passes the crate's own axis. Measured
+      consequence:
+
+          test the_gate_can_fail ... FAILED
+          case 6 slipped through the C3 gate:
+          use memmap2::Mmap;
+
+      Cases **6** and **11** of `must_be_rejected` are memmap2-only, so they are
+      the two the relaxation would silently disarm — **and the failure names the
+      fixture, not the axis, so the diagnosis points away from the change.**
 
 - [ ] **Step 2: Write the failing tests, in fixtures.** A `source`-axis manifest naming `memmap2` in `[dependencies]` **and** in `[features]` is accepted; the same text on `format` is rejected twice. A `source`-axis `src` naming `memmap2` is accepted; on `format`, rejected. **A `source`-axis manifest naming `reqwest` is still rejected** — the control that proves the relaxation is scoped.
 
@@ -109,12 +155,33 @@ Derived by reading every test that iterates `common::gated_members()`. **The fir
 
 - [ ] **Step 4: Implement.** `common::axis()` reads `<crate>/tests/axis`, trims (a Windows checkout gives CRLF), and accepts exactly `format` or `source`. **A missing file is a loud panic**, matching `deps.rs::allow_list`, whose doc says why. *(`purity.rs::allowed_std` panics identically but its doc does not say so — do not cite it as precedent.)*
 
-  **Relax `memmap2` and nothing else.** Note there are **two** `FORBIDDEN_CRATES` constants and they do not match: `purity.rs` has 15 entries (underscore forms, plus `smol`, `mio`, `libloading`); `deps.rs` has 18 (hyphenated `hf-hub`, `native-tls`, `async-std`, plus `prost-build`, `protobuf-codegen`). **Change both, and do not assume one list is the other.**
+  **Relax `memmap2` and nothing else.** Note there are **two** `FORBIDDEN_CRATES` constants and they do not match.
+**Change both, and do not assume one list is the other.** The asymmetry,
+measured with `comm` rather than described:
+
+    only in purity.rs:  async_std  native_tls          (underscore forms)
+    only in deps.rs:    async-std  native-tls  hf-hub  prost-build  protobuf-codegen
+
+`smol`, `mio` and `libloading` are in **both** — an earlier revision named
+them as purity-only, which would have sent someone editing `deps.rs`
+looking for entries that were already there and missing the two that
+differ only by a hyphen. `deps.rs` carries **both** `hf-hub` and `hf_hub`.
 
 - [ ] **Step 5: Add the five `axis` files** (`format`) and run the full gate set.
 
 - [ ] **Step 6: Sabotage.**
-  1. **In fixtures**, per Step 2 — not on a real crate. **The first draft said "flip a real crate's axis to `source` and confirm the scanner stops rejecting `memmap2`", which is a no-op: `grep -rn memmap2 crates/*/src/` returns nothing, so nothing is being rejected and the test is green either way.** A demonstration must introduce the violation as well as the permission.
+  1. ⚠️ **Delete the relaxation branch itself** — the `axis == Source && crate
+     == "memmap2"` arm — and confirm the Step 2 source-axis fixtures redden.
+     **Then make `axis()` return `Format` unconditionally and confirm the same.**
+     This is the only mutation that proves the relaxation is load-bearing.
+
+     *(An earlier revision's item 1 was "flip a real crate's axis to `source`
+     and confirm the scanner stops rejecting `memmap2`" — a no-op, since
+     `grep -rn memmap2 crates/*/src/` returns nothing, so nothing is being
+     rejected and the test is green either way. The fix removed the no-op and
+     left the slot empty: items 2-4 sabotage the PARSER and the SCOPE, and
+     nothing was left mutating the permission. Steps 2-3 already drive the
+     fixtures; restating them under "Sabotage" is not a sabotage.)*
   2. Delete an `axis` file; confirm the panic names it.
   3. Write `Source` (wrong case); confirm it panics rather than silently reading as `format`.
   4. `reqwest` on the `source` axis; confirm still rejected.
@@ -137,7 +204,14 @@ impl FileSource {
     /// Whole file, by whatever path this build was compiled for.
     pub fn open(path: &Path) -> mlmf_core::Result<Self>;
     /// Whole file, ALWAYS by plain read, regardless of features.
-    /// Task 3's equality test compares `open` against this.
+    ///
+    /// **Deliberate permanent public API, not test scaffolding** — though a
+    /// test is what forced the question. Task 3's equality assertion lives in
+    /// `tests/`, so it can only reach `pub` items, and comparing the mmap path
+    /// against a `std::fs::read` written in the test would compare the crate
+    /// against a third implementation rather than against itself. It also has
+    /// a real caller: forcing a plain read on a network mount, where mmap
+    /// semantics are hostile.
     pub fn open_read(path: &Path) -> mlmf_core::Result<Self>;
 }
 
@@ -146,7 +220,11 @@ impl mlmf_core::ByteSource for FileSource {
 }
 ```
 
-`mlmf_core::Result<T> = std::result::Result<T, mlmf_core::Error>`. Errors use **`ErrorKind::Source`** with `Error::with_path` — `RangedSource::read_range`'s own doc already commits to that variant.
+`mlmf_core::Result<T> = std::result::Result<T, mlmf_core::Error>`. Errors use
+**`ErrorKind::Source`** with `Error::with_path`. *(The warrant is narrower than
+the rule: `traits.rs:54-57` commits **`read_range`** to that variant and says
+nothing about `open` or `read_dir`. Extending it to them is a decision made
+here for consistency, not something the seam already ruled.)*
 
 - [ ] **Step 1: Write the failing tests** in `tests/bytes.rs`. Known bytes round-trip exactly; a zero-length file gives an empty slice and **not** an error; a file with an embedded NUL is unchanged. Temp files via `env!("CARGO_TARGET_TMPDIR")` — **no `tempfile`, no dev-dependency** (precondition 3).
 
@@ -192,7 +270,10 @@ fn is_empty(&self) -> Option<bool>;   // DEFAULTED by the trait — do not imple
 
 ## Task 3: mmap, behind the default feature
 
-**Files:** `crates/mlmf-source-file/{Cargo.toml, src/file.rs, tests/mmap.rs, tests/direct-deps.allow}`.
+**Files:** `crates/mlmf-source-file/{Cargo.toml, src/lib.rs, src/file.rs, tests/mmap.rs, tests/direct-deps.allow}`.
+
+`src/lib.rs` is in the list because Step 3 says *"say so in the crate doc"* —
+the crate doc is `lib.rs`'s `//!` header.
 
 ⚠️ **`tests/direct-deps.allow` is in this list because `direct_dependencies_match_allowlist` is an exact `assert_eq!` against the sorted dependency list.** Adding `memmap2` reddens it until the file reads `memmap2` then `mlmf-core` — **in sorted position**, because the comparison is against a vector, not a set.
 
@@ -208,7 +289,14 @@ fn is_empty(&self) -> Option<bool>;   // DEFAULTED by the trait — do not imple
 
 - [ ] **Step 5: Sabotage.** Map with an off-by-one length → the equality test reddens. Then confirm `--no-default-features` still compiles and Tasks 1–2 still pass — **C6's actual claim, observed rather than assumed.**
 
-- [ ] **Step 6: Commit**, and re-run `cargo tree -p mlmf-core` to confirm C1/C2 are unmoved by a sibling gaining a dependency.
+- [ ] **Step 6: Commit**, then confirm C1/C2 are unmoved by a sibling gaining a
+      dependency. **The instrument is `cargo test -p mlmf-core --test
+      transitive_deps` or `bash scripts/check-deps.sh`** — both already in the
+      18-gate set. *(Not a bare `cargo tree -p mlmf-core`, which an earlier
+      revision named: `transitive_deps::current()` runs it with
+      `--edges normal,build --no-default-features --target all --prefix none
+      --color never` and diffs the snapshot. A different query does not
+      reproduce it.)*
 
 ---
 
@@ -216,28 +304,67 @@ fn is_empty(&self) -> Option<bool>;   // DEFAULTED by the trait — do not imple
 
 §3.2: *"`mlmf-source-file` walks a local directory"*; `mlmf-hf-layout` *"never enumerates a directory"*.
 
-**Files:** `crates/mlmf-source-file/{src/dir.rs, tests/dir.rs}`, `tests/allowed-std.list`.
+**Files:** `crates/mlmf-source-file/{src/lib.rs, src/dir.rs, tests/dir.rs, tests/allowed-std.list}`.
+
+⚠️ **`src/lib.rs` twice over:** `mod dir;` (precondition 10 — without it
+`module_registration` reddens with *"these source files are not named by any
+`mod` declaration, so they are never compiled and their tests never run"*),
+and a `pub use dir::{DirEntry, read_dir};` for the unqualified paths in the
+Interfaces block below.
 
 **Interfaces produced:**
 ```rust
 /// One entry, as the filesystem reports it. No interpretation.
-pub struct DirEntry { pub name: String, pub is_dir: bool }
+pub struct DirEntry { pub name: std::ffi::OsString, pub is_dir: bool }
 
 /// Immediate children only — NOT recursive — sorted by `name`.
 pub fn read_dir(path: &Path) -> mlmf_core::Result<Vec<DirEntry>>;
 ```
 
+⚠️ **`OsString`, not `String`, and this is spec §9 clause 2.1 one layer out.**
+`std::fs::DirEntry::file_name()` returns `OsString`. A filename is not
+guaranteed UTF-8 on Linux and can hold unpaired surrogates on Windows, so
+`String` forces one of three silent choices: `to_string_lossy()` (a name
+carrying U+FFFD that **cannot be passed back to `FileSource::open`** — a
+listing whose entries cannot be opened), skipping the entry (the enumeration
+omits a file and returns a healthy `Ok`), or failing the whole call because
+one unrelated file has an odd name.
+
+Clause 2.1 rules on exactly this class — *"round-trip **byte-exact**. No
+Unicode normalization, case folding, trimming, or reordering — ever … the
+failure is **silent**"* — and spec line 415 records why no corpus will catch
+it: 4,686,500 strings scanned across 29 files, **zero non-UTF-8**. Task 4's
+fixture is ASCII-only and is structurally blind the same way. `OsString` is
+lossless, costs one allow-list line (`ffi`), and forces a consumer matching
+against `index.json` to confront a name that cannot match rather than
+silently matching a mangled one.
+
 **Both fields are decided here**, because the first draft said "every file name" in one step and asked the test to assert a subdirectory appears in another — contradictory. `is_dir` is reported, not filtered on: §3.2's consumer is *"given a list of filenames"*, and deciding which entries count is the caller's job.
 
 - [ ] **Step 1: Write the failing test.** A directory holding `model.safetensors`, `model.gguf`, `README.md` and a subdirectory `nested/`. Assert **all four** are returned, sorted, with `is_dir` true for exactly one. Assert a file inside `nested/` is **not** returned.
 
+  **And a non-ASCII name — `模型.safetensors` — round-trips byte-exact.** Every
+  other name in the fixture is ASCII, which is the same blindness the GGUF
+  corpus has against clause 2.1, and the same remedy: an authored fixture,
+  because the realistic population does not contain the case. *(A name that is
+  not valid UTF-8 at all is platform-specific to construct; `OsString` is what
+  makes it representable rather than lossy, and this test pins the property
+  that choice exists for.)*
+
 - [ ] **Step 2: Run, confirm failure.**
 
-- [ ] **Step 3: Implement.** Names and a directory flag. **No extension mapping, no sniffing, no guessing which file is a model** — that is interpretation, and the charter forbids it: *"MLMF is never intended to be an interpreter of the content of model files."*
+- [ ] **Step 3: Implement.** Names and a directory flag. **Fully qualify
+      `std::fs::read_dir` inside `src/dir.rs`** — this crate's own `read_dir`
+      and `DirEntry` shadow the `std::fs` names, and an unqualified call
+      recurses into itself. **No extension mapping, no sniffing, no guessing which file is a model** — that is interpretation, and the charter forbids it: *"MLMF is never intended to be an interpreter of the content of model files."*
 
 - [ ] **Step 4: Run**, and update `allowed-std.list` if `read_dir` reaches a `std` module the crate did not already use.
 
-- [ ] **Step 5: Sabotage.** Filter to `.safetensors` → the test names the three dropped entries. Recurse into `nested/` → the not-returned assertion reddens.
+- [ ] **Step 5: Sabotage.** Filter to `.safetensors` → the test names the three
+      dropped entries. Recurse into `nested/` → the not-returned assertion
+      reddens. **Replace `OsString` with `to_string_lossy().into_owned()` →
+      the non-ASCII round-trip must redden.** If it stays green the fixture is
+      not exercising the property and the type choice is unjustified.
 
 - [ ] **Step 6: Commit.**
 
@@ -254,8 +381,16 @@ Survivable while no crate had a meaningful default feature. **This crate's mmap 
 **Files:** `.github/workflows/ci.yml`, `crates/mlmf-core/tests/ci_coverage.rs`.
 
 - [ ] **Step 1: Write the failing test** — every gated crate has a `--no-default-features` test step, crate list derived from the filesystem as that file already does.
-- [ ] **Step 2: Run; confirm it fails naming five crates** (six once Task 1 has landed).
-- [ ] **Step 3: Add the steps.**
+- [ ] **Step 2: Run; confirm it fails naming FOUR crates** — `mlmf-conformance`,
+      `mlmf-ggml`, `mlmf-gguf`, `mlmf-safetensors`. **Measured, not derived:**
+      `mlmf-core` has a step today, and **Task 1 Step 4 adds one for
+      `mlmf-source-file`**, so two of the six are already covered when this
+      runs. *(An earlier revision said "five, six once Task 1 lands". Neither
+      is reachable — the number was introduced by a fix and never derived, and
+      it sits inside the step that verifies the step. An implementer seeing
+      four would go looking for a bug in their own test.)*
+- [ ] **Step 3: Add the four steps.** Not six — do not add a second one for
+      `mlmf-source-file`; Task 1 already did.
 - [ ] **Step 4: Run the full gate set.**
 - [ ] **Step 5: Sabotage.** Delete one step; confirm the gate names that crate.
 - [ ] **Step 6: Commit.**
@@ -268,7 +403,25 @@ Survivable while no crate had a meaningful default feature. **This crate's mmap 
 - [ ] **Tell the reviewer to read files the diff does not touch but whose claims it depends on.** Plan 5's sharpest finding was in a file with no diff hunk and no task owner.
 - [ ] **Pre-assign one:** `crates/mlmf-core/tests/transitive_deps.rs`'s doc says its narrow scope *"becomes wrong at that moment"* if a member gains an external dependency. **Task 3 is that moment**, in a file no task owns.
 - [ ] **Verify every Important finding yourself before fixing it.**
-- [ ] Record the rate. Plan 3 found eleven, plan 4 two, plan 5 six — **note that those counts live only in commit messages and this plan; no review artefacts are stored in `docs/`.**
+- [ ] **Record the review-findings rate**, and say which rate it is.
+
+      ⚠️ **Do not compare it to "plan 3's eleven".** That number is a
+      DIFFERENT MEASUREMENT: `2026-08-21-mlmf-gguf-tensors.md:81` defines it as
+      *"eleven **controls could not reach the assertion they named**"* — a
+      vacuity rate, ten of the eleven self-inflicted. Plan 5 then wrote
+      *"compare to plan 3's eleven and plan 4's two"* under a whole-branch
+      review heading, splicing a vacuity count onto a findings series, and an
+      earlier revision of THIS plan inherited the splice and hardened it into
+      "Plan 3 found eleven".
+
+      **Both rates are worth recording. Neither is the other.** Plan 5's review
+      found six Important. If you want a vacuity rate, count controls that
+      could not reach their assertion, and keep the two series apart.
+
+      *(A previous revision also claimed "no review artefacts are stored in
+      `docs/`". False — `grep -rn eleven docs/` finds the definition and two
+      carriers. A false absence-claim in a plan is worse than the silence it
+      replaced.)*
 
 ---
 
