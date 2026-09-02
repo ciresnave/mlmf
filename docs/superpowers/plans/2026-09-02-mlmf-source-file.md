@@ -39,7 +39,15 @@ running the real `purity.rs` over a realistic `src/` written to this plan's
 own interfaces: with only `fs`/`path` allowed it reports `std::ops`, twice,
 because `RangedSource::read_range(&self, range: Range<u64>, …)` forces
 `use std::ops::Range;` — `traits.rs:8` does the same in core. `ffi` is added
-by the `OsString` ruling in Task 4. **`io` is not reached PROVIDED the error conversion leaves its
+by the `OsString` ruling in Task 4. **And `fmt` is required too, which the probe missed.** `Result::expect_err`
+needs `T: Debug`, so the crate's own first error-path test does not compile
+without a `Debug` impl on `FileSource`, and no spelling of one avoids
+`std::fmt`. **Hand-write it** — a derived `Debug` formats every byte of a model
+file into a panic message. *(Measured by Task 1's implementer. The probe that
+produced `fs`/`ops`/`path`/`ffi` modelled a `src/` with no `Debug` impl, which
+is a thing a real crate cannot be.)*
+
+**`io` is not reached PROVIDED the error conversion leaves its
 closure argument unannotated.** Measured both ways: `.map_err(|e| …Box::new(e))`
 scans clean; `.map_err(|e: std::io::Error| …)` reports *"path names `std::io`"*.
 Annotating a closure argument to make a conversion readable is an ordinary
@@ -102,8 +110,12 @@ this table is the artefact they will read.
 
 **And "materialized" is the wrong worry for mmap:** the OS pages a mapping lazily, so the default path does not hold the file in RAM. `RangedSource`'s doc explains it exists so an *HTTP range* or *IPC* source is expressible later. **That is a fact about other implementations, not a promise this one must keep by avoiding a slice.**
 
-⚠️ **State plainly in the crate doc that `RangedSource` offers no memory
-benefit on the `--no-default-features` build.** That path allocates the whole
+⚠️ **In TASK 3's crate doc — not before — state plainly that `RangedSource`
+offers no memory benefit on the `--no-default-features` build.** *(Task 1
+correctly declined this: at that point there is no `RangedSource` impl and no
+features table, so both halves would be claims about code that is not there.
+Task 1 states what is true then — every path materializes the whole file — and
+this contrast lands with the feature that creates it.)* That path allocates the whole
 file through `std::fs::read`. The lazy-paging argument above is true of the
 default build only, and C6 is prominent enough in this plan that a reader
 will otherwise carry the hedge across to the build C6 exists to protect.
@@ -265,20 +277,18 @@ here for consistency, not something the seam already ruled.)*
 
 - [ ] **Step 1: Write the failing tests** in `tests/bytes.rs`. Known bytes round-trip exactly; a zero-length file gives an empty slice and **not** an error; a file with an embedded NUL is unchanged. Temp files via `env!("CARGO_TARGET_TMPDIR")` — **no `tempfile`, no dev-dependency** (precondition 3).
 
-- [ ] **Step 2: Run, confirm failure.**
+- [ ] **Step 2: Run, confirm failure.** **Expect a COMPILE error** —
+      `E0432: unresolved import mlmf_source_file` — not a failing assertion.
+      Worth saying because every later step in this plan distinguishes the two
+      and this one did not. *(Also measured: `cargo` accepts a package whose
+      only target is `tests/bytes.rs`, so this step works with no `src/` at
+      all.)*
 
 - [ ] **Step 3: Implement** with `std::fs::read`. No mmap, no feature yet. `tests/axis` = `source`. `tests/direct-deps.allow` = `mlmf-core`. `tests/allowed-std.list` = the `std` modules `src/` reaches, **one per line with a comment saying what forced it**, as every sibling list does.
 
 - [ ] **Step 4: Wire the crate in, then run.** Add to root `default-members`, and add **four** CI steps: `cargo test -p`, `cargo test -p … --no-default-features` (C6, and Task 5 will gate it), `cargo doc -p … --no-deps` **in its own `- name:` block with `env: RUSTDOCFLAGS: -D warnings`**, and `cargo clippy -p … --all-targets`. **Precondition 13 counts doc steps per crate and checks each carries that env.** *(The first draft said "run, confirm pass, then add the CI steps" — impossible: the gates go red the moment the manifest exists.)*
 
-- [ ] **Step 5: Sabotage.** **First, the one relocated from Task 0:** make
-      `common::axis()` return `Format` unconditionally and confirm
-      `every_gated_crate_performs_no_io` reddens naming `mlmf-source-file`.
-      **This is the first moment that mutation has a subject** — the crate now
-      exists, declares `source`, and names `memmap2` in `src/`. At Task 0 it was
-      green either way.
-
-      Then: truncate the read by one byte → the exact-bytes test reddens. Return `Vec::new()` unconditionally → the non-empty test reddens **while the zero-length test stays green**, which is the control proving the empty case is not carrying the assertion.
+- [ ] **Step 5: Sabotage.** Truncate the read by one byte → the exact-bytes test reddens. Return `Vec::new()` unconditionally → the non-empty test reddens **while the zero-length test stays green**, which is the control proving the empty case is not carrying the assertion.
 
 - [ ] **Step 6: Commit.**
 
@@ -331,7 +341,21 @@ the crate doc is `lib.rs`'s `//!` header.
 
 - [ ] **Step 4: Run with default features and with `--no-default-features`.**
 
-- [ ] **Step 5: Sabotage.** Map with an off-by-one length → the equality test reddens. Then confirm `--no-default-features` still compiles and Tasks 1–2 still pass — **C6's actual claim, observed rather than assumed.**
+- [ ] **Step 5: Sabotage.** **First, the axis mutation — relocated here from
+      Task 0, and then from Task 1, which was still one task too early.** Make
+      `common::axis()` return `Format` unconditionally and confirm
+      `every_gated_crate_performs_no_io` reddens naming `mlmf-source-file`.
+
+      **This is the first moment it has a subject.** Task 0 had no crate naming
+      `memmap2`; **Task 1 has the crate but still does not name `memmap2` in
+      `src/`** — that arrives here, with the mmap arm. Measured at Task 1: the
+      mutation left `purity` 4 passed and `deps` 6 passed, neither red nor a
+      compile error. Task 1's implementer established it was a missing subject
+      rather than a broken relaxation by previewing this task's `memmap2` line
+      as text — `purity.rs` reads `src/**` without compiling it — at which
+      point the same mutation reddened naming this crate.
+
+      Then: map with an off-by-one length → the equality test reddens. Then confirm `--no-default-features` still compiles and Tasks 1–2 still pass — **C6's actual claim, observed rather than assumed.**
 
 - [ ] **Step 6: Commit**, then confirm C1/C2 are unmoved by a sibling gaining a
       dependency. **The instrument is `cargo test -p mlmf-core --test
