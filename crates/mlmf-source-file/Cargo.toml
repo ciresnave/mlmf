@@ -1,0 +1,28 @@
+[package]
+    description          = "Opens local files as mlmf-core byte sources. I/O only, no format knowledge."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-source-file"
+    repository.workspace = true
+    version.workspace    = true
+
+# PLAIN [dependencies] AND NOTHING ELSE, and the empty space below is the
+# ruling rather than an omission.
+#
+# The obvious way to give an integration test a scratch file is `tempfile`
+# under `[dev-dependencies]` -- which is what the legacy root `mlmf` package
+# does, so it is the form anyone looking inside this repository will copy.
+# `deps.rs::no_table_other_than_plain_dependencies_may_declare_an_edge`
+# refuses it, and that refusal is the design working: a dev-dependency is
+# still an edge, and C2 pins edges rather than the subset of them that ship.
+# `mlmf-conformance`'s manifest records the same ruling for the same gate.
+#
+# `tests/bytes.rs` uses `env!("CARGO_TARGET_TMPDIR")` instead -- a
+# compile-time macro Cargo sets for integration tests, costing no dependency
+# and no new entry in `tests/allowed-std.list`.
+[dependencies]
+    # Spec §3.1: a source crate depends on mlmf-core alone and never on a
+    # format crate. That is what makes `any source x any format` compose --
+    # an edge to a format crate here would make this source usable with one
+    # format and would put format knowledge on the I/O axis.
+    mlmf-core = { path = "../mlmf-core", version = "0.4.0" }

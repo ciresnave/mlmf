@@ -112,6 +112,31 @@ jobs:
       - name: cargo clippy -p mlmf-conformance
         run: cargo clippy -p mlmf-conformance --all-targets -- -D warnings
 
+      # mlmf-source-file is the first crate on the SOURCE axis (spec §3.1):
+      # I/O only, no format knowledge. It is gated exactly like the format
+      # crates -- the axis scopes C3's prohibition on naming `memmap2`, and
+      # nothing else.
+      - name: cargo test -p mlmf-source-file
+        run: cargo test -p mlmf-source-file
+
+      # C6: "CI builds AND RUNS the full parser suite with
+      # --no-default-features, proving the mmap-free path is functional
+      # rather than merely compilable." This crate declares no features yet,
+      # so today this step runs the same code as the one above it. It is
+      # here now rather than later because the mmap feature arrives as a
+      # DEFAULT one, and a step added in the same commit as the feature it
+      # is supposed to subtract has never once been observed to fail.
+      - name: cargo test -p mlmf-source-file --no-default-features
+        run: cargo test -p mlmf-source-file --no-default-features
+
+      - name: cargo doc -p mlmf-source-file --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-source-file --no-deps
+
+      - name: cargo clippy -p mlmf-source-file
+        run: cargo clippy -p mlmf-source-file --all-targets -- -D warnings
+
 # NOT gated here, deliberately and on the record: the legacy root `mlmf`
 # package. It depends on `candlelight` from git and runs a `prost-build`
 # build script, so it needs `protoc` and a long build. Spec §11 schedules it

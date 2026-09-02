@@ -26,6 +26,7 @@ default-members = [
     "crates/mlmf-ggml",
     "crates/mlmf-gguf",
     "crates/mlmf-safetensors",
+    "crates/mlmf-source-file",
 ]
 
 [workspace.package]

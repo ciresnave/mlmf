@@ -959,6 +959,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mlmf-source-file"
+version = "0.4.0"
+dependencies = [
+ "mlmf-core",
+]
+
+[[package]]
 name = "monostate"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"

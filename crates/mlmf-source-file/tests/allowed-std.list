@@ -1,0 +1,45 @@
+# C3: the std submodules mlmf-source-file may name.
+#
+# **This is a source-axis crate and the allow-list is NOT relaxed for it.**
+# C3's scope — "no crate on the format axis references `std::fs`, `memmap2`,
+# or any network client" — is what `tests/axis` releases, and it releases
+# exactly one name, `memmap2`, in the two gates that check crate names. The
+# `std` half is per-crate and unchanged on both axes: `purity.rs` checks
+# every `std::X` this crate's `src/**` reaches against this file, whatever
+# axis it declares. Reading `std::fs` here therefore costs an entry below,
+# exactly as `iter` costs mlmf-safetensors one.
+#
+# Grows one commit at a time, each entry landing beside the code that forced
+# it and saying what that was. A permission granted before its use is a
+# permission nobody re-examines.
+#
+# `purity.rs` scans `src/**` INCLUDING `#[cfg(test)]` modules and does not
+# scan `tests/`. This crate keeps its tests in `tests/`, so this file records
+# only what the library reaches — `tests/bytes.rs` uses `std::fs` and
+# `env!("CARGO_TARGET_TMPDIR")` freely and neither appears here.
+
+# Task 1, the plain-read path. Each entry names what forced it.
+#
+# `fmt` -- `impl std::fmt::Debug for FileSource`, hand-written because a
+#   derived one formats every byte of the file. There is no spelling of a
+#   `Debug` impl that does not name `std::fmt`. The plan predicted `fs` and
+#   `path` alone for this task; the impl was forced by `Result::expect_err`,
+#   which requires `T: Debug`, in this crate's own first test. Recorded as a
+#   divergence rather than folded in silently.
+# `fs` -- `std::fs::read` in `FileSource::open_read`. This is the crate's
+#   entire purpose: the source axis is I/O, and the format axis is where
+#   C3's prohibition on reaching the filesystem belongs.
+# `path` -- `open`/`open_read` take `&std::path::Path`, which is the type
+#   `mlmf_core::Error::with_path` already accepts and the type a consumer
+#   already holds.
+#
+# `io` is NOT here and its absence is load-bearing rather than incidental:
+#   `std::fs::read` returns `std::io::Result`, and the error conversion
+#   reaches that type without naming it only because the `map_err` closure
+#   argument is left unannotated. Spelling it `|e: std::io::Error|` is an
+#   ordinary readability edit and the gate reports it -- measured, in both
+#   directions. `src/file.rs` carries that note where the edit would be
+#   typed.
+fmt
+fs
+path
