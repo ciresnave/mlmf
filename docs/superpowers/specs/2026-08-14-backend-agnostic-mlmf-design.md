@@ -362,35 +362,75 @@ Recorded with reasons so they are not relitigated from taste later.
 
 ## 11. Disposition of existing MLMF code
 
-| Module | LOC | Disposition |
-|---|---:|---|
-| `loader.rs` | 1,520 | Rewritten across the format axis; `LoadedModel`'s candlelight `VarBuilder` dies with it |
-| `quantization_simple.rs` | 1,111 | **Delete** — calibration-based, unimplementable without a backend |
-| `lora.rs` | 953 | Split: adapter **file** reading kept, weight merging deleted |
-| `distributed.rs` | 923 | **Delete** |
-| `distributed_loader.rs` | 842 | **Delete** |
-| `distributed_core.rs` | 594 | **Delete** |
-| `formats/onnx_export.rs` | 846 | → `mlmf-onnx` |
-| `formats/onnx_import.rs` | 574 | → `mlmf-onnx` |
-| `formats/gguf_export.rs` | 818 | → `mlmf-gguf`, decoupled from candlelight |
-| `metadata.rs` | 783 | Split: provenance kept and strengthened (§8.2), tensor statistics deleted |
-| `model_card.rs` | 772 | **Delete** |
-| `validation.rs` | 717 | CUDA/device validation deleted; structural validation kept |
-| `quantization.rs` | 641 | **Delete** (see above) |
-| `conversion.rs` | 599 | → rebuilt on §8 measured-error semantics |
-| `config.rs` | 588 | → `mlmf-hf-layout` + `mlmf-meta` as **raw + typed accessors**, not a normalized struct |
-| `cache.rs` | 584 | Re-examine under §9 clause 5; delete rather than ship one that can serve a stale entry silently |
-| `multimodal*.rs` | 1,416 | **Delete** |
-| `checkpoint.rs` | 543 | Deferred — training checkpoints are model files, but no consumer asked |
-| `name_mapping.rs` | 514 | Declared tables → `mlmf-meta`; inference → deleted |
-| `progress.rs` | 477 | Optional, off by default |
-| `mmap_loader.rs` | 475 | → `mlmf-source-file` |
-| `formats/pytorch_loader.rs` | 407 | **Delete the stub**; adopt Fuel's 753-line pickle VM |
-| `smart_mapping.rs` | 399 | → `mlmf-oracle`, off the load path entirely |
-| `universal_loader.rs` | 362 | → `mlmf` umbrella (format detection) |
-| `formats/gguf.rs` | 317 | **Delete** — a 317-line shim over `candlelight::quantized::gguf_file`; adopt Fuel's parser |
-| `formats/awq*.rs` | 314 | → `mlmf-awq`; both consumers indicated it is dead weight to them |
-| `cached_loader.rs` | 244 | Follows `cache.rs` |
+The legacy crate at `src/` is **37 files and 19,329 lines**, measured at `e8c7616` with `find src -type f -name '*.rs' -exec wc -l {} +`. Every one of them has a row below and the LOC column sums to 19,329, so a file that goes missing from this table is a defect the sum will show.
+
+*(This matters because the first version of this table was wrong in both directions at once. It listed 30 files and 18,333 lines: seven files had no row — they were present the day it was written, so this was an omission and not drift — and six rows had since been outgrown by their files. Neither error was visible, because a table with no total cannot be audited by reading it.)*
+
+**What now exists**, merged to `main`, is the other half of what changed. The dispositions below were first written when no replacement crate existed and every one of them was an aspiration. Five can now be named as fact:
+
+- **`mlmf-core`** (#1) — the vocabulary and traits of §4. No filesystem, no memory mapping, no networking; and no tensor type, no device, no backend trait.
+- **`mlmf-ggml`** (#5) — the ggml type space and block geometry: 35 live codes plus 8 retired. It parses no container and does no I/O.
+- **`mlmf-gguf`** (#3, #4) — the GGUF reader: header, metadata index, and tensor directory.
+- **`mlmf-safetensors`** (#6) — the safetensors reader: header, metadata, tensor directory.
+- **`mlmf-conformance`** — cross-backend conformance tests. No library code, never published.
+
+**`mlmf-source-file` is in progress on a branch and has not landed** (§12 step 3). No later step has been started.
+
+Two facts constrain how the table below should be read, and both are easy to get wrong from the crate names alone:
+
+1. **All five merged crates are readers. Not one of them writes a file.** So every export row is unsatisfied regardless of how complete its format's reader is — `mlmf-gguf` landing does nothing for `formats/gguf_export.rs`.
+2. **Nothing here has been deleted yet.** `src/` has not lost or gained a file since this spec was written; the only commit to touch it since is #5. "Delete" in the Status column is a disposition, never a report.
+
+Status vocabulary, so "planned" and "done" cannot be confused:
+
+- **Superseded** — a merged crate does this now. The file is redundant and awaiting deletion.
+- **Planned** — the replacement is named, and does not exist yet.
+- **Delete** — no replacement, by a decision recorded in §10 or in the row.
+- **Undecided** — genuinely unsettled. Recorded as such rather than guessed, because a reader needs to know which rows are load-bearing questions.
+
+| Module | LOC | Status | Disposition |
+|---|---:|---|---|
+| `loader.rs` | 1,526 | Planned | Rewritten across the format axis; `LoadedModel`'s candlelight `VarBuilder` dies with it |
+| `quantization_simple.rs` | 1,111 | Delete | Calibration-based, unimplementable without a backend (§10) |
+| `lora.rs` | 953 | Planned | Split: adapter **file** reading kept, weight merging deleted (§10) |
+| `distributed.rs` | 923 | Delete | Not model-file work under any reading of the charter (§10) |
+| `formats/onnx_export.rs` | 846 | Planned | → `mlmf-onnx` (§12 step 6, not started) |
+| `distributed_loader.rs` | 842 | Delete | As `distributed.rs` |
+| `formats/gguf_export.rs` | 818 | Planned | → `mlmf-gguf`, decoupled from candlelight. **Unsatisfied by the merge**: `mlmf-gguf` landed as a reader and has no writer |
+| `metadata.rs` | 783 | Planned | Split: provenance kept and strengthened (§8.2), tensor statistics deleted |
+| `model_card.rs` | 772 | Delete | Not model-file work (§10) |
+| `validation.rs` | 761 | Planned | CUDA/device validation deleted — `mlmf-core` has no device type, so that half has no home by construction. Structural validation kept, not yet ported |
+| `quantization.rs` | 656 | Delete | Calibration-based; see `quantization_simple.rs` |
+| `distributed_core.rs` | 609 | Delete | As `distributed.rs` |
+| `conversion.rs` | 599 | Planned | Rebuilt on §8 measured-error semantics |
+| `config.rs` | 588 | Planned | → `mlmf-hf-layout` + `mlmf-meta` as **raw + typed accessors**, not a normalized struct (§10) |
+| `cache.rs` | 584 | Undecided | Re-examine under §9 clause 5; delete rather than ship one that can serve a stale entry silently. **The re-examination has not happened**, so which of the two it is remains open |
+| `formats/onnx_import.rs` | 574 | Planned | → `mlmf-onnx` (§12 step 6, not started) |
+| `multimodal_processor.rs` | 565 | Delete | Not model-file work (§10) |
+| `checkpoint.rs` | 543 | Undecided | Deferred (OQ-1) — but **not** for the reason this row first gave. §13 records "no consumer asked" as stale: Fuel trains and has its own checkpoint format over `LazyVarMap`. Deferred because the one project that trains has already solved it for itself |
+| `name_mapping.rs` | 520 | Planned | Declared tables → `mlmf-meta`; inference → deleted (§10) |
+| `multimodal_loader.rs` | 493 | Delete | Not model-file work (§10) |
+| `progress.rs` | 477 | Planned, home undecided | Kept: optional, off by default. **No step in §12 names the crate it lands in** |
+| `mmap_loader.rs` | 475 | Planned | → `mlmf-source-file`, in progress on a branch and **not landed** (§12 step 3) |
+| `formats/pytorch_loader.rs` | 407 | Delete | **Delete the stub**; adopt Fuel's 753-line pickle VM as `mlmf-pickle` (§12 step 6). Confirmed a stub: `load_zip_pickle` and `load_legacy_pickle` both return errors, so this file never parses a pickle |
+| `smart_mapping.rs` | 399 | Planned | → `mlmf-oracle`, off the load path entirely (§10; OQ-4 for where it lives) |
+| `universal_loader.rs` | 362 | Planned | → `mlmf` umbrella, format detection (§12 step 7) |
+| `multimodal.rs` | 358 | Delete | Not model-file work (§10) |
+| `formats/gguf.rs` | 317 | **Superseded** | **by `mlmf-gguf`** — the replacement this row used to ask for now exists and is candlelight-free. What it replaces is a 317-line shim over `candlelight::quantized::gguf_file` that still imports `candlelight::VarBuilder` |
+| `cached_loader.rs` | 270 | Undecided | Follows `cache.rs`, and is therefore open for the same reason |
+| `formats/awq.rs` | 264 | Planned | → `mlmf-awq`; both consumers indicated it is dead weight to them (§12 step 6) |
+| `saver.rs` | 221 | Undecided | Format-agnostic write dispatch — the write-side counterpart of `universal_loader.rs`, which no step in §12 provides a home for. Its only concrete saver, `SafeTensorsSaver::save_tensors`, returns `Err` unconditionally, and `save_model`/`save_safetensors` both route into it |
+| `error.rs` | 161 | **Superseded** | **by `mlmf-core::error`** (§4.4). What it replaces is an enum whose variants wrap `candlelight::Error` and `safetensors::SafeTensorError` — dependency edges the split exists to remove |
+| `lib.rs` | 158 | Planned | Rewritten as the `mlmf` umbrella (§12 step 7). `pub use candlelight::{DType, Device, VarBuilder}` at the crate root is the coupling the whole split removes. **This is the crate that `.` in `default-members` exists to keep building** — a rewrite presupposes it still compiles when someone starts, which is the reason recorded in `Cargo.toml` |
+| `formats/safetensors_export.rs` | 134 | Planned | → a safetensors writer, which **does not exist**: `mlmf-safetensors` reads only. Worth stating what is being replaced — `save_as_safetensors` writes an 8-byte length prefix and a `__metadata__`-only header, appends no tensor data, and returns `Ok` |
+| `formats/safetensors.rs` | 111 | **Superseded** | **by `mlmf-safetensors`** — the reader landed in #6. This file's `load_mmaped_safetensors` does not memory-map; it forwards to `load_regular_safetensors` |
+| `formats/mod.rs` | 63 | Planned | Module declarations and glob re-exports (`pub use safetensors::*`, and so on) only. Dies with the modules it declares; nothing to port |
+| `formats/awq_export.rs` | 50 | Planned | → `mlmf-awq` with `formats/awq.rs` |
+| `formats/pytorch_export.rs` | 36 | Delete | **Delete the stub** — `save_as_pytorch` is an unconditional `Err`. Whether anything in MLMF ever *writes* pickle is undecided: §12 step 6 names `mlmf-pickle` without saying which direction it goes |
+
+**Three rows carry Superseded, totalling 589 lines.** That is the honest measure of how much of `src/` five merged crates have actually retired, and it is small because the merged crates are readers of two formats while `src/` is mostly loading policy, deletion candidates, and export paths. The reader that replaced `formats/gguf.rs` is not smaller than it — `mlmf-gguf` is larger — because it does the job without candlelight and reports what it cannot read.
+
+One file in `src/` is not Rust and has no row: `src/mlmf.code-workspace`, a VS Code multi-root workspace pointing at `..` and `../../lightbulb`, committed by an evacuation commit. It is editor configuration that landed under `src/` by accident, and it is noted here only so that "37 files" and a directory listing of 38 entries do not read as a contradiction.
 
 **On pickle specifically.** Pickle is a stack-based virtual machine — the file is a program, and `GLOBAL`/`STACK_GLOBAL` plus `REDUCE` make arbitrary code execution expressible in a well-formed file. **No Python interpreter is required to read one safely:** Fuel's `fuel-formats/src/pickle.rs` implements the opcodes directly and honours `REDUCE` only for `torch._utils::_rebuild_tensor_v2`, `torch._utils::_rebuild_parameter`, `OrderedDict`/`defaultdict`, and a storage-name→dtype table. Everything else is refused. **The security model is: never be a general pickle interpreter.** MLMF's own implementation never parses anything, so there is no deliberate choice to make between the two.
 
@@ -400,20 +440,19 @@ One wrinkle: mmap-slicing a `.bin` works only because `torch.save` writes ZIP en
 
 ### `mlmf-ggml` — landed
 
-Implemented ahead of `mlmf-gguf` (§12 step 2), as the type-geometry half of that step. Two decisions this plan made that the spec above did not anticipate:
+Implemented ahead of `mlmf-gguf` (§12 step 2), as the type-geometry half of that step. It is a type table and nothing else: it parses no container, so no row in the table above is retired by it. Two decisions this plan made that the spec above did not anticipate:
 
 1. **The type space is 35 live codes plus 8 retired, not the ~15 a straight port of Fuel's table would have produced.** The corpus evidence for the wider space is concrete — 540 `IQ4_NL`, 30 `IQ3_S`, 30 `IQ4_XS` tensors in ordinary Hub downloads that a 15-type table cannot read at all.
 2. **§7's fatal/loud rule is amended** (see §7 above): the split is a property of whether an unknown poisons other addressing, not a property of the unknown itself. This was found while building `mlmf-ggml`, because GGUF's explicit per-tensor offsets are the concrete case that falsifies "unknown type code ⇒ always fatal."
 
-### `mlmf-gguf` — metadata path landed
+### `mlmf-gguf` — landed
 
-The metadata half of §12 step 2: magic, version, counts, and the key-value block, indexed at open and decoded on demand. The tensor directory is a later stage and is not here. Two decisions this plan made that the spec above did not anticipate:
+§12 step 2's GGUF half. The metadata path landed first: magic, version, counts, and the key-value block, indexed at open and decoded on demand. **The tensor directory has since landed too**, so the read side of this step is complete; there is still no GGUF writer, which is why `formats/gguf_export.rs` above is Planned rather than Superseded. Two decisions this plan made that the spec above did not anticipate:
 
 1. **GGUF v1 is refused, not parsed.** llama.cpp refuses it too, so its reader is not a reference for the layout, and the one v1 file in the corpus did not parse under a v2-shaped reader with only the integer widths substituted. Deriving the layout from that file is a separate plan. The consequence is visible in the corpus fixture: 29 `.gguf` files on disk produce 28 measured rows, and the missing one — `legacy/tinyllamas-stories-260k-f32.gguf` — is refused by version rather than misparsed into plausible-looking garbage.
 2. **An unknown metadata value type stops the index but not the open.** Its width is unknown, so the parse cannot find the next key — but every key already indexed stays readable, and the failure is reported. This is R1's guarantee applied within the metadata stage, and it is the reason the tensor directory is a separate stage rather than a separate concern. `GgufMetadata::index_complete` is what makes the difference legible to a caller: with an incomplete index, `Declaration::Absent` means only *not found in the part that could be read*, so it can support a positive finding and never a negative one.
 
 **On what the corpus can and cannot prove, measured rather than assumed.** The reference corpus is 1.13 GiB across 29 files. Scanning every key, string value and string array element in the 28 readable ones — **4,686,500 strings** — finds zero non-UTF-8, zero trailing-NUL and zero embedded-NUL strings. So the R3 byte-exactness guarantee is **not falsifiable against real files**: substituting `from_utf8_lossy` for the byte-exact decode is a no-op on every published model in the corpus. That is why `mlmf-gguf` carries authored fixtures alongside corpus-derived ones, and the split is not redundancy — it is the only instrument that can see the path. Verified by sabotage: lossy decoding turns three authored tests red and leaves all three corpus tests green.
-
 ---
 
 ## 12. Migration and sequencing
