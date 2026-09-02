@@ -4,9 +4,23 @@
 # over a VECTOR, not a set, so an entry in the wrong position fails exactly
 # as a missing one does.
 #
-# One entry, and spec §3.1 is why it is the only one this crate may ever
-# have on the format side: "sources depend on mlmf-core only, never on a
-# format crate". An edge to mlmf-gguf or mlmf-safetensors here would make
-# this source usable with one format, which is the composition the two-axis
+# `memmap2` is FIRST because the comparison is positional: the manifest's
+# dependency list is sorted before the assert, and `memmap2` sorts before
+# `mlmf-core` (`me` < `ml`). Written below `mlmf-core` in `Cargo.toml`, where
+# it reads better beside the `[features]` table it exists for, and above it
+# here, where the order is the assertion. An entry in the wrong position
+# fails exactly as a missing one does.
+#
+# It is an OPTIONAL dependency and it is still an edge: `parse_manifest`
+# takes every name in `[dependencies]` regardless of `optional`, which is
+# right -- a default feature makes this edge the one every consumer gets
+# unless they ask otherwise, and C2 pins edges rather than the subset of them
+# somebody happens to compile.
+memmap2
+
+# Spec §3.1 is why mlmf-core is the only entry this crate may ever have on
+# the FORMAT side: "sources depend on mlmf-core only, never on a format
+# crate". An edge to mlmf-gguf or mlmf-safetensors here would make this
+# source usable with one format, which is the composition the two-axis
 # design exists to avoid needing.
 mlmf-core
