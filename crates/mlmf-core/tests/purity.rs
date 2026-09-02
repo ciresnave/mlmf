@@ -59,6 +59,27 @@ const FORBIDDEN_CRATES: &[&str] = &[
     "libloading",
 ];
 
+/// Whether naming `crate_name` in `src/` is a C3 violation **on this axis**.
+///
+/// C3 is scoped and the gate was not: *"No crate **on the format axis**
+/// references `std::fs`, `memmap2`, or any network client."* See
+/// `common::Axis`.
+fn is_forbidden(crate_name: &str, axis: Axis) -> bool {
+    if !FORBIDDEN_CRATES.contains(&crate_name) {
+        return false;
+    }
+    // The relaxation, and it is one name. §3.4: "`memmap2` is a **default**
+    // feature of `mlmf-source-file`." A source crate is I/O by definition;
+    // forbidding it the one crate the spec assigns it would forbid the axis.
+    // Every other name here stays forbidden on both axes -- §3.1 gives
+    // `mlmf-source-hub` the only TLS edge in the workspace, and that is a
+    // different crate under a different plan.
+    if axis == Axis::Source && crate_name == "memmap2" {
+        return false;
+    }
+    true
+}
+
 // ---------------------------------------------------------------------------
 // Lexing
 // ---------------------------------------------------------------------------
@@ -376,7 +397,7 @@ fn collect_use_paths(toks: &[String]) -> Vec<UsePath> {
 // include, not a dev-dependency.
 #[path = "common/mod.rs"]
 mod common;
-use common::gated_members;
+use common::{Axis, axis, gated_members};
 
 /// A crate's permitted `std` submodules, from its own tests/allowed-std.list.
 ///
@@ -399,9 +420,15 @@ fn allowed_std(crate_dir: &Path) -> Vec<String> {
 // The check
 // ---------------------------------------------------------------------------
 
-/// Report every C3 violation in one source text. Public to the self-tests so
-/// the gate has a born-red state (spec §9 AD-2).
-fn scan_text(label: &str, src: &str, allowed: &[String]) -> Vec<String> {
+/// Report every C3 violation in one source text, **on the given axis**.
+/// Public to the self-tests so the gate has a born-red state (spec §9 AD-2).
+///
+/// The self-tests pass `Axis::Format` as a literal and must keep doing so:
+/// their fixtures include two memmap2-only cases, which are exactly the
+/// cases the source axis relaxes. Threading a crate's real axis in here
+/// instead would disarm them, and the resulting failure names the fixture
+/// rather than the axis.
+fn scan_text(label: &str, src: &str, allowed: &[String], axis: Axis) -> Vec<String> {
     let code = strip_comments_and_literals(src);
     let toks = tokenize(&code);
     let mut v = Vec::new();
@@ -412,8 +439,9 @@ fn scan_text(label: &str, src: &str, allowed: &[String]) -> Vec<String> {
         child: Option<&str>,
         how: &str,
         allowed: &[String],
+        axis: Axis,
     ) -> Option<String> {
-        if FORBIDDEN_CRATES.contains(&root) {
+        if is_forbidden(root, axis) {
             return Some(format!("{label}: {how} names the I/O crate `{root}`"));
         }
         if root == "std"
@@ -448,6 +476,7 @@ fn scan_text(label: &str, src: &str, allowed: &[String]) -> Vec<String> {
             p.segments.get(1).map(String::as_str),
             "import",
             allowed,
+            axis,
         ));
     }
 
@@ -461,11 +490,12 @@ fn scan_text(label: &str, src: &str, allowed: &[String]) -> Vec<String> {
                 Some(w[2].as_str()),
                 "path",
                 allowed,
+                axis,
             ));
         }
     }
     for w in toks.windows(2) {
-        if w[0] == "crate" && FORBIDDEN_CRATES.contains(&w[1].as_str()) {
+        if w[0] == "crate" && is_forbidden(&w[1], axis) {
             v.push(format!(
                 "{label}: `extern crate {}` names an I/O crate",
                 w[1]
@@ -492,6 +522,9 @@ fn every_gated_crate_performs_no_io() {
     let mut violations = Vec::new();
     for dir in gated_members() {
         let allowed = allowed_std(&dir);
+        // The one call site that reads a real crate's axis. The three in the
+        // self-tests below are pinned to `Axis::Format` on purpose.
+        let axis = axis(&dir);
         let name = dir
             .file_name()
             .expect("crate dir has a name")
@@ -505,7 +538,7 @@ fn every_gated_crate_performs_no_io() {
         for file in &files {
             let text = fs::read_to_string(file).expect("source file is readable");
             let label = format!("{name}: {}", file.display());
-            violations.extend(scan_text(&label, &text, &allowed));
+            violations.extend(scan_text(&label, &text, &allowed, axis));
         }
     }
 
@@ -541,8 +574,14 @@ fn the_gate_can_fail() {
         "use tokio::net::TcpListener;",
         "use std::{fs::{File, OpenOptions}, fmt};",
     ];
+    // `Axis::Format` is a LITERAL here, not the crate's own axis, and this
+    // is load-bearing: cases 6 and 11 are memmap2-only, and the source axis
+    // relaxes exactly `memmap2`. Passing a real axis in would disarm those
+    // two fixtures while the failure message names the fixture, pointing the
+    // diagnosis away from the axis. `the_axis_scopes_the_relaxation_to_memmap2`
+    // is where the source axis is exercised.
     for (n, src) in must_be_rejected.iter().enumerate() {
-        let found = scan_text("fixture", src, &allowed);
+        let found = scan_text("fixture", src, &allowed, Axis::Format);
         assert!(
             !found.is_empty(),
             "case {n} slipped through the C3 gate:\n{src}"
@@ -556,10 +595,77 @@ fn the_gate_can_fail() {
         .join("fixtures")
         .join("grouped_import.rs.fixture");
     let text = fs::read_to_string(&fixture).expect("fixture must exist");
-    let found = scan_text("grouped_import.rs.fixture", &text, &allowed);
+    let found = scan_text("grouped_import.rs.fixture", &text, &allowed, Axis::Format);
     assert!(
         !found.is_empty(),
         "the on-disk grouped-import fixture was not rejected"
+    );
+}
+
+#[test]
+fn the_axis_scopes_the_relaxation_to_memmap2() {
+    // C3 verbatim: "No crate **on the format axis** references `std::fs`,
+    // `memmap2`, or any network client." §3.4: "`memmap2` is a **default**
+    // feature of `mlmf-source-file`" -- a source-axis crate. The qualifier
+    // was dropped when the clause became a gate, and both C3 gates then
+    // rejected `memmap2` over every crate under `crates/`. This is the
+    // control that the qualifier is back AND that it relaxed exactly one
+    // name.
+    let allowed = allowed_std(Path::new(env!("CARGO_MANIFEST_DIR")));
+
+    // Cases 6 and 11 of `the_gate_can_fail` are the memmap2-only fixtures;
+    // these are the same two forms, plus the `extern crate` form the third
+    // scan pass sees. They are the two the relaxation could silently disarm
+    // if the axis were threaded into the self-tests instead of pinned there.
+    let memmap2_forms = [
+        "use memmap2::Mmap;",
+        "fn f() { let _ = memmap2::Mmap::map(&x); }",
+        "extern crate memmap2;",
+    ];
+    for (n, src) in memmap2_forms.iter().enumerate() {
+        let on_source = scan_text("fixture", src, &allowed, Axis::Source);
+        assert!(
+            on_source.is_empty(),
+            "memmap2 case {n} was rejected on the SOURCE axis, where §3.4 \
+             makes it a default feature: {on_source:?}\n{src}"
+        );
+        assert!(
+            !scan_text("fixture", src, &allowed, Axis::Format).is_empty(),
+            "memmap2 case {n} was accepted on the FORMAT axis, which C3 \
+             forbids by name:\n{src}"
+        );
+    }
+
+    // The scope control, and it is exhaustive rather than one example: a
+    // second name quietly added to the relaxation has nowhere to hide.
+    // §3.1 gives `mlmf-source-hub` the only TLS edge in the workspace, and
+    // that is not this axis's to grant.
+    for name in FORBIDDEN_CRATES {
+        if *name == "memmap2" {
+            continue;
+        }
+        let src = format!("use {name}::Thing;");
+        assert!(
+            !scan_text("fixture", &src, &allowed, Axis::Source).is_empty(),
+            "`{name}` was accepted on the source axis; the axis relaxes \
+             `memmap2` and nothing else"
+        );
+    }
+
+    // And the `std` half is untouched. `std::fs`, `std::io` and `std::path`
+    // are not on FORBIDDEN_CRATES at all; they are governed by each crate's
+    // own `tests/allowed-std.list`, on BOTH axes. Scanned against an empty
+    // allow-list so the rejection is demonstrably the allow-list's.
+    let no_std_allowed: &[String] = &[];
+    assert!(
+        !scan_text(
+            "fixture",
+            "use std::fs::File;",
+            no_std_allowed,
+            Axis::Source
+        )
+        .is_empty(),
+        "the axis must not relax the per-crate std allow-list"
     );
 }
 
@@ -584,8 +690,11 @@ fn the_gate_does_not_cry_wolf() {
         "use crate::{Error, ErrorKind, Result};",
         "use bytemuck::Pod;",
     ];
+    // `Axis::Format` as a literal, for the same reason as in
+    // `the_gate_can_fail`: the stricter axis is the harder case to accept
+    // correctly, and a fixture list must not shift under an axis change.
     for (n, src) in must_be_accepted.iter().enumerate() {
-        let found = scan_text("fixture", src, &allowed);
+        let found = scan_text("fixture", src, &allowed, Axis::Format);
         assert!(
             found.is_empty(),
             "case {n} was falsely rejected: {found:?}\n{src}"
