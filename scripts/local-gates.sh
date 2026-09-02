@@ -55,6 +55,23 @@ export RUSTDOCFLAGS="-D warnings"
 # refused only on ZERO extracted commands; a step it could not parse was
 # executed as garbage instead. A published note asserted the stronger
 # property, which is the defect that note is about.
+# The notice token is read from a FILE that the tests read too, via
+# `include_str!`. It used to be the literal `SKIPPED` written here and
+# written again, separately, in each corpus test -- a convention held by two
+# copies and enforced by nothing. A third differential spelling it `skipped`
+# or `NOT RUN` would have been swallowed exactly as before, and its author
+# had no way to learn the harness had a convention at all. Same defect as a
+# hand-written `ALL` beside an enum: one list, or it drifts.
+NOTICE_TOKEN_FILE="$(dirname "$0")/notice-token.txt"
+[ -f "$NOTICE_TOKEN_FILE" ] || {
+  echo "missing $NOTICE_TOKEN_FILE — refusing: without it this script cannot" >&2
+  echo "recognise a test's SKIPPED notice and would silently print none." >&2
+  exit 2
+}
+NOTICE_TOKEN="$(tr -d '
+' < "$NOTICE_TOKEN_FILE")"
+[ -n "$NOTICE_TOKEN" ] || { echo "$NOTICE_TOKEN_FILE is empty — refusing." >&2; exit 2; }
+
 if grep -qE '^[[:space:]]*run:[[:space:]]*[|>]' "$WORKFLOW"; then
   echo "$WORKFLOW uses a multi-line \`run: |\` or \`run: >\` block." >&2
   echo "This script extracts single-line \`run:\` steps only, so the commands" >&2
@@ -114,14 +131,14 @@ for cmd in "${CMDS[@]}"; do
   # Surfaced whether the command passed or failed. A notice is not an error
   # and must not need one to be seen.
   case "$err" in
-    *SKIPPED*) notices="${notices}${err}
+    *"$NOTICE_TOKEN"*) notices="${notices}${err}
 " ;;
   esac
 done
 
 echo
 if [ -n "$notices" ]; then
-  printf '%s' "$notices" | grep -a SKIPPED
+  printf '%s' "$notices" | grep -a "$NOTICE_TOKEN"
   echo
 fi
 if [ "$failed" -eq 0 ]; then
