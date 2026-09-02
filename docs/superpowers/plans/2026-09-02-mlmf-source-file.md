@@ -296,7 +296,16 @@ here for consistency, not something the seam already ruled.)*
 
 ## Task 2: `RangedSource`, over the bytes already held
 
-**Files:** `crates/mlmf-source-file/src/file.rs`, `tests/ranged.rs`.
+**Files:** `crates/mlmf-source-file/src/file.rs`, `tests/ranged.rs`,
+`tests/allowed-std.list`.
+
+**`FileSource` gains a `path: PathBuf` field here.** Task 1's block puts
+`Error::with_path` in the constructor, where `open` is holding the path —
+`read_range` receives only a range, and Task 1 correctly shipped
+`FileSource { bytes }`. Without the field every out-of-range read says *"byte
+range 248..257 is outside a 256-byte file"* **with no way to say which of a
+model's shards it was about.** *(Found by executing Task 2; neither this Files
+list nor the decision box mentioned it.)*
 
 **Interfaces consumed:**
 ```rust
@@ -306,7 +315,12 @@ fn is_empty(&self) -> Option<bool>;   // DEFAULTED by the trait — do not imple
                                       // and do not write a test that treats it as new.
 ```
 
-- [ ] **Step 1: Write the failing tests.** A middle range; a range ending **exactly** at EOF; a range one byte past EOF (**an error, `ErrorKind::Source`, not a short read**); an inverted range; `into` shorter than the range; `into` longer; `len()` for a real and a zero-length file.
+- [ ] **Step 1: Write the failing tests.** A middle range; a range ending **exactly** at EOF; a range one byte past EOF (**an error, `ErrorKind::Source`, not a short read**); an inverted range — **`clippy::reversed_empty_ranges` is deny-by-default and
+  rejects `read_range(96..64, …)` as anyone would first write it.** `cargo
+  test` compiles it, so it survives Step 4 and dies only at Step 5's gate run.
+  Build the range field-by-field. *(The lint is right about typed ranges and
+  blind to the case that matters: nobody types an inverted range — it arrives
+  as two computed offsets from a header this crate never reads.)*; `into` shorter than the range; `into` longer; `len()` for a real and a zero-length file.
 
   **The at-EOF / past-EOF pair is not optional.** Both corpus differentials in this repo caught a `>` vs `>=` off-by-one on real models — an 88,202,080-byte GGUF whose last tensor ends on the final byte, and a 723,674,912-byte safetensors. The last tensor of a well-formed file touches the last byte every time.
 
@@ -316,7 +330,18 @@ fn is_empty(&self) -> Option<bool>;   // DEFAULTED by the trait — do not imple
 
 - [ ] **Step 4: Run.**
 
-- [ ] **Step 5: Sabotage.** `>` → `>=` on the end bound: confirm **exactly** the at-EOF test reddens and past-EOF stays green — identify which assertion fires, not merely that one does. Then clamp instead of erroring: past-EOF reddens.
+- [ ] **Step 5: Sabotage.** `>` → `>=` on the end bound: confirm **exactly** the at-EOF test reddens and past-EOF stays green — identify which assertion fires, not merely that one does. **Then clamp AND short-read** — `range.end.min(available)` alone reddens
+      **nothing**, measured: 9 passed, 0 failed. The `into.len() == width`
+      check catches the clamped read for the wrong reason — nine bytes asked
+      for, eight after clamping, so the caller's nine-byte buffer no longer
+      matches — and past-EOF still passes, on a fact that has nothing to do
+      with the range. **A success criterion satisfiable without doing the
+      work.**
+
+      Task 2's implementer found it and added the test that removes that second
+      line of defence: **a past-EOF range whose buffer is sized to what the
+      file CAN give.** Against that, the pure clamp reddens alone; spelled as
+      clamp-and-short-read it reddens three.
 
 - [ ] **Step 6: Commit.**
 
@@ -485,6 +510,28 @@ Survivable while no crate had a meaningful default feature. **This crate's mmap 
 - [ ] Dispatch a **fresh** reviewer over the whole diff. Priorities: cross-file contradictions first; tests that cannot fail (the four vacuity modes, plus *an assertion pinning a snapshot as a specification*); claims of impossibility; charter violations; then whether the API reads as one thing.
 - [ ] **Tell the reviewer to read files the diff does not touch but whose claims it depends on.** Plan 5's sharpest finding was in a file with no diff hunk and no task owner.
 - [ ] **Pre-assign one:** `crates/mlmf-core/tests/transitive_deps.rs`'s doc says its narrow scope *"becomes wrong at that moment"* if a member gains an external dependency. **Task 3 is that moment**, in a file no task owns.
+- [ ] **Settle `read_range`'s error kind — the workspace now has two
+      implementations of one trait disagreeing for identical input.**
+
+      The doc reads *"If the range lies outside the artifact, or the underlying
+      transport fails (`ErrorKind::Source`)"* — and **the parenthetical binds
+      ambiguously**: to the transport clause alone, or to both?
+
+      `mlmf-core`'s own in-crate reference, `Fake::read_range` (test-only,
+      `mod tests` at `traits.rs:315`), reads it the first way and returns
+      **`ErrorKind::Truncated { needed, available }`** for out-of-range. This
+      plan ruled the second way, so `FileSource` returns
+      **`ErrorKind::Source(String)`**.
+
+      **This is the second-implementation problem one layer down** — with one
+      implementation, nothing could contradict the doc.
+
+      **My ruling may be the wrong one.** `Truncated { needed, available }` is
+      *structured*: a consumer can branch on the numbers, where
+      `Source(String)` is a message that must be parsed to be used. For a range
+      outside the artifact the fake's choice carries more. **Settle it, and
+      make the doc unambiguous either way.**
+
 - [ ] **Verify every Important finding yourself before fixing it.**
 - [ ] **Record the review-findings rate**, and say which rate it is.
 
