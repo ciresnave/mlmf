@@ -31,17 +31,18 @@
 
 `std::fs`, `std::io` and `std::path` are **not forbidden by any gate.** `purity.rs::FORBIDDEN_CRATES` is fifteen *crate* names with no `std::` entry; `std` is checked against **each crate's own `tests/allowed-std.list`**. A crate gets `std::fs` by writing `fs` in its own list, exactly as `mlmf-safetensors` gets `iter` today. **There is nothing to relax and no gate to change for the `std` half.**
 
+Measured in an isolated copy of the gates: a fake source crate using `std::fs`, `std::io`, `std::path` **and** `memmap2`, with `fs`/`io`/`path` in its allow-list, produced **two violations, both `memmap2`**. With the allow-list narrowed to `path` alone, the same scan produced six, naming `std::fs` and `std::io` — so the scanner would have found them had they been forbidden. **They are unlisted by choice, not forbidden.**
+
 ⚠️ **And the modules this crate actually needs are `fs`, `ops`, `path`, `ffi`
-— not the `fs`/`io`/`path` triple this box uses as its example.** Measured by
+— not the `fs`/`io`/`path` triple the probe above used.** Measured by
 running the real `purity.rs` over a realistic `src/` written to this plan's
 own interfaces: with only `fs`/`path` allowed it reports `std::ops`, twice,
 because `RangedSource::read_range(&self, range: Range<u64>, …)` forces
 `use std::ops::Range;` — `traits.rs:8` does the same in core. `ffi` is added
 by the `OsString` ruling in Task 4. **`io` is NOT needed**: error conversion
 goes through `ErrorKind::Source(Box::new(e))` and names no `std::io` path.
-Do not pre-populate the file from the example above.
-
-Measured in an isolated copy of the gates: a fake source crate using `std::fs`, `std::io`, `std::path` **and** `memmap2`, with `fs`/`io`/`path` in its allow-list, produced **two violations, both `memmap2`**. With the allow-list narrowed to `path` alone, the same scan produced six, naming `std::fs` and `std::io` — so the scanner would have found them had they been forbidden. **They are unlisted by choice, not forbidden.**
+**Do not pre-populate `allowed-std.list` from that probe** — it was chosen
+to test the gate, not to model this crate.
 
 **Three gates stand between this crate and a green run, not two** — the third
 only if the implementer reaches for the obvious tool:
