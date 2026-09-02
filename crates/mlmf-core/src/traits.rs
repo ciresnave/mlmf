@@ -53,8 +53,25 @@ pub trait RangedSource {
     ///
     /// # Errors
     ///
-    /// If the range lies outside the artifact, or the underlying transport
-    /// fails ([`crate::ErrorKind::Source`]).
+    /// **[`crate::ErrorKind::Truncated`] if the range lies outside the
+    /// artifact** — `needed` is the range's end, `available` the artifact's
+    /// length. **[`crate::ErrorKind::Source`] if the underlying transport
+    /// fails.**
+    ///
+    /// Two sentences, deliberately. This used to read *"if the range lies
+    /// outside the artifact, or the underlying transport fails
+    /// (`ErrorKind::Source`)"*, and **the parenthetical bound ambiguously**:
+    /// to the transport clause alone, or to both? The reference
+    /// implementation below read it the first way and returned `Truncated`
+    /// for out-of-range; `mlmf-gguf` cited that reference by name and
+    /// followed it; `mlmf-safetensors` followed `mlmf-gguf`. **A fourth
+    /// implementation read it the second way and returned `Source`**, which
+    /// is how a workspace ends up with two answers to one question.
+    ///
+    /// `Truncated`'s numbers are the reason it wins on the merits and not
+    /// only on precedent: a caller branches on two integers instead of
+    /// parsing a sentence, **and a parsed error message is a contract nobody
+    /// wrote down and everybody depends on.**
     fn read_range(&self, range: Range<u64>, into: &mut [u8]) -> Result<()>;
 }
 

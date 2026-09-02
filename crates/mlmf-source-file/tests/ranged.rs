@@ -135,9 +135,18 @@ fn a_range_one_byte_past_eof_is_an_error_and_not_a_short_read() {
         .read_range(248..257, &mut into)
         .expect_err("a range running past the end of the file must not succeed");
 
+    // The NUMBERS, not a message substring. `Truncated` carries what was
+    // asked for and what exists, so this asserts the two integers a caller
+    // would branch on rather than prose a caller would have to parse.
     assert!(
-        matches!(err.kind(), ErrorKind::Source(_)),
-        "expected ErrorKind::Source, got {:?}",
+        matches!(
+            err.kind(),
+            ErrorKind::Truncated {
+                needed: 257,
+                available: 256
+            }
+        ),
+        "expected Truncated {{ needed: 257, available: 256 }}, got {:?}",
         err.kind()
     );
     assert_eq!(
@@ -182,9 +191,18 @@ fn a_range_past_eof_is_refused_even_when_a_clamped_read_would_fit_the_buffer() {
         .read_range(248..257, &mut into)
         .expect_err("a range past the end must be refused, not quietly shortened");
 
+    // The NUMBERS, not a message substring. `Truncated` carries what was
+    // asked for and what exists, so this asserts the two integers a caller
+    // would branch on rather than prose a caller would have to parse.
     assert!(
-        matches!(err.kind(), ErrorKind::Source(_)),
-        "expected ErrorKind::Source, got {:?}",
+        matches!(
+            err.kind(),
+            ErrorKind::Truncated {
+                needed: 257,
+                available: 256
+            }
+        ),
+        "expected Truncated {{ needed: 257, available: 256 }}, got {:?}",
         err.kind()
     );
     assert_eq!(

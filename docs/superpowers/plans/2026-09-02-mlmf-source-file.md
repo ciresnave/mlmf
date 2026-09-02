@@ -510,27 +510,32 @@ Survivable while no crate had a meaningful default feature. **This crate's mmap 
 - [ ] Dispatch a **fresh** reviewer over the whole diff. Priorities: cross-file contradictions first; tests that cannot fail (the four vacuity modes, plus *an assertion pinning a snapshot as a specification*); claims of impossibility; charter violations; then whether the API reads as one thing.
 - [ ] **Tell the reviewer to read files the diff does not touch but whose claims it depends on.** Plan 5's sharpest finding was in a file with no diff hunk and no task owner.
 - [ ] **Pre-assign one:** `crates/mlmf-core/tests/transitive_deps.rs`'s doc says its narrow scope *"becomes wrong at that moment"* if a member gains an external dependency. **Task 3 is that moment**, in a file no task owns.
-- [ ] **Settle `read_range`'s error kind — the workspace now has two
-      implementations of one trait disagreeing for identical input.**
+- [x] ~~Settle `read_range`'s error kind~~ — **SETTLED before Task 3, not
+      deferred to review.** The doc's parenthetical bound ambiguously; the
+      workspace had two answers.
 
-      The doc reads *"If the range lies outside the artifact, or the underlying
-      transport fails (`ErrorKind::Source`)"* — and **the parenthetical binds
-      ambiguously**: to the transport clause alone, or to both?
+      **`ErrorKind::Truncated { needed, available }` wins, and my plan's
+      ruling of `Source` was wrong against more than the fake.** Measured:
+      `mlmf-core`'s own reference `Fake::read_range` returns `Truncated`;
+      **`mlmf-gguf` chose it citing that reference by name**; and
+      `mlmf-safetensors` followed `mlmf-gguf`. Three implementations, a
+      written rationale, and `FileSource` was the only one answering "this
+      range is not in my bytes" a different way.
 
-      `mlmf-core`'s own in-crate reference, `Fake::read_range` (test-only,
-      `mod tests` at `traits.rs:315`), reads it the first way and returns
-      **`ErrorKind::Truncated { needed, available }`** for out-of-range. This
-      plan ruled the second way, so `FileSource` returns
-      **`ErrorKind::Source(String)`**.
+      **On the merits and not only on precedent:** a caller branches on two
+      integers instead of parsing a sentence, and a parsed error message is a
+      contract nobody wrote down and everybody depends on. The two `past_eof`
+      tests now assert the numbers rather than a message substring.
 
-      **This is the second-implementation problem one layer down** — with one
-      implementation, nothing could contradict the doc.
+      **The doc is fixed so it cannot bind two ways**, which is the half that
+      stops it recurring — not just the implementation.
 
-      **My ruling may be the wrong one.** `Truncated { needed, available }` is
-      *structured*: a consumer can branch on the numbers, where
-      `Source(String)` is a message that must be parsed to be used. For a range
-      outside the artifact the fake's choice carries more. **Settle it, and
-      make the doc unambiguous either way.**
+      **And the inverted-range and buffer-width cases keep `Source`, for a
+      reason worth recording:** `mlmf-core` has typed `InvertedRange` and
+      `SizeMismatch` variants and **neither fits, because both carry a tensor
+      `name` and a source has no tensors.** They are format-axis errors;
+      `RangedSource` is a source-axis trait. `Truncated` is the one variant
+      with no tensor assumption, which is exactly why it is the one that fits.
 
 - [ ] **Verify every Important finding yourself before fixing it.**
 - [ ] **Record the review-findings rate**, and say which rate it is.

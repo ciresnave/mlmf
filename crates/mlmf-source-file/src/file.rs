@@ -84,14 +84,17 @@ impl FileSource {
     /// kind of failure — the caller asked for bytes this file cannot give
     /// them — so they share a constructor and differ only in what they say.
     ///
-    /// `ErrorKind::Source` rather than [`ErrorKind::Truncated`], and the
-    /// choice is worth recording because it is not obvious.
-    /// `RangedSource::read_range`'s own `# Errors` section names
-    /// `ErrorKind::Source` and nothing else, so that is the seam's answer.
-    /// It reads oddly for an out-of-range request — no transport failed —
-    /// but the alternative reads worse: `Truncated { needed, available }`
-    /// says the *file* is short, when the file is exactly as long as it
-    /// should be and the *range* is wrong.
+    /// **Not for the out-of-range case** — that is
+    /// [`ErrorKind::Truncated`], which every other implementation of this
+    /// question in the workspace already returns. See `read_range`.
+    ///
+    /// This constructor is for the two failures that are about the
+    /// *arguments* rather than about the bytes: an inverted range, and a
+    /// buffer whose width does not match. `mlmf-core` has typed variants
+    /// for both shapes — [`ErrorKind::InvertedRange`] and
+    /// [`ErrorKind::SizeMismatch`] — and **neither fits, because both
+    /// carry a tensor `name` and a source has no tensors.** They are
+    /// format-axis errors; this is a source-axis trait.
     fn range_error(&self, message: String) -> Error {
         // `String` into the boxed trait object, not a bespoke error type.
         // A private type implementing `std::error::Error` would make this
@@ -144,10 +147,30 @@ impl RangedSource for FileSource {
         // caller's arithmetic error into a short read they cannot see,
         // which is the failure shape the whole project is written against.
         if range.end > available {
-            return Err(self.range_error(format!(
-                "byte range {}..{} is outside a {available}-byte file",
-                range.start, range.end
-            )));
+            // `ErrorKind::Truncated`, not `Source`, and this was ruled the
+            // other way first. The argument for `Source` was that
+            // `Truncated` "says the FILE is short, when the file is exactly
+            // as long as it should be and the RANGE is wrong" — which is a
+            // fair reading of the name and loses to three facts.
+            //
+            // `mlmf-core`'s own reference implementation of THIS TRAIT,
+            // `Fake::read_range`, returns `Truncated { needed: range.end,
+            // available }` for exactly this. `mlmf-gguf` then chose the
+            // same variant citing that reference by name, and
+            // `mlmf-safetensors` followed `mlmf-gguf`. Returning `Source`
+            // here would make this the only implementation in the workspace
+            // answering "this range is not in my bytes" a different way.
+            //
+            // And the field names do not blame the file: `needed` is what
+            // was asked for, `available` is what exists. A caller can branch
+            // on two integers instead of parsing a sentence — which is the
+            // whole difference, because a parsed error message is a contract
+            // nobody wrote down and everybody depends on.
+            return Err(Error::from(ErrorKind::Truncated {
+                needed: range.end,
+                available,
+            })
+            .with_path(&self.path));
         }
 
         let width = range.end - range.start;
