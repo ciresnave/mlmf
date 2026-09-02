@@ -60,11 +60,6 @@ use mlmf_safetensors::{parse_header, parse_metadata, parse_tensors};
 /// about the property it claims to test.
 const DEFAULT_CORPUS_ROOT: &str = "C:/Models";
 
-/// The token `scripts/local-gates.sh` greps for, read from the SAME file the
-/// script reads. Not a second copy of a literal: a convention held in two
-/// places is one that drifts, and this one already had no gate.
-const NOTICE_TOKEN: &str = include_str!("../../../scripts/notice-token.txt");
-
 /// Where the corpus is, honouring the override.
 fn corpus_root() -> String {
     std::env::var("MLMF_SAFETENSORS_CORPUS").unwrap_or_else(|_| DEFAULT_CORPUS_ROOT.to_string())
@@ -82,7 +77,8 @@ fn corpus_required() -> bool {
 
 /// One row of `corpus-safetensors.tsv`.
 struct Row {
-    /// Path relative to [`DEFAULT_CORPUS_ROOT`], forward-slashed, so it can be
+    /// Path relative to the configured corpus root ([`corpus_root`], whose
+    /// fallback is [`DEFAULT_CORPUS_ROOT`]), forward-slashed, so it can be
     /// reopened. A bare basename could not be.
     file: String,
     size: u64,
@@ -237,7 +233,7 @@ fn the_corpus_agrees_or_says_it_was_not_there() {
         let _ = writeln!(
             std::io::stderr(),
             "{}: SKIPPED: no safetensors corpus at {root_s}.              `the_fixture_is_intact` above still ran; the byte-level              differential did NOT. Do not read this run as corpus-verified.              Point MLMF_SAFETENSORS_CORPUS at one, or set              MLMF_CORPUS_REQUIRED=1 to make this a failure.",
-            NOTICE_TOKEN.trim()
+            mlmf_core::NOTICE_TOKEN
         );
         return;
     }

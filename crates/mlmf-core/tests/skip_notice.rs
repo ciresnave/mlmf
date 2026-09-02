@@ -28,47 +28,69 @@ use std::path::Path;
 #[path = "common/mod.rs"]
 mod common;
 
-/// Read from the same file `scripts/local-gates.sh` reads.
-const NOTICE_TOKEN: &str = include_str!("../../../scripts/notice-token.txt");
+/// The one definition, from the library every gated crate depends on.
+use mlmf_core::NOTICE_TOKEN;
 
 /// Writing here is what escapes libtest's capture of a PASSING test, which
 /// is exactly what a skip notice needs and nothing else in a test does.
 const STDERR_HANDLE: &str = "std::io::stderr()";
 
-/// The single source. A test satisfies this gate by READING it — the
-/// preferred form — or by containing the token literally.
+/// How a test refers to the one definition. A source satisfies this gate by
+/// naming the constant — the preferred form — or by containing the token
+/// literally.
 ///
-/// **The first version of this gate accepted only the literal, and its
-/// first run failed both corpus differentials, which had just been
-/// changed to read the file.** A check whose search term is the artifact
-/// of NON-compliance scores implementations on how naively they spell the
-/// mechanism: it finds the sloppy ones and fails the good ones. Ask what
-/// a PERFECT implementation looks like to the instrument before writing
-/// it.
-const TOKEN_FILE: &str = "notice-token.txt";
+/// **The first version of this gate accepted only the LITERAL, and its first
+/// run failed both corpus differentials, which had just been changed to
+/// single-source the token.** A check whose search term is the artifact of
+/// NON-compliance scores implementations on how naively they spell the
+/// mechanism: it finds the sloppy ones and fails the good ones. Ask what a
+/// PERFECT implementation looks like to the instrument before writing it.
+///
+/// The second version matched a bare filename, `notice-token.txt`, which a
+/// review pointed out any unrelated path of that name would satisfy. Naming
+/// the constant is unambiguous and cannot be satisfied by coincidence.
+const TOKEN_REF: &str = "NOTICE_TOKEN";
+
+fn collect(dir: &Path, crate_name: &str, rel: &str, out: &mut Vec<(String, String)>) {
+    for entry in fs::read_dir(dir).expect("tests dir is readable") {
+        let path = entry.expect("readable entry").path();
+        let name = path
+            .file_name()
+            .expect("has a name")
+            .to_string_lossy()
+            .to_string();
+        let child = if rel.is_empty() {
+            name.clone()
+        } else {
+            format!("{rel}/{name}")
+        };
+        if path.is_dir() {
+            // Recursion is not cosmetic: `tests/common/mod.rs` and
+            // `tests/fixture/mod.rs` both exist today, and a flat scan
+            // reported success while never opening either. A gate that
+            // cannot reach a file cannot clear it.
+            collect(&path, crate_name, &child, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push((
+                format!("{crate_name}/tests/{child}"),
+                fs::read_to_string(&path).expect("test source is readable"),
+            ));
+        }
+    }
+}
 
 fn test_sources(dir: &Path) -> Vec<(String, String)> {
     let tests = dir.join("tests");
     if !tests.is_dir() {
         return Vec::new();
     }
+    let crate_name = dir
+        .file_name()
+        .expect("crate dir has a name")
+        .to_string_lossy()
+        .to_string();
     let mut out = Vec::new();
-    for entry in fs::read_dir(&tests).expect("tests/ is readable") {
-        let path = entry.expect("readable entry").path();
-        if path.extension().is_some_and(|e| e == "rs") {
-            let name = format!(
-                "{}/tests/{}",
-                dir.file_name()
-                    .expect("crate dir has a name")
-                    .to_string_lossy(),
-                path.file_name().expect("file has a name").to_string_lossy()
-            );
-            out.push((
-                name,
-                fs::read_to_string(&path).expect("test source is readable"),
-            ));
-        }
-    }
+    collect(&tests, &crate_name, "", &mut out);
     out.sort();
     out
 }
@@ -76,7 +98,7 @@ fn test_sources(dir: &Path) -> Vec<(String, String)> {
 #[test]
 fn every_test_writing_to_the_stderr_handle_carries_the_notice_token() {
     let token = NOTICE_TOKEN.trim();
-    assert!(!token.is_empty(), "scripts/notice-token.txt is empty");
+    assert!(!token.is_empty(), "mlmf_core::NOTICE_TOKEN is empty");
 
     let mut offenders = Vec::new();
     let mut carriers = Vec::new();
@@ -85,7 +107,7 @@ fn every_test_writing_to_the_stderr_handle_carries_the_notice_token() {
             if !src.contains(STDERR_HANDLE) {
                 continue;
             }
-            if src.contains(TOKEN_FILE) || src.contains(token) {
+            if src.contains(TOKEN_REF) || src.contains(token) {
                 carriers.push(name);
             } else {
                 offenders.push(name);
@@ -95,7 +117,7 @@ fn every_test_writing_to_the_stderr_handle_carries_the_notice_token() {
 
     assert!(
         offenders.is_empty(),
-        "these tests write to {STDERR_HANDLE} but neither read {TOKEN_FILE} nor mention `{token}`:\n  {}\n\n\
+        "these tests write to {STDERR_HANDLE} but neither name {TOKEN_REF} nor mention `{token}`:\n  {}\n\n\
          `scripts/local-gates.sh` surfaces a notice by grepping captured stderr \
          for that token, read from scripts/notice-token.txt. A notice spelled any \
          other way is discarded by the runner and the run reports ok — which is \
@@ -155,16 +177,16 @@ fn the_gate_can_fail() {
     // nowhere -- that is the point of single-sourcing -- and must still be a
     // carrier. Without this control the gate would again fail exactly the
     // implementations that did the right thing.
-    let reads_the_file = format!(
-        "const T: &str = include_str!(\"../../../scripts/{TOKEN_FILE}\");
+    let names_the_const = format!(
+        "use mlmf_core::{TOKEN_REF};
 {writes_only}"
     );
     assert!(
-        !reads_the_file.contains(token),
+        !names_the_const.contains(token),
         "the single-sourced form deliberately contains no literal token"
     );
     assert!(
-        reads_the_file.contains(TOKEN_FILE) && reads_the_file.contains(STDERR_HANDLE),
-        "the single-sourced form must be recognised by its reference to the file"
+        names_the_const.contains(TOKEN_REF) && names_the_const.contains(STDERR_HANDLE),
+        "the single-sourced form must be recognised by naming the constant"
     );
 }

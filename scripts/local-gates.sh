@@ -55,22 +55,37 @@ export RUSTDOCFLAGS="-D warnings"
 # refused only on ZERO extracted commands; a step it could not parse was
 # executed as garbage instead. A published note asserted the stronger
 # property, which is the defect that note is about.
-# The notice token is read from a FILE that the tests read too, via
-# `include_str!`. It used to be the literal `SKIPPED` written here and
-# written again, separately, in each corpus test -- a convention held by two
-# copies and enforced by nothing. A third differential spelling it `skipped`
-# or `NOT RUN` would have been swallowed exactly as before, and its author
-# had no way to learn the harness had a convention at all. Same defect as a
-# hand-written `ALL` beside an enum: one list, or it drifts.
-NOTICE_TOKEN_FILE="$(dirname "$0")/notice-token.txt"
-[ -f "$NOTICE_TOKEN_FILE" ] || {
-  echo "missing $NOTICE_TOKEN_FILE — refusing: without it this script cannot" >&2
-  echo "recognise a test's SKIPPED notice and would silently print none." >&2
+# The notice token is DERIVED from its single definition in
+# `mlmf-core`'s library, not written here as a second copy.
+#
+# It was briefly its own file that tests pulled in with `include_str!` over
+# `../../../scripts/`. That escapes the package root: `cargo package` shipped
+# the test source and not the file it includes. A review caught it. The
+# constant now lives in the library every gated crate already depends on, and
+# this script reads that one line.
+#
+# Before any of that it was the literal `SKIPPED`, written here and again in
+# each corpus test -- a convention in three hand-written copies, enforced by
+# nothing, which a third differential spelling it `skipped` would have
+# silently defeated.
+TOKEN_SRC="$(dirname "$0")/../crates/mlmf-core/src/lib.rs"
+NOTICE_TOKEN="$(sed -n 's/^pub const NOTICE_TOKEN: &str = "\(.*\)";$/\1/p' "$TOKEN_SRC")"
+case "$NOTICE_TOKEN" in
+  *[!A-Za-z0-9_-]* | "") NOTICE_TOKEN="" ;;
+esac
+# A bare -n test is not enough and this is measured: an earlier version of
+# the sed above lost its backreference -- backslash-one, eaten by the
+# tool that generated this file, twice, including once inside this very
+# comment -- and produced a single 0x01 byte instead. That byte is
+# non-empty, so `[ -n ... ]` passed, the token was garbage, and every notice
+# was silently discarded while the run reported 18/18. A guard that clears
+# garbage is worse than no guard, because it is the reason nobody looked.
+[ -n "$NOTICE_TOKEN" ] || {
+  echo "could not read NOTICE_TOKEN from $TOKEN_SRC — refusing." >&2
+  echo "Without it this script cannot recognise a test's SKIPPED notice and" >&2
+  echo "would print none, reporting a clean run over a check that never ran." >&2
   exit 2
 }
-NOTICE_TOKEN="$(tr -d '
-' < "$NOTICE_TOKEN_FILE")"
-[ -n "$NOTICE_TOKEN" ] || { echo "$NOTICE_TOKEN_FILE is empty — refusing." >&2; exit 2; }
 
 if grep -qE '^[[:space:]]*run:[[:space:]]*[|>]' "$WORKFLOW"; then
   echo "$WORKFLOW uses a multi-line \`run: |\` or \`run: >\` block." >&2
