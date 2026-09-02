@@ -374,7 +374,7 @@ The legacy crate at `src/` is **37 files and 19,329 lines**, measured at `e8c761
 - **`mlmf-safetensors`** (#6) — the safetensors reader: header, metadata, tensor directory.
 - **`mlmf-conformance`** — cross-backend conformance tests. No library code, never published.
 
-**`mlmf-source-file` is in progress on a branch and has not landed** (§12 step 3). No later step has been started.
+**`mlmf-source-file` is in progress on a branch and has not landed** (§12 step 3). The work has not followed §12's order: steps 1 and 2 are done, step 3 is open, and `mlmf-safetensors` — half of step 5 — landed ahead of both step 3 and step 4. Its partner `mlmf-hf-layout` does not exist, so step 5 is half-done. Nothing from steps 6 or 7 has been started.
 
 Two facts constrain how the table below should be read, and both are easy to get wrong from the crate names alone:
 
