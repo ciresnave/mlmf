@@ -356,13 +356,51 @@ the crate doc is `lib.rs`'s `//!` header.
 
 ⚠️ **`tests/direct-deps.allow` is in this list because `direct_dependencies_match_allowlist` is an exact `assert_eq!` against the sorted dependency list.** Adding `memmap2` reddens it until the file reads `memmap2` then `mlmf-core` — **in sorted position**, because the comparison is against a vector, not a set.
 
-- [ ] **Step 1: Write the failing test** in `tests/mmap.rs`, opening `#![cfg(feature = "mmap")]` so Task 5's `--no-default-features` run does not fail to compile. Assert `FileSource::open(p).as_bytes() == FileSource::open_read(p).as_bytes()` for a multi-page file, a one-byte file, and a zero-length file. **Compare the crate's two paths against each other, not against a literal** — a literal lets both drift together, and a `std::fs::read` written in the test is a third implementation, not the crate's.
+- [ ] **Step 1: Write the failing test** in `tests/mmap.rs`, opening `#![cfg(feature = "mmap")]`. Assert `FileSource::open(p).as_bytes() == FileSource::open_read(p).as_bytes()` for a multi-page file, a one-byte file, and a zero-length file. **Compare the crate's two paths against each other, not against a literal** — a literal lets both drift together, and a `std::fs::read` written in the test is a third implementation, not the crate's.
 
-- [ ] **Step 2: Run, confirm failure.**
+  ⚠️ **The reason given for that header — "so Task 5's `--no-default-features`
+  run does not fail to compile" — is FALSE, measured.** Nothing in this file
+  is feature-gated: the mapping lives behind a *private* constructor and this
+  task adds no public API, so `open`, `open_read` and `as_bytes` all exist on
+  both builds. With the header deleted, `cargo test -p mlmf-source-file
+  --no-default-features --test mmap` **compiles and reports 4 passed.**
+
+  **The header is still required, for a different reason.** On that build
+  `open` *is* `open_read`, so those four greens assert `open_read ==
+  open_read` — four tests named after a mapping, passing on a build with no
+  mapping, inside the step C6 exists to make meaningful. It is a vacuity
+  guard, not a compile guard. *(Found by Task 3's implementer. A reason that
+  is wrong about which failure it prevents survives every review that agrees
+  with the conclusion.)*
+
+- [ ] **Step 2: Run, confirm failure.** ⚠️ **There is no failure to confirm,
+      in either spelling, and Task 3's implementer measured both.** With the
+      header and no feature declared yet, the file compiles to nothing —
+      *"running 0 tests … ok"*, exit 0, one `unexpected_cfgs` warning. With
+      the header removed, **all four tests run and pass**, because Task 1
+      shipped `open` delegating to `open_read`: the two paths this file
+      compares are one path until Step 3 splits them.
+
+      **This test cannot be born red and the plan should have said so.** Its
+      power is demonstrated at Step 5 and nowhere else, which is exactly the
+      shape AD-2 exists to catch — so run the mutation before believing the
+      file. Do not manufacture a red by asserting something else instead: an
+      equality between two acquisition paths has no red state before the
+      second path exists.
 
 - [ ] **Step 3: Implement.** `memmap2` **optional**, `default = ["mmap"]`, `mmap = ["dep:memmap2"]`. `Mmap::map` is `unsafe` (verified: `memmap2 0.9.11`, `pub unsafe fn map`), so this crate **cannot** carry `#![forbid(unsafe_code)]`.
 
-  **Say so in the crate doc with the reason.** *(The first draft justified this as "every sibling crate forbids it". Measured: **four of five** — `mlmf-core`, `mlmf-ggml`, `mlmf-gguf`, `mlmf-safetensors` do; `mlmf-conformance` has no crate-level attributes at all. And **nothing gates it**, so this is a convention worth honouring in prose, not a rule being broken.)*
+  **Say so in the crate doc with the reason.** *(The first draft justified this as "every sibling crate forbids it". Measured: **four of five** — `mlmf-core`, `mlmf-ggml`, `mlmf-gguf`, `mlmf-safetensors` do; `mlmf-conformance` has no crate-level attributes at all. And **nothing gates it**, so this is a convention worth honouring in prose, not a rule being broken.)* **Re-measured at Task 3 rather than copied: still four of five.**
+
+  **Shipped as `#![deny(unsafe_code)]` plus one `#[expect(unsafe_code)]` on
+  the private `open_mmap`**, which is not what "cannot carry the forbid"
+  reads as. `forbid` cannot be overridden anywhere; `deny` can be, at exactly
+  one site that has to name the lint and carry a reason. Every other `unsafe`
+  in the crate stays a compile error, which is the half of the convention
+  that was still available. **Checked, not asserted:** deleting the `expect`
+  is a compile error — *"usage of an `unsafe` block … the lint level is
+  defined here `#![deny(unsafe_code)]`"* — so the crate doc's claim that the
+  deny is in force is a verified one.
 
 - [ ] **Step 4: Run with default features and with `--no-default-features`.**
 
@@ -380,7 +418,34 @@ the crate doc is `lib.rs`'s `//!` header.
       as text — `purity.rs` reads `src/**` without compiling it — at which
       point the same mutation reddened naming this crate.
 
-      Then: map with an off-by-one length → the equality test reddens. Then confirm `--no-default-features` still compiles and Tasks 1–2 still pass — **C6's actual claim, observed rather than assumed.**
+      **Executed, and it reddens — on BOTH gates, not only the one named
+      here.** `every_gated_crate_performs_no_io` fails with *"mlmf-source-file:
+      src/file.rs: path names the I/O crate `memmap2`"* **twice** — the enum
+      variant's field type and the `Mmap::map` call are two paths in the
+      source text — and `the_manifest_names_no_io_crate_anywhere` fails naming
+      the `[dependencies]` line **and** the `[features]` line, which is the
+      `line.contains()` claim finally observed against a real manifest rather
+      than a fixture. Both are test failures, not compile errors. **The
+      relocation was right twice.**
+
+      Then: map with an off-by-one length → the equality test reddens. **Measured:
+      `MmapOptions::len(file_len - 1)` reddens NINE tests across three files** —
+      `mmap.rs` 3 of 4, `bytes.rs` 2 of 5, `ranged.rs` 4 of 10, all assertion
+      failures — because `bytes.rs` and `ranged.rs` call `open`, so they run
+      against the mapping by default and against the owned buffer under the
+      flag. The one-byte case fires on the **equality**, `left: [] right:
+      [42]`, not on the length control beneath it.
+
+      ⚠️ **The zero-length case stays GREEN under that mutation and cannot do
+      otherwise** — a length off-by-one on a zero-length file saturates back to
+      zero. It is in the file for a different question (whether `open` refuses
+      a file neither platform can map: POSIX fails `mmap` at `len == 0`,
+      `CreateFileMappingW` rejects one with `ERROR_FILE_INVALID`, and memmap2
+      handles both itself), **not as a detector of length bugs.** Three of the
+      four cases carry that assertion; say which in the test, or the green one
+      reads as a fourth witness.
+
+      Then confirm `--no-default-features` still compiles and Tasks 1–2 still pass — **C6's actual claim, observed rather than assumed.**
 
 - [ ] **Step 6: Commit**, then confirm C1/C2 are unmoved by a sibling gaining a
       dependency. **The instrument is `cargo test -p mlmf-core --test
@@ -510,6 +575,17 @@ Survivable while no crate had a meaningful default feature. **This crate's mmap 
 - [ ] Dispatch a **fresh** reviewer over the whole diff. Priorities: cross-file contradictions first; tests that cannot fail (the four vacuity modes, plus *an assertion pinning a snapshot as a specification*); claims of impossibility; charter violations; then whether the API reads as one thing.
 - [ ] **Tell the reviewer to read files the diff does not touch but whose claims it depends on.** Plan 5's sharpest finding was in a file with no diff hunk and no task owner.
 - [ ] **Pre-assign one:** `crates/mlmf-core/tests/transitive_deps.rs`'s doc says its narrow scope *"becomes wrong at that moment"* if a member gains an external dependency. **Task 3 is that moment**, in a file no task owns.
+
+      **Task 3 landed it and the numbers did not move**: `scripts/check-deps.sh`
+      still reports *"C1/C2 OK: 8 transitive nodes, snapshot matches"*,
+      `--test transitive_deps` is 3 passed, and `Cargo.lock` moved by one line
+      because `memmap2 0.9.11` was already locked for the legacy root package.
+      **What the reviewer should look at is the doc's second reason, not the
+      snapshot.** It reads *"a format crate's dependencies are opt-in with the
+      format"* — `memmap2` is a **default** feature of a **source** crate, so
+      it is opt-**out**, and the sentence is now inexact about the case that
+      actually arrived. The scope may still be right; the argument for it was
+      written before this shape existed.
 - [x] ~~Settle `read_range`'s error kind~~ — **SETTLED before Task 3, not
       deferred to review.** The doc's parenthetical bound ambiguously; the
       workspace had two answers.
