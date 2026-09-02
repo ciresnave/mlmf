@@ -8,14 +8,25 @@
 //! **Why this covers `mlmf-core` ONLY, stated because the previous
 //! justification has expired.** It used to be "no format crate declares an
 //! external dependency, so `mlmf-core`'s transitive set IS theirs".
-//! `mlmf-safetensors` declaring `serde_json` ended that. Measured at the
-//! commit that did: `mlmf-core` 9 transitive nodes, `mlmf-safetensors` 15.
+//! `mlmf-safetensors` declaring `serde_json` ended that.
+//!
+//! **Measured under this gate's own rule** — `cargo tree --prefix none`,
+//! dropping the root and only the root: `mlmf-core` **8**, `mlmf-safetensors`
+//! **16**. *(This line previously read "9 and 15", which used two different
+//! counting rules in one sentence: the 9 counted mlmf-core's own root as one
+//! of its dependencies, the 15 dropped both the root and `mlmf-core`. Neither
+//! is what `current()` implements, and `check-deps.sh` prints "8 transitive
+//! nodes" three lines from here. The snapshot has been 8 entries since the
+//! repository's first commit, so "9" was never right.)*
 //!
 //! The scope is still right, for three reasons that do not expire:
 //!
 //! * **C2's subject is the floor.** Spec §3.3 asks for `mlmf-core`'s exact
 //!   set because `mlmf-core` is what every consumer takes. A format crate's
-//!   dependencies are opt-in with the format. `mlmf-core` is untouched at 9.
+//!   dependencies are opt-in with the format — **though not always: since
+//!   `mlmf-source-file`, a SOURCE crate carries `memmap2` as a *default*
+//!   feature, so that one is opt-OUT.** The floor is untouched either way,
+//!   which is what this bullet actually rests on.
 //! * **`deps.rs` gates every crate's DIRECT dependencies** against its own
 //!   allow-list, so a format crate gaining an external dependency is a
 //!   deliberate, reviewed act. That is exactly how `serde_json` arrived, and
@@ -153,15 +164,23 @@ fn transitive_node_count_is_under_the_ceiling() {
 ///
 /// Every other C2/C3 gate iterates `gated_members()`. This one snapshots a
 /// single crate, which looks like an oversight and is not. It is sound
-/// because of a fact about the other two members, verified against their
-/// manifests rather than assumed:
+/// because of the two reasons at the top of this file that have not
+/// expired — **not** the one that has.
 ///
-/// * `mlmf-ggml` declares exactly one dependency, `mlmf-core` (path).
-/// * `mlmf-gguf` declares exactly two, `mlmf-core` and `mlmf-ggml` (path).
+/// ⚠️ **This paragraph used to argue from "the other two members": that
+/// `mlmf-ggml` and `mlmf-gguf` declare no external crate, so `mlmf-core`'s
+/// transitive set is theirs.** The file's own header records that argument
+/// as ENDED when `mlmf-safetensors` took `serde_json`, and restated it here
+/// as live anyway. There are now six gated members, and three of them —
+/// `mlmf-safetensors`, `mlmf-conformance` and `mlmf-source-file` — were not
+/// covered by it at all.
 ///
-/// Neither declares a single external crate, so `mlmf-core`'s transitive
-/// set **is** theirs — snapshotting all three would pin the same lines
-/// three times.
+/// What holds instead: **C2's subject is the floor** — every consumer takes
+/// `mlmf-core`, and that is the set §3.3 asks for — and **`deps.rs` gates
+/// every member's direct edges against its own allow-list**, so no crate can
+/// gain an external dependency without a reviewed act. Confirmed for the
+/// newest member: `mlmf-source-file/tests/direct-deps.allow` lists `memmap2`,
+/// and `direct_dependencies_match_allowlist` iterates `gated_members()`.
 ///
 /// And that fact cannot silently stop being true. `deps.rs`'s
 /// `direct_dependencies_match_allowlist` iterates `gated_members()` and
@@ -171,8 +190,11 @@ fn transitive_node_count_is_under_the_ceiling() {
 /// reach a transitive set this test does not look at.
 ///
 /// **So the scope is correct by construction, not by design, and the
-/// construction is load-bearing.** If a format crate ever gains an external
+/// construction is load-bearing.** If **any gated member** gains an external
 /// dependency of its own, this test's scope becomes wrong at that moment,
+/// **and "format crate" is the wrong tripwire — the member that gained one
+/// was `mlmf-source-file`, on the source axis, which the old wording did not
+/// reach.**
 /// and the thing that will catch it is `deps.rs`, not this file. The other
 /// acceptable resolution is to extend the snapshot to every member; what
 /// must not happen is that the narrow scope survives with nobody able to

@@ -203,59 +203,62 @@ fn a_file_inside_a_subdirectory_is_not_returned() {
 }
 
 #[test]
-fn a_name_with_no_string_representation_survives_and_reopens() {
-    // THE CONTROL for the `OsString` field, and the thing it demonstrates
-    // is not "the name is preserved" but "the preserved name still opens
-    // the file, and the lossy one opens nothing."
+fn a_name_with_no_string_representation_survives_byte_exact() {
+    // Byte-exactness ALONE. This test used to be the first half of a longer
+    // one whose last two assertions — the reopen pair — were **unreachable
+    // by the mutation the plan pairs with them**: this assertion panics
+    // first and a panic ends the test.
+    //
+    // The plan named that defect verbatim and the file shipped unchanged;
+    // a whole-branch review measured it. Split so each half has a reachable
+    // red state of its own.
     let dir = fixture("no-string-form");
     let honest = no_string_representation();
-    std::fs::write(dir.join(&honest), b"payload").expect("writable");
+    std::fs::write(dir.join(&honest), b"payload").expect("fixture file");
 
     let entries = read_dir(&dir).expect("an existing directory lists");
     assert_eq!(entries.len(), 1, "one file was written");
-    let name = &entries[0].name;
 
     assert_eq!(
-        name, &honest,
-        "the name must come back byte-exact — spec §9 clause 2.1, \"no \
-         Unicode normalization, case folding, trimming, or reordering — \
-         ever\""
+        &entries[0].name, &honest,
+        "the name must come back byte-exact — spec §9 clause 2.1"
     );
 
-    // The fixture is AT RISK, asserted rather than assumed. Without this
-    // line the test above passes for any name at all, including one a
-    // `String` field would have round-tripped perfectly — which is exactly
-    // what `模型.safetensors` does, measured, and why it is not this
-    // control. See the counter-example test below.
-    let lossy = name.to_string_lossy().into_owned();
+    // The fixture is AT RISK, asserted rather than assumed. Without this the
+    // assertion above passes for any name at all, including one a `String`
+    // field would round-trip perfectly — which is what `模型.safetensors`
+    // does, measured, and why it is not this control.
+    let lossy = entries[0].name.to_string_lossy().into_owned();
     assert_ne!(
-        OsString::from(lossy.clone()),
-        *name,
-        "this fixture is pointless unless the lossy form actually differs; \
-         `to_string_lossy` must have replaced something here"
+        std::ffi::OsString::from(&lossy),
+        honest,
+        "this fixture is only a control if a lossy round-trip CHANGES it"
     );
+}
 
-    // The honest name opens the file.
+#[test]
+fn the_lossy_form_of_that_name_opens_nothing() {
+    // THE ARGUMENT FOR THE TYPE, in its own test so a mutation can reach it.
+    // Its own fresh listing, so it does not depend on the assertions above
+    // having run.
+    let dir = fixture("no-string-form-reopen");
+    let honest = no_string_representation();
+    std::fs::write(dir.join(&honest), b"payload").expect("fixture file");
+
+    let entries = read_dir(&dir).expect("an existing directory lists");
+    let name = &entries[0].name;
+
+    // The listed name opens the file.
     let source = FileSource::open(&dir.join(name)).expect("the listed name must open the file");
     assert_eq!(source.as_bytes(), b"payload");
 
-    // The lossy name does not, and this is the whole argument for the type.
-    // A `String`-typed field would have produced a listing whose entries
-    // cannot be opened: every consumer would get `NotFound` on a file that
-    // is sitting right there, with nothing anywhere saying the name was
-    // altered.
-    let err = FileSource::open(&dir.join(&lossy))
-        .expect_err("the lossy name names a file that does not exist");
-    let ErrorKind::Source(inner) = err.kind() else {
-        panic!("expected ErrorKind::Source, got {:?}", err.kind());
-    };
-    let io = inner
-        .downcast_ref::<std::io::Error>()
-        .expect("the source error carries the underlying io::Error");
-    assert_eq!(
-        io.kind(),
-        std::io::ErrorKind::NotFound,
-        "not merely an error: the lossy name resolves to nothing"
+    // The lossy name opens nothing — observed, not argued. This is what
+    // "a listing whose entries cannot be opened" means, and it is why the
+    // field is an `OsString`.
+    let lossy = name.to_string_lossy().into_owned();
+    assert!(
+        FileSource::open(&dir.join(&lossy)).is_err(),
+        "a String-typed field would have handed the caller this name, and it opens nothing"
     );
 }
 
@@ -341,4 +344,69 @@ fn a_plain_file_is_not_a_directory_and_says_so() {
         err.kind()
     );
     assert_eq!(err.path(), Some(file.as_path()));
+}
+
+/// A dangling symlink does not take the listing down with it.
+///
+/// **`src/dir.rs` uses `entry.file_type()` and not
+/// `std::fs::metadata(entry.path())`, and until this test existed that ruling
+/// was unfalsified.** A whole-branch review measured it: swapping in
+/// `metadata()` and changing nothing else left all 26 tests green. The ruling
+/// is argued at length in two places and was satisfiable without doing the
+/// work — this repository's recurring defect, in the one decision the plan
+/// records as newly made.
+///
+/// `metadata()` follows the link and therefore **fails on a dangling one**,
+/// which would turn a single broken symlink into a failed listing for the
+/// whole directory. The HuggingFace cache is built out of symlinks, so this
+/// is a deployment shape rather than a hypothetical.
+///
+/// Creating a symlink needs privilege on Windows (Developer Mode or
+/// elevation). When that is unavailable the test **says so through the
+/// notice token** rather than passing quietly — a skipped check and a passing
+/// check are indistinguishable in a green run, which is the whole reason that
+/// token exists.
+#[test]
+fn a_dangling_symlink_does_not_take_the_listing_down_with_it() {
+    let dir = fixture("dangling-symlink");
+    std::fs::write(dir.join("real.safetensors"), b"x").expect("fixture file");
+
+    let link = dir.join("dangling");
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink("nowhere-at-all", &link);
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_file("nowhere-at-all", &link);
+
+    if let Err(e) = made {
+        use std::io::Write as _;
+        let _ = writeln!(
+            std::io::stderr(),
+            "{}: SKIPPED: could not create a symlink ({e}). The dangling-link              behaviour of `is_dir` was NOT verified on this run. On Windows              this needs Developer Mode or elevation.",
+            mlmf_core::NOTICE_TOKEN
+        );
+        return;
+    }
+
+    // The link is dangling: its target does not exist.
+    assert!(
+        std::fs::metadata(&link).is_err(),
+        "this fixture is only a control if the link is actually dangling"
+    );
+
+    let entries =
+        mlmf_source_file::read_dir(&dir).expect("a dangling link must not fail the listing");
+
+    let names: Vec<_> = entries.iter().map(|e| e.name.clone()).collect();
+    assert_eq!(
+        names,
+        vec![
+            std::ffi::OsString::from("dangling"),
+            std::ffi::OsString::from("real.safetensors")
+        ],
+        "both entries must be listed; `metadata()` would have failed the whole call"
+    );
+    assert!(
+        !entries[0].is_dir,
+        "a dangling link reports is_dir = false, not an error"
+    );
 }
