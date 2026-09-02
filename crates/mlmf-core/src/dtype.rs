@@ -4,10 +4,43 @@
 //! bytes are. Core deliberately does not depend on `half` or any numeric
 //! crate — a consumer brings its own types and reinterprets bytes itself.
 
-/// A dense scalar element type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum DType {
+/// Declare [`DType`] and [`DType::ALL`] **from one list**.
+///
+/// `ALL` used to be a hand-written array beside the enum, kept honest by a
+/// prose comment and by `size()`'s wildcard-free match. That is
+/// compile-REMINDED, not compile-complete: the match drags you into this
+/// file, and nothing then forces the second edit. **Measured before this
+/// change** — a variant added to the enum with its `size()` arm supplied and
+/// `ALL` left alone built clean, passed every test in every crate, and
+/// passed all 18 CI gates, *including* `mlmf-safetensors`'s dtype
+/// exhaustiveness gate, which exists precisely to catch core gaining a
+/// variant. It iterates `ALL`, so a variant missing from `ALL` is invisible
+/// to it.
+///
+/// `[$(stringify!($variant)),+].len()` in the array-length position is what
+/// removes the hand-maintained count as well: the `15` falls out of the
+/// list rather than being written beside it.
+macro_rules! declare_dtypes {
+    ($( $(#[$attr:meta])* $variant:ident ),+ $(,)?) => {
+        /// A dense scalar element type.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[non_exhaustive]
+        pub enum DType {
+            $( $(#[$attr])* $variant, )+
+        }
+
+        impl DType {
+            /// Every variant, for exhaustive tests.
+            ///
+            /// **Generated from the same list that declares the enum**, so a
+            /// variant cannot exist without appearing here.
+            pub const ALL: [DType; [$(stringify!($variant)),+].len()] =
+                [$(DType::$variant),+];
+        }
+    };
+}
+
+declare_dtypes! {
     /// IEEE-754 binary64.
     F64,
     /// IEEE-754 binary32.
@@ -41,25 +74,6 @@ pub enum DType {
 }
 
 impl DType {
-    /// Every variant, for exhaustive tests.
-    pub const ALL: [DType; 15] = [
-        DType::F64,
-        DType::F32,
-        DType::F16,
-        DType::BF16,
-        DType::F8E4M3,
-        DType::F8E5M2,
-        DType::I64,
-        DType::I32,
-        DType::I16,
-        DType::I8,
-        DType::U64,
-        DType::U32,
-        DType::U16,
-        DType::U8,
-        DType::Bool,
-    ];
-
     /// Bytes occupied by one element on the wire.
     #[must_use]
     pub const fn size(self) -> usize {
