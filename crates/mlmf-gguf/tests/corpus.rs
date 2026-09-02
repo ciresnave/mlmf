@@ -20,7 +20,27 @@ use mlmf_gguf::{GgufMetadata, parse_tensors};
 /// It is 1.13 GiB and is not in the repository, so this is a machine-local
 /// path and its absence is a normal, loudly-announced state — see
 /// [`the_corpus_agrees_or_says_it_was_not_there`].
-const CORPUS_ROOT: &str = "C:/Models/gguf-corpus";
+/// Default corpus location. **Override with `MLMF_GGUF_CORPUS`.** This was a
+/// hardcoded Windows path, so the byte-level differential had only ever
+/// executed on one machine and SKIPPED everywhere else. A differential that
+/// has run in exactly one environment is not evidence about the property it
+/// claims to test.
+const DEFAULT_CORPUS_ROOT: &str = "C:/Models/gguf-corpus";
+
+/// Where the corpus is, honouring the override.
+fn corpus_root() -> String {
+    std::env::var("MLMF_GGUF_CORPUS").unwrap_or_else(|_| DEFAULT_CORPUS_ROOT.to_string())
+}
+
+/// True when a skip must be a FAILURE rather than a notice.
+///
+/// **The half that makes the skip measured rather than merely loud.** A
+/// notice nobody counts is indistinguishable from a run that verified
+/// everything; set `MLMF_CORPUS_REQUIRED=1` on any machine that is supposed
+/// to have the corpus and a skip becomes red.
+fn corpus_required() -> bool {
+    std::env::var("MLMF_CORPUS_REQUIRED").is_ok_and(|v| v != "0" && !v.is_empty())
+}
 
 #[test]
 fn the_fixture_is_intact() {
@@ -55,7 +75,8 @@ fn the_fixture_is_intact() {
 }
 
 struct Row {
-    /// Path relative to [`CORPUS_ROOT`], not a bare basename: the corpus is
+    /// Path relative to the configured corpus root ([`corpus_root`], whose
+    /// fallback is [`DEFAULT_CORPUS_ROOT`]), not a bare basename: the corpus is
     /// laid out as `legacy/`, `llamacpp-vocab/` and `quants/`, so a
     /// basename cannot be reopened.
     file: String,
@@ -96,7 +117,8 @@ const NONE: &str = "-";
 
 /// One row of `corpus-tensors.tsv`.
 struct TensorRow {
-    /// Path relative to [`CORPUS_ROOT`], exactly as in [`Row::file`], and
+    /// Path relative to the configured corpus root ([`corpus_root`], whose
+    /// fallback is [`DEFAULT_CORPUS_ROOT`]), exactly as in [`Row::file`], and
     /// the key the two fixtures are joined on.
     file: String,
     n_tensors: u64,
@@ -281,8 +303,13 @@ fn measured_headers_parse_to_their_measured_values() {
 /// its closure is checked.
 #[test]
 fn the_corpus_agrees_or_says_it_was_not_there() {
-    let root = std::path::Path::new(CORPUS_ROOT);
+    let root_s = corpus_root();
+    let root = std::path::Path::new(&root_s);
     if !root.is_dir() {
+        assert!(
+            !corpus_required(),
+            "MLMF_CORPUS_REQUIRED is set and there is no corpus at {root_s}.              Refusing to pass by skipping."
+        );
         // NOT `eprintln!`. Measured, on the run that wrote this line: the
         // libtest harness captures the `print!`/`eprint!` macros for a test
         // that PASSES, and this test passes when it skips. Under plain
@@ -298,9 +325,8 @@ fn the_corpus_agrees_or_says_it_was_not_there() {
         use std::io::Write as _;
         let _ = writeln!(
             std::io::stderr(),
-            "SKIPPED: no corpus at {CORPUS_ROOT}. The header round-trip above \
-             still ran; the byte-level differential did NOT. Do not read this \
-             run as corpus-verified."
+            "{}: SKIPPED: no corpus at {root_s}. The header round-trip above              still ran; the byte-level differential did NOT. Do not read this              run as corpus-verified. Point MLMF_GGUF_CORPUS at one, or set              MLMF_CORPUS_REQUIRED=1 to make this a failure.",
+            mlmf_core::NOTICE_TOKEN
         );
         return;
     }

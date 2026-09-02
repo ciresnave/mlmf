@@ -25,6 +25,21 @@ pub use encoding::{BlockSpec, Encoding};
 pub use error::{Error, ErrorKind, Result};
 pub use meta::MetaValue;
 pub use report::{Declaration, DeclaredType, Report, Unrecognized, UnrecognizedKind};
+
+/// The marker a test puts in a notice it needs a human to see.
+///
+/// `scripts/local-gates.sh` redirects each command's stdout and captures its
+/// stderr, and surfaces only lines carrying this token — otherwise every
+/// `Compiling`/`Finished` line cargo writes to fd 2 would drown the run.
+///
+/// **It lives here, in the library, on purpose.** It was briefly a file at
+/// `scripts/notice-token.txt` that tests reached with
+/// `include_str!("../../../scripts/…")`. That escapes the package root, so
+/// `cargo package` shipped the test source and not the file it includes —
+/// caught in review. Every gated crate already depends on `mlmf-core`, so a
+/// `const` here is one definition that ships with all of them and reaches
+/// outside nothing. The gate script derives its value from this line.
+pub const NOTICE_TOKEN: &str = "MLMF-NOTICE";
 pub use shape::Shape;
 pub use tensor::TensorDescriptor;
 pub use traits::{ByteSource, MetadataSource, RangedSource, TensorContainer};

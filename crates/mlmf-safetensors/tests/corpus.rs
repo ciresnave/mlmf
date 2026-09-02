@@ -53,11 +53,32 @@ use mlmf_safetensors::{parse_header, parse_metadata, parse_tensors};
 /// Two model files totalling 2.9 GB, not in the repository, so this is a
 /// machine-local path and its absence is a normal state that must announce
 /// itself rather than pass quietly.
-const CORPUS_ROOT: &str = "C:/Models";
+/// Default corpus location. **Override with `MLMF_SAFETENSORS_CORPUS`.**
+/// This was a hardcoded Windows path, so the byte-level differential had
+/// only ever executed on one machine and SKIPPED everywhere else. A
+/// differential that has run in exactly one environment is not evidence
+/// about the property it claims to test.
+const DEFAULT_CORPUS_ROOT: &str = "C:/Models";
+
+/// Where the corpus is, honouring the override.
+fn corpus_root() -> String {
+    std::env::var("MLMF_SAFETENSORS_CORPUS").unwrap_or_else(|_| DEFAULT_CORPUS_ROOT.to_string())
+}
+
+/// True when a skip must be a FAILURE rather than a notice.
+///
+/// **The half that makes the skip measured rather than merely loud.** A
+/// notice nobody counts is indistinguishable from a run that verified
+/// everything; set `MLMF_CORPUS_REQUIRED=1` on any machine that is supposed
+/// to have the corpus and a skip becomes red.
+fn corpus_required() -> bool {
+    std::env::var("MLMF_CORPUS_REQUIRED").is_ok_and(|v| v != "0" && !v.is_empty())
+}
 
 /// One row of `corpus-safetensors.tsv`.
 struct Row {
-    /// Path relative to [`CORPUS_ROOT`], forward-slashed, so it can be
+    /// Path relative to the configured corpus root ([`corpus_root`], whose
+    /// fallback is [`DEFAULT_CORPUS_ROOT`]), forward-slashed, so it can be
     /// reopened. A bare basename could not be.
     file: String,
     size: u64,
@@ -194,9 +215,14 @@ fn the_fixture_is_intact() {
 
 #[test]
 fn the_corpus_agrees_or_says_it_was_not_there() {
-    let root = std::path::Path::new(CORPUS_ROOT);
+    let root_s = corpus_root();
+    let root = std::path::Path::new(&root_s);
     let rows = rows();
     if !rows.iter().all(|r| root.join(&r.file).is_file()) {
+        assert!(
+            !corpus_required(),
+            "MLMF_CORPUS_REQUIRED is set and the corpus under {root_s} is              incomplete. Refusing to pass by skipping."
+        );
         // Written to the `Stderr` HANDLE, not through `eprintln!`.
         // libtest captures `eprintln!` for a passing test and this test
         // PASSES when it skips, so the notice would be visible only under
@@ -206,9 +232,8 @@ fn the_corpus_agrees_or_says_it_was_not_there() {
         // on a machine with no corpus, reporting ok.
         let _ = writeln!(
             std::io::stderr(),
-            "SKIPPED: no safetensors corpus at {CORPUS_ROOT}. \
-             `the_fixture_is_intact` above still ran; the byte-level \
-             differential did NOT. Do not read this run as corpus-verified."
+            "{}: SKIPPED: no safetensors corpus at {root_s}.              `the_fixture_is_intact` above still ran; the byte-level              differential did NOT. Do not read this run as corpus-verified.              Point MLMF_SAFETENSORS_CORPUS at one, or set              MLMF_CORPUS_REQUIRED=1 to make this a failure.",
+            mlmf_core::NOTICE_TOKEN
         );
         return;
     }
