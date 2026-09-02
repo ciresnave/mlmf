@@ -143,6 +143,17 @@ will otherwise carry the hedge across to the build C6 exists to protect.
       `:559`, `:588` — two inside `the_gate_can_fail` and one inside
       `the_gate_does_not_cry_wolf`. **Pin all three to `Axis::Format`.**
 
+      **And `FORBIDDEN_CRATES` is consulted TWICE inside `scan_text`, not
+      once** — in `check_pair`, and again in the `toks.windows(2)` loop that
+      catches `extern crate memmap2;`. *(Found by Task 0's implementer, not by
+      five audit passes.)* **Write the relaxation as one `is_forbidden(name,
+      axis)` helper and route both through it.** Inlining
+      `&& !(axis == Source && root == "memmap2")` into `check_pair` is the
+      obvious minimal edit and leaves `extern crate memmap2;` rejected on the
+      source axis — an inconsistency with no test against it. The helper is
+      also what makes Step 6's first sabotage a clean single-site deletion;
+      without it, "delete the relaxation branch" has two branches.
+
       **Passing `Axis::Source` at the self-test sites is the plausible mistake**,
       because the file's other call site passes the crate's own axis. Measured
       consequence:
@@ -159,7 +170,13 @@ will otherwise carry the hedge across to the build C6 exists to protect.
 
 - [ ] **Step 3: Run, confirm failure** because `axis` does not exist.
 
-- [ ] **Step 4: Implement.** `common::axis()` reads `<crate>/tests/axis`, trims (a Windows checkout gives CRLF), and accepts exactly `format` or `source`. **A missing file is a loud panic**, matching `deps.rs::allow_list`, whose doc says why. *(`purity.rs::allowed_std` panics identically but its doc does not say so — do not cite it as precedent.)*
+- [ ] **Step 4: Implement.** `common::axis()` reads `<crate>/tests/axis`, trims — **load-bearing, and measured rather than
+  defensive: `core.autocrlf` is `true` in this checkout and `.gitattributes`
+  has no rule for `tests/axis`, so the file arrives with CRLF. Verified green
+  with CRLF written in.** *(Task 0's implementer declined to add a
+  `.gitattributes` pin, reasoning it would make the trim look decorative. The
+  repo carries prior line-ending scars, so Task 6's reviewer should confirm
+  that call rather than inherit it.)* —, and accepts exactly `format` or `source`. **A missing file is a loud panic**, matching `deps.rs::allow_list`, whose doc says why. *(`purity.rs::allowed_std` panics identically but its doc does not say so — do not cite it as precedent.)*
 
   **Relax `memmap2` and nothing else.** Note there are **two** `FORBIDDEN_CRATES` constants and they do not match.
 **Change both, and do not assume one list is the other.** The asymmetry,
@@ -196,7 +213,15 @@ differ only by a hyphen. `deps.rs` carries **both** `hf-hub` and `hf_hub`.
      fixtures; restating them under "Sabotage" is not a sabotage.)*
   2. Delete an `axis` file; confirm the panic names it.
   3. Write `Source` (wrong case); confirm it panics rather than silently reading as `format`.
-  4. `reqwest` on the `source` axis; confirm still rejected.
+  4. **Widen the arm to `crate_name == "memmap2" || crate_name == "reqwest"`**
+     and confirm the scope control reddens on both scanners.
+
+     *(An earlier revision wrote this as "`reqwest` on the `source` axis;
+     confirm still rejected" — a restatement of a Step 2 assertion, not a
+     mutation. That is the same shape item 1 of this list was fixed for, and
+     the parenthetical explaining it sat two lines above. Found by Task 0's
+     implementer, who executed it as a mutation because it was not executable
+     as written.)*
 
 - [ ] **Step 7: Commit.**
 
