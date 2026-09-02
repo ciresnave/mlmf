@@ -40,8 +40,29 @@ jobs:
       - name: cargo fmt --all --check
         run: cargo fmt --all -- --check
 
-      # C6: build AND run the parser suite with default features off, so the
+      # C6: build AND run the suite with default features off, so the
       # mmap-free path is proven functional rather than merely compilable.
+      #
+      # EVERY gated crate carries one of these steps, and that is enforced
+      # rather than remembered:
+      # `every_gated_crate_is_run_with_default_features_off` in
+      # crates/mlmf-core/tests/ci_coverage.rs derives the crate list from
+      # crates/ and requires the exact command. Until that gate existed the
+      # flag appeared on this step alone, and later on mlmf-source-file's --
+      # and one or two steps carrying a flag is indistinguishable, read down
+      # a workflow, from a policy.
+      #
+      # C6 says "the full parser suite" and this is BROADER than that: it
+      # covers mlmf-conformance and mlmf-source-file, neither of which is a
+      # parser. A RULING rather than a reading -- more than C6 asks for,
+      # which is the safe direction, and taken because the narrower set is
+      # not derivable here. The gate's doc comment carries the argument.
+      #
+      # Five of the six have nothing to subtract today: four declare no
+      # [features] table at all, and mlmf-core declares `default = []`. So
+      # five of these steps duplicate the plain step beside them, and that
+      # is the point -- the step has to be standing BEFORE a crate gains a
+      # default feature.
       - name: cargo test -p mlmf-core --no-default-features
         run: cargo test -p mlmf-core --no-default-features
 
@@ -67,6 +88,9 @@ jobs:
       - name: cargo test -p mlmf-ggml
         run: cargo test -p mlmf-ggml
 
+      - name: cargo test -p mlmf-ggml --no-default-features
+        run: cargo test -p mlmf-ggml --no-default-features
+
       - name: cargo doc -p mlmf-ggml --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
@@ -78,6 +102,9 @@ jobs:
       - name: cargo test -p mlmf-gguf
         run: cargo test -p mlmf-gguf
 
+      - name: cargo test -p mlmf-gguf --no-default-features
+        run: cargo test -p mlmf-gguf --no-default-features
+
       - name: cargo doc -p mlmf-gguf --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
@@ -88,6 +115,9 @@ jobs:
 
       - name: cargo test -p mlmf-safetensors
         run: cargo test -p mlmf-safetensors
+
+      - name: cargo test -p mlmf-safetensors --no-default-features
+        run: cargo test -p mlmf-safetensors --no-default-features
 
       - name: cargo doc -p mlmf-safetensors --no-deps
         env:
@@ -103,6 +133,9 @@ jobs:
       # what neither backend may have.
       - name: cargo test -p mlmf-conformance
         run: cargo test -p mlmf-conformance
+
+      - name: cargo test -p mlmf-conformance --no-default-features
+        run: cargo test -p mlmf-conformance --no-default-features
 
       - name: cargo doc -p mlmf-conformance --no-deps
         env:
@@ -121,11 +154,16 @@ jobs:
 
       # C6: "CI builds AND RUNS the full parser suite with
       # --no-default-features, proving the mmap-free path is functional
-      # rather than merely compilable." This crate declares no features yet,
-      # so today this step runs the same code as the one above it. It is
-      # here now rather than later because the mmap feature arrives as a
-      # DEFAULT one, and a step added in the same commit as the feature it
-      # is supposed to subtract has never once been observed to fail.
+      # rather than merely compilable."
+      #
+      # This is the ONE step of the six for which the flag currently
+      # subtracts anything. `default = ["mmap"]`, and src/file.rs is the
+      # only `#[cfg(feature = ...)]` anywhere under crates/*/src, so this
+      # run exercises the `std::fs::read` path while the step above it
+      # exercises the mapping. It was added one task BEFORE that feature
+      # existed, when it did duplicate the step above it, because a step
+      # added in the same commit as the feature it is supposed to subtract
+      # has never once been observed to fail.
       - name: cargo test -p mlmf-source-file --no-default-features
         run: cargo test -p mlmf-source-file --no-default-features
 
