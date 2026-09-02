@@ -1,16 +1,55 @@
 //! ggml's type codes and their geometry.
 
-/// A ggml numeric type code.
+/// Declare [`GgmlType`] and [`GgmlType::ALL`] **from one list**.
 ///
-/// The code space is ggml's and is closed; this enum mirrors it. Marked
-/// `#[non_exhaustive]` because ggml adds codes — a consumer must have a
-/// catch-all arm, and adding a row here must not break them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-#[allow(non_camel_case_types)] // ggml's names, unaltered: renaming them
-// would break every cross-reference to
-// llama.cpp, which is the authority here.
-pub enum GgmlType {
+/// `ALL` used to be a hand-written array of 35 entries beside the enum, kept
+/// honest by prose and by `row()`'s wildcard-free match. That is
+/// compile-REMINDED, not compile-complete: `row()` drags you into this file,
+/// and nothing then forces the second edit. **Measured before this change** —
+/// a variant added to the enum with its `row()` arm supplied and `ALL` left
+/// alone built clean, passed every test in this crate, and passed all 18 CI
+/// gates.
+///
+/// **This does NOT replace `row()`'s exhaustiveness and must not be read as
+/// making it redundant.** The two guarantee different things: this macro
+/// makes MEMBERSHIP correct by construction, while `row()` is what forces a
+/// human to supply the GEOMETRY — elements per block, bytes per block,
+/// alignment. For a quantized type the second is the one that matters. A
+/// variant present in `ALL` with wrong geometry is worse than one missing
+/// from `ALL`: missing is an absence someone hits, wrong geometry is a
+/// number that computes. `row()`'s guarantee also only works *inside this
+/// crate*, because `GgmlType` is `#[non_exhaustive]` — so moving it
+/// somewhere tidier destroys it while leaving code that looks the same.
+macro_rules! declare_ggml_types {
+    ($( $(#[$attr:meta])* $variant:ident ),+ $(,)?) => {
+        /// A ggml numeric type code.
+        ///
+        /// The code space is ggml's and is closed; this enum mirrors it.
+        /// Marked `#[non_exhaustive]` because ggml adds codes — a consumer
+        /// must have a catch-all arm, and adding a row here must not break
+        /// them.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[non_exhaustive]
+        #[allow(non_camel_case_types)] // ggml's names, unaltered: renaming them
+        // would break every cross-reference to
+        // llama.cpp, which is the authority here.
+        pub enum GgmlType {
+            $( $(#[$attr])* $variant, )+
+        }
+
+        impl GgmlType {
+            /// Every live type, for exhaustive tests and for enumerating support.
+            ///
+            /// **Generated from the same list that declares the enum**, so a
+            /// variant cannot exist without appearing here. See the macro's
+            /// own doc for what this replaced and why.
+            pub const ALL: [GgmlType; [$(stringify!($variant)),+].len()] =
+                [$(GgmlType::$variant),+];
+        }
+    };
+}
+
+declare_ggml_types! {
     /// IEEE-754 binary32.
     F32,
     /// IEEE-754 binary16.
@@ -87,45 +126,6 @@ pub enum GgmlType {
 struct Row(u32, &'static str, u64, u64, usize);
 
 impl GgmlType {
-    /// Every live type, for exhaustive tests and for enumerating support.
-    pub const ALL: [GgmlType; 35] = [
-        GgmlType::F32,
-        GgmlType::F16,
-        GgmlType::Q4_0,
-        GgmlType::Q4_1,
-        GgmlType::Q5_0,
-        GgmlType::Q5_1,
-        GgmlType::Q8_0,
-        GgmlType::Q8_1,
-        GgmlType::Q2_K,
-        GgmlType::Q3_K,
-        GgmlType::Q4_K,
-        GgmlType::Q5_K,
-        GgmlType::Q6_K,
-        GgmlType::Q8_K,
-        GgmlType::IQ2_XXS,
-        GgmlType::IQ2_XS,
-        GgmlType::IQ3_XXS,
-        GgmlType::IQ1_S,
-        GgmlType::IQ4_NL,
-        GgmlType::IQ3_S,
-        GgmlType::IQ2_S,
-        GgmlType::IQ4_XS,
-        GgmlType::I8,
-        GgmlType::I16,
-        GgmlType::I32,
-        GgmlType::I64,
-        GgmlType::F64,
-        GgmlType::IQ1_M,
-        GgmlType::BF16,
-        GgmlType::TQ1_0,
-        GgmlType::TQ2_0,
-        GgmlType::MXFP4,
-        GgmlType::NVFP4,
-        GgmlType::Q1_0,
-        GgmlType::Q2_0,
-    ];
-
     /// Codes ggml has removed. A file carrying one is old, not corrupt.
     const RETIRED: [(u32, &'static str); 8] = [
         (4, "Q4_2"),
