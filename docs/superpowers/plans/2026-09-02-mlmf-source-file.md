@@ -630,6 +630,8 @@ silently matching a mangled one.
 
 **Measured:** `grep -n "no-default-features" .github/workflows/ci.yml` returns exactly two lines — the `- name:` and `run:` of **one** step, `cargo test -p mlmf-core --no-default-features`. **One crate.**
 
+⚠️ **That measurement is stale as written, and only as a present tense.** It was taken before Task 1, which added a second step. Re-measured at Task 5 against `HEAD`: the grep returns **five** lines — the `- name:`/`run:` pairs of **two** steps, `mlmf-core` and `mlmf-source-file`, plus one comment line; **13** after this task. The **rule** in Step 2 was correct and its four names were exact. Left in place rather than rewritten, because "one crate" is the condition that motivated the task and the correction is the useful part. *(The first draft of this very correction said "eleven", by reading a count taken after the change into a sentence about before it — the same one-measurement-two-subjects error it is correcting, committed while correcting it.)*
+
 Survivable while no crate had a meaningful default feature. **This crate's mmap is one.**
 
 **Scope note, stated because the spec does not settle it:** C6 says *"the full parser suite"*. This task extends the flag to **every gated crate**, which includes `mlmf-conformance` and `mlmf-source-file` — neither of which is a parser. That is *more* than C6 asks for, which is the safe direction, but **"one crate is not the suite" does not by itself license "therefore all six"**. It is a ruling; record it as one.
@@ -648,8 +650,87 @@ Survivable while no crate had a meaningful default feature. **This crate's mmap 
       four would go looking for a bug in their own test.)*
 - [ ] **Step 3: Add the four steps.** Not six — do not add a second one for
       `mlmf-source-file`; Task 1 already did.
+
+      ⚠️ **Adding them DISARMS the gate beside it, and no step says so.**
+      *(Found by Task 5's implementer, by asking what the new steps break
+      rather than what they add.)*
+      `every_gated_crate_is_tested_documented_and_linted_by_ci` requires
+      `cargo test -p <name>` via `workflow.contains()` — a **substring**,
+      searched over the whole file. `cargo test -p mlmf-ggml` is a **prefix**
+      of `cargo test -p mlmf-ggml --no-default-features`. **Measured**: with
+      the four steps added and the plain `cargo test -p mlmf-ggml` step
+      deleted outright, all four `ci_coverage` tests passed. The single
+      deletion that gate exists to catch went invisible **for all six
+      crates at once**, as a side effect of enforcing C6 properly, and Task
+      5 as written ships that regression silently.
+
+      The same file held an older hole of the same shape: every step writes
+      its command **twice**, once after `- name:` and once after `run:`, so
+      a whole-file substring search is satisfied by the *name* alone — a
+      step whose `run:` was rewritten to anything at all still passed.
+      `scripts/local-gates.sh` executes the `run:` lines and never reads a
+      name, so that divergence had no reader anywhere in the repository.
+
+      **Both fixed here rather than deferred to Task 6**, because Step 3 is
+      what creates the first: the two gates now match against a
+      `workflow_run_commands()` list — test and doc by **whole-string
+      equality**, clippy by prefix since its run line carries
+      `-- -D warnings`. Positive controls, measured: the same ggml deletion
+      now reddens naming `cargo test -p mlmf-ggml`; gutting a doc step's
+      `run:` while leaving its `- name:` intact now reddens **both** gates,
+      where before it was caught only by adjacency, through
+      `rustdoc_warnings_…`'s step count.
+
+      ⚠️ **And a stale claim in `ci.yml`, fixed in passing.** Task 1's
+      comment on the `mlmf-source-file --no-default-features` step read
+      *"This crate declares no features yet, so today this step runs the
+      same code as the one above it."* True when written; **false since
+      Task 3**, which added `default = ["mmap"]` and made it the one step of
+      six for which the flag subtracts anything — the comment now asserted
+      the opposite of the fact. Task 3 owned `Cargo.toml`, `src/` and
+      `tests/`, not `ci.yml`, so **no task owned the sentence its change
+      falsified** — the shape Task 6 is pre-assigned to look for, arriving
+      one task early.
 - [ ] **Step 4: Run the full gate set.**
 - [ ] **Step 5: Sabotage.** Delete one step; confirm the gate names that crate.
+
+      **Lands exactly as written.** Deleting `cargo test -p mlmf-safetensors
+      --no-default-features` reddens
+      `every_gated_crate_is_run_with_default_features_off` **alone**, naming
+      that crate and no other — a test failure, `3 passed; 1 failed`, not a
+      compile error. Chosen from the middle of the list rather than the
+      front, so that a gate naming a hardcoded crate would not have passed
+      for it.
+
+      **The three vacuity routes were PROBED, not reasoned about.** Hiding
+      every `crates/*/Cargo.toml` panics inside `gated_members()` —
+      *"expected at least two gated crates, found []"*; renaming the workflow
+      away panics inside `workflow_without_comments()` — *"is readable: The
+      system cannot find the file specified"*; truncating the workflow to
+      zero bytes reddens naming **all six** crates. The gate enumerates the
+      crates that must be covered rather than the steps that happen to be
+      present, so unlike `rustdoc_warnings_are_fatal_for_every_documented_crate`
+      it needs no separate count assertion to be non-vacuous.
+
+      ⚠️ **What Step 5 cannot reach, and it is half of what C6 asks.**
+      *(Found by Task 5's implementer.)* A step that EXISTS is not a step
+      that RUNS anything. `tests/mmap.rs` opens `#![cfg(feature = "mmap")]`,
+      so under the flag it compiles to zero tests — and a crate whose whole
+      suite were gated that way would satisfy this gate with a step
+      reporting *"running 0 tests … ok"*. C6's *"builds **and runs**"* is
+      only half-enforceable from workflow text, and this gate is the half
+      that is.
+
+      **Measured, both configurations, per crate:** `mlmf-source-file` runs
+      26 → 22 (the four absent are `mmap.rs`); `mlmf-core` 96 → 96,
+      `mlmf-ggml` 28 → 28, `mlmf-gguf` 102 → 102, `mlmf-safetensors`
+      49 → 49, `mlmf-conformance` 8 → 8. **Every crate but one is identical
+      both ways**, because `src/file.rs` holds the only
+      `#[cfg(feature = …)]` anywhere under `crates/*/src`. So five of the
+      six steps are today an exact re-run of the plain step beside them.
+      That is the ruling's price rather than a defect — but "C6 is now
+      enforced" means the **policy** is enforced, not that five mmap-free
+      paths were proven, and the plan's framing invites the stronger reading.
 - [ ] **Step 6: Commit.**
 
 ---
