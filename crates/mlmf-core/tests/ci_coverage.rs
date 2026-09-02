@@ -231,7 +231,26 @@ fn every_gated_crate_is_run_with_default_features_off() {
 /// dependency in `mlmf-core` to read `mlmf-core`'s own dependency gates would
 /// be circular against the set C2 pins.
 fn non_empty_default_features(dir: &std::path::Path) -> Option<String> {
-    let manifest = fs::read_to_string(dir.join("Cargo.toml")).ok()?;
+    default_features_in(&fs::read_to_string(dir.join("Cargo.toml")).ok()?)
+}
+
+/// Split out so it can be driven by fixtures, and because the first version
+/// had a defect that only an enumeration of its paths revealed.
+///
+/// ⚠️ **It matched the key with `strip_prefix("default")`, which also matches
+/// `default-tls`** — a real `reqwest` feature name. The `= ` strip then failed
+/// on `-tls = [...]` and the `?` returned `None` **for the whole crate**, so a
+/// crate declaring any `default`-prefixed feature *silently escaped the gate*.
+///
+/// **That is the dangerous direction and the reason to enumerate rather than
+/// chase a complexity threshold.** Too strict demands a no-op CI step, which
+/// somebody notices within a run. Too permissive lets a crate out of the gate,
+/// which is the exact defect this gate exists to catch and which nothing else
+/// reports.
+///
+/// The key is now compared for equality after a single split, which is also
+/// why this reads shorter than what it replaced.
+fn default_features_in(manifest: &str) -> Option<String> {
     let mut in_features = false;
     for line in manifest.lines() {
         let line = line.trim();
@@ -242,18 +261,89 @@ fn non_empty_default_features(dir: &std::path::Path) -> Option<String> {
         if !in_features || line.starts_with('#') {
             continue;
         }
-        if let Some(rest) = line.strip_prefix("default") {
-            let value = rest.trim_start().strip_prefix('=')?.trim();
-            // `default = []` is a declaration that there is no second
-            // configuration. It must not arm this gate, or the gate demands
-            // a step that changes nothing.
-            if value.starts_with('[') && value.trim_matches(['[', ']', ' ']).is_empty() {
-                return None;
-            }
-            return Some(value.to_string());
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "default" {
+            continue;
         }
+        let value = value.trim();
+        // `default = []` DECLARES that there is no second configuration. It
+        // must not arm the gate, or the gate demands a step that changes
+        // nothing.
+        if value.trim_matches(['[', ']', ' ']).is_empty() {
+            return None;
+        }
+        return Some(value.to_string());
     }
     None
+}
+
+#[test]
+fn the_default_feature_parser_reads_the_key_and_not_a_prefix_of_it() {
+    // The defect this test exists for: `default-tls` is a real feature name
+    // and the first version of the parser treated it as the `default` key,
+    // then bailed out of the whole crate when the `=` strip failed.
+    let with_prefixed_sibling = "[features]
+         default-tls = [\"dep:x\"]
+         default = [\"mmap\"]
+";
+    assert_eq!(
+        default_features_in(with_prefixed_sibling).as_deref(),
+        Some("[\"mmap\"]"),
+        "a feature merely BEGINNING with `default` must not be read as the key,          and must not make the crate escape the gate"
+    );
+
+    // The arms that decide arming, each stated rather than implied.
+    assert_eq!(
+        default_features_in(
+            "[features]
+default = [\"mmap\"]
+"
+        )
+        .as_deref(),
+        Some("[\"mmap\"]"),
+        "a non-empty default arms the gate"
+    );
+    assert_eq!(
+        default_features_in(
+            "[features]
+default = []
+"
+        ),
+        None,
+        "an EMPTY default declares no second configuration and must not arm"
+    );
+    assert_eq!(
+        default_features_in(
+            "[package]
+name = \"x\"
+"
+        ),
+        None,
+        "no [features] table at all"
+    );
+    assert_eq!(
+        default_features_in(
+            "[features]
+# default = [\"mmap\"]
+"
+        ),
+        None,
+        "a commented-out default is not a declaration"
+    );
+    assert_eq!(
+        default_features_in(
+            "[features]
+default = [\"a\"]
+[dependencies]
+default = [\"b\"]
+"
+        )
+        .as_deref(),
+        Some("[\"a\"]"),
+        "only the [features] table is read"
+    );
 }
 
 /// A crate with a real second configuration must be LINTED and DOCUMENTED in
