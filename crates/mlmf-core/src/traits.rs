@@ -53,8 +53,35 @@ pub trait RangedSource {
     ///
     /// # Errors
     ///
-    /// If the range lies outside the artifact, or the underlying transport
-    /// fails ([`crate::ErrorKind::Source`]).
+    /// **[`crate::ErrorKind::Truncated`] if the range lies outside the
+    /// artifact** — `needed` is the range's end, `available` the artifact's
+    /// length. **[`crate::ErrorKind::Source`] if the underlying transport
+    /// fails, if the range is inverted, or if `into.len()` does not equal
+    /// the range's width.**
+    ///
+    /// Those last two are violations of the precondition above, and they are
+    /// `Source` rather than a typed variant because
+    /// [`crate::ErrorKind::InvertedRange`] and
+    /// [`crate::ErrorKind::SizeMismatch`] both carry a tensor `name`. They
+    /// are format-axis errors; this is a source-axis trait and a source has
+    /// no tensors. **They were unbound until a review found the two
+    /// implementations answering them differently** — and the reference below
+    /// *panicked* on an inverted range rather than returning anything.
+    ///
+    /// Two sentences, deliberately. This used to read *"if the range lies
+    /// outside the artifact, or the underlying transport fails
+    /// (`ErrorKind::Source`)"*, and **the parenthetical bound ambiguously**:
+    /// to the transport clause alone, or to both? The reference
+    /// implementation below read it the first way and returned `Truncated`
+    /// for out-of-range; `mlmf-gguf` cited that reference by name and
+    /// followed it; `mlmf-safetensors` followed `mlmf-gguf`. **A fourth
+    /// implementation read it the second way and returned `Source`**, which
+    /// is how a workspace ends up with two answers to one question.
+    ///
+    /// `Truncated`'s numbers are the reason it wins on the merits and not
+    /// only on precedent: a caller branches on two integers instead of
+    /// parsing a sentence, **and a parsed error message is a contract nobody
+    /// wrote down and everybody depends on.**
     fn read_range(&self, range: Range<u64>, into: &mut [u8]) -> Result<()>;
 }
 
@@ -345,13 +372,48 @@ mod tests {
             Some(self.blob.len() as u64)
         }
         fn read_range(&self, range: Range<u64>, into: &mut [u8]) -> crate::Result<()> {
+            // ORDER MATTERS. This guard is first because the width below
+            // subtracts the endpoints, and `end - start` underflows on an
+            // inverted range: a debug build panics, a release build computes
+            // a width near `usize::MAX` and then indexes with it.
+            //
+            // The old `end > blob.len() || into.len() != end - start` did not
+            // short-circuit away from it: for `24..8` on a 32-byte blob,
+            // `8 > 32` is false, so `||` evaluated the subtraction and the
+            // reference implementation of this trait panicked.
+            if range.end < range.start {
+                return Err(crate::Error::from(crate::ErrorKind::Source(
+                    format!(
+                        "byte range {}..{} ends before it starts",
+                        range.start, range.end
+                    )
+                    .into(),
+                )));
+            }
             let start = usize::try_from(range.start).expect("fits");
             let end = usize::try_from(range.end).expect("fits");
-            if end > self.blob.len() || into.len() != end - start {
+            if end > self.blob.len() {
                 return Err(crate::Error::from(crate::ErrorKind::Truncated {
                     needed: range.end,
                     available: self.blob.len() as u64,
                 }));
+            }
+            if into.len() != end - start {
+                // `Source`, not `Truncated`. A width mismatch is the caller's
+                // buffer disagreeing with the caller's range; nothing is
+                // truncated. The old code answered it with
+                // `Truncated { needed: 8, available: 32 }` — two numbers
+                // describing no truncation at all.
+                return Err(crate::Error::from(crate::ErrorKind::Source(
+                    format!(
+                        "buffer of {} bytes does not match the {}-byte range {}..{}",
+                        into.len(),
+                        end - start,
+                        range.start,
+                        range.end
+                    )
+                    .into(),
+                )));
             }
             into.copy_from_slice(&self.blob[start..end]);
             Ok(())
@@ -453,6 +515,28 @@ mod tests {
         let mut wrong = [0u8; 4];
         assert!(f.read_range(0..8, &mut wrong).is_err(), "no short reads");
         assert!(f.read_range(0..64, &mut [0u8; 64]).is_err(), "out of range");
+
+        // An INVERTED range, which this test never covered. `end - start`
+        // underflows for it, and the `end > blob.len()` check above does not
+        // short-circuit: for 24..8 on a 32-byte blob, `8 > 32` is false, so
+        // `||` evaluates the subtraction. Debug builds panic; release builds
+        // compute a width near `usize::MAX` and then index.
+        //
+        // `mlmf-source-file` documents this exact hazard and orders its
+        // checks to avoid it. The reference implementation the trait doc
+        // points readers at did not.
+        let mut small = [0u8; 4];
+        // Built field-by-field, not written `24..8`. `clippy::
+        // reversed_empty_ranges` is deny-by-default and rejects the literal
+        // — measured, it failed this crate's own clippy gate. The lint is
+        // right about typed ranges and blind to the case that matters:
+        // nobody TYPES an inverted range, it arrives as two computed
+        // offsets from a header the reader never validated.
+        let inverted = std::ops::Range { start: 24, end: 8 };
+        assert!(
+            f.read_range(inverted, &mut small).is_err(),
+            "an inverted range must be an error, not a panic"
+        );
     }
 
     #[test]

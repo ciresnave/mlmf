@@ -1,0 +1,75 @@
+# C3: the std submodules mlmf-source-file may name.
+#
+# **This is a source-axis crate and the allow-list is NOT relaxed for it.**
+# C3's scope — "no crate on the format axis references `std::fs`, `memmap2`,
+# or any network client" — is what `tests/axis` releases, and it releases
+# exactly one name, `memmap2`, in the two gates that check crate names. The
+# `std` half is per-crate and unchanged on both axes: `purity.rs` checks
+# every `std::X` this crate's `src/**` reaches against this file, whatever
+# axis it declares. Reading `std::fs` here therefore costs an entry below,
+# exactly as `iter` costs mlmf-safetensors one.
+#
+# Grows one commit at a time, each entry landing beside the code that forced
+# it and saying what that was. A permission granted before its use is a
+# permission nobody re-examines.
+#
+# `purity.rs` scans `src/**` INCLUDING `#[cfg(test)]` modules and does not
+# scan `tests/`. This crate keeps its tests in `tests/`, so this file records
+# only what the library reaches — `tests/bytes.rs` uses `std::fs` and
+# `env!("CARGO_TARGET_TMPDIR")` freely and neither appears here.
+
+# Task 1, the plain-read path. Each entry names what forced it.
+#
+# `fmt` -- `impl std::fmt::Debug for FileSource`, hand-written because a
+#   derived one formats every byte of the file. There is no spelling of a
+#   `Debug` impl that does not name `std::fmt`. The plan predicted `fs` and
+#   `path` alone for this task; the impl was forced by `Result::expect_err`,
+#   which requires `T: Debug`, in this crate's own first test. Recorded as a
+#   divergence rather than folded in silently.
+# `fs` -- `std::fs::read` in `FileSource::open_read`. This is the crate's
+#   entire purpose: the source axis is I/O, and the format axis is where
+#   C3's prohibition on reaching the filesystem belongs.
+# `path` -- `open`/`open_read` take `&std::path::Path`, which is the type
+#   `mlmf_core::Error::with_path` already accepts and the type a consumer
+#   already holds.
+#
+# Task 2, `RangedSource`. One entry, and it is not optional:
+#
+# `ops` -- `RangedSource::read_range(&self, range: Range<u64>, ...)` is
+#   declared with `std::ops::Range` in `mlmf-core`'s `traits.rs`, which
+#   writes `use std::ops::Range;` at its own line 8 for the same reason.
+#   An implementation of that method cannot spell its own signature
+#   without naming the type, so this entry is forced by the seam rather
+#   than chosen by this crate. `PathBuf` came with it and cost nothing:
+#   `path` was already listed above.
+#
+# `io` is NOT here and its absence is load-bearing rather than incidental:
+#   `std::fs::read` returns `std::io::Result`, and the error conversion
+#   reaches that type without naming it only because the `map_err` closure
+#   argument is left unannotated. Spelling it `|e: std::io::Error|` is an
+#   ordinary readability edit and the gate reports it -- measured, in both
+#   directions. `src/file.rs` carries that note where the edit would be
+#   typed.
+#
+# Task 4, directory enumeration. One entry, and it is the API decision
+# rather than an incidental import:
+#
+# `ffi` -- `DirEntry { name: std::ffi::OsString, .. }`. `std::fs::DirEntry`
+#   hands out an `OsString` because a filename is not text: bytes with no
+#   encoding attached on Unix, UTF-16 code units whose surrogates need not
+#   pair up on Windows. Spelling the field `String` instead would cost
+#   nothing here and would silently lose names -- `to_string_lossy` yields
+#   a name that no longer opens the file -- and spec §9 clause 2.1 forbids
+#   exactly that: "round-trip byte-exact ... the failure is silent". So this
+#   line is the price of the losslessness, paid on purpose. `src/dir.rs`
+#   carries the ruling and `tests/dir.rs` carries the control that shows a
+#   name actually at risk.
+#
+#   `std::os::windows::ffi` and `std::os::unix::ffi` are what CONSTRUCT such
+#   a name, and neither is here or needed: only `tests/dir.rs` names them,
+#   and `purity.rs` does not scan `tests/`.
+ffi
+fmt
+fs
+ops
+path

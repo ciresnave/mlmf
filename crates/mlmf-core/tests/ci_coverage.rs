@@ -51,7 +51,7 @@ fn workflow_without_comments() -> String {
 
 #[test]
 fn every_gated_crate_is_tested_documented_and_linted_by_ci() {
-    let workflow = workflow_without_comments();
+    let commands = workflow_run_commands();
     let mut missing = Vec::new();
 
     for dir in common::gated_members() {
@@ -66,14 +66,42 @@ fn every_gated_crate_is_tested_documented_and_linted_by_ci() {
         // while doing something else, and clippy without `--all-targets`
         // never sees the test code, which is where this crate keeps most
         // of its assertions.
-        for required in [
-            format!("cargo test -p {name}"),
-            format!("cargo doc -p {name} --no-deps"),
-            format!("cargo clippy -p {name} --all-targets"),
-        ] {
-            if !workflow.contains(&required) {
-                missing.push(required);
-            }
+        //
+        // Matched against the `run:` COMMANDS rather than the whole file,
+        // and the test and doc steps by WHOLE-STRING equality rather than
+        // by substring. Both were forced, and both were measured:
+        //
+        //  * `cargo test -p mlmf-ggml` is a PREFIX of `cargo test -p
+        //    mlmf-ggml --no-default-features`, which the C6 gate below now
+        //    requires of every gated crate. Measured against the substring
+        //    form the moment those four steps landed: deleting the plain
+        //    `cargo test -p mlmf-ggml` step outright left this test GREEN,
+        //    satisfied by the flagged step beside it. The single deletion
+        //    this gate exists to catch had gone invisible, for all six
+        //    crates at once, as a side effect of enforcing C6 properly.
+        //  * every step writes its command TWICE — once after `- name:`
+        //    and once after `run:` — so a whole-file search is satisfied by
+        //    the name alone, and a step whose `run:` was rewritten to
+        //    anything at all still passed. `scripts/local-gates.sh`
+        //    executes the `run:` lines and never reads a name, so that
+        //    divergence had no reader anywhere in the repository.
+        //
+        // clippy stays a PREFIX match, because its run line carries
+        // `-- -D warnings` after the required text. Read against the
+        // commands rather than the file it is still tightened: the `- name:`
+        // line for a clippy step does not contain `--all-targets`, so it can
+        // no longer satisfy the requirement on its own.
+        let test = format!("cargo test -p {name}");
+        let doc = format!("cargo doc -p {name} --no-deps");
+        let clippy = format!("cargo clippy -p {name} --all-targets");
+        if !commands.contains(&test) {
+            missing.push(test);
+        }
+        if !commands.contains(&doc) {
+            missing.push(doc);
+        }
+        if !commands.iter().any(|c| c.starts_with(&clippy)) {
+            missing.push(clippy);
         }
     }
 
@@ -81,6 +109,118 @@ fn every_gated_crate_is_tested_documented_and_linted_by_ci() {
         missing.is_empty(),
         "crates/ contains members that CI does not gate. Add these steps to \
          .github/workflows/ci.yml:\n  {}",
+        missing.join("\n  ")
+    );
+}
+
+/// Every `run:` command in the workflow, in order, trimmed.
+///
+/// Matched against the `run:` lines specifically and NOT against the file as
+/// a whole, because every step in this workflow writes its command twice —
+/// once after `- name:` and once after `run:`. A whole-file
+/// `contains("cargo test -p mlmf-ggml --no-default-features")` is therefore
+/// satisfied by a step whose `name:` reads that and whose `run:` reads
+/// `echo nothing`: a step that passes the gate and runs no test.
+///
+/// That is not a hypothetical shape. `scripts/local-gates.sh` executes the
+/// `run:` lines and ignores the names entirely, so a name and a run that
+/// disagree is a divergence nothing else in this repository would report
+/// either — the local gate would run the wrong command and the CI gate
+/// would read the right one.
+fn workflow_run_commands() -> Vec<String> {
+    workflow_without_comments()
+        .lines()
+        .filter_map(|l| l.trim_start().strip_prefix("run: "))
+        .map(|c| c.trim().to_string())
+        .collect()
+}
+
+/// C6: every gated crate is RUN with default features off, not merely built.
+///
+/// C6, verbatim: *"CI builds **and runs** the full parser suite with
+/// `--no-default-features`, proving the mmap-free path is functional rather
+/// than merely compilable."*
+///
+/// Before this gate the workflow carried exactly two such steps —
+/// `mlmf-core`, from before the source axis existed, and `mlmf-source-file`,
+/// added one task before the `mmap` feature it exists to subtract. Four
+/// crates had none, and the clause read as satisfied because one step
+/// carrying the flag is indistinguishable, at a glance down a workflow,
+/// from a policy. That was survivable only while no crate had a default
+/// feature worth subtracting. `mlmf-source-file`'s `default = ["mmap"]` is
+/// one.
+///
+/// **A ruling rather than a reading, recorded as one.** C6 says "the full
+/// parser suite". This gate requires the step of EVERY gated crate, which
+/// includes `mlmf-conformance` and `mlmf-source-file` — neither of which is
+/// a parser. That is *more* than C6 asks for, which is the safe direction,
+/// but "one crate is not the suite" does not by itself license "therefore
+/// all six". What settles it is that the narrower set is not derivable:
+/// enforcing over the parsers alone needs a list of which crates are
+/// parsers, and no such list exists here. `tests/axis` splits format from
+/// source, and `mlmf-conformance` is on the *format* axis while being a
+/// consumer rather than a parser — so the axis file does not answer the
+/// question either. The alternative is inventing a third classification in
+/// order to enforce a constraint more weakly.
+///
+/// **This gate ENUMERATES rather than iterates**, which is the lesson
+/// `rustdoc_warnings_are_fatal_for_every_documented_crate` below had to
+/// learn after the fact: its loop walks the steps that are PRESENT, so zero
+/// present meant nothing to complain about. This loop walks the crates that
+/// must be covered, so a workflow with no `--no-default-features` step at
+/// all fails naming six crates rather than passing with nothing to say. The
+/// one remaining route to vacuity is an empty crate list, and
+/// `common::gated_members()` asserts `>= 2` before returning one. All three
+/// routes were probed rather than reasoned about: hiding every
+/// `crates/*/Cargo.toml` panics with *"expected at least two gated crates,
+/// found []"*, renaming the workflow away panics with *"is readable: The
+/// system cannot find the file specified"*, and truncating it to nothing
+/// fails naming all six crates.
+///
+/// **What this gate does NOT prove, said here because a step is cheaper to
+/// count than to read.** That a step exists is not that it runs anything.
+/// `crates/mlmf-source-file/tests/mmap.rs` opens `#![cfg(feature =
+/// "mmap")]`, so under the flag it compiles to zero tests — and a crate
+/// whose whole suite were gated that way would satisfy this gate with a
+/// step reporting *"running 0 tests ... ok"*. C6's "builds **and runs**" is
+/// only half-enforceable from the workflow text, and this is the half that
+/// is.
+///
+/// Measured when the four steps landed: `mlmf-source-file` runs 26 tests
+/// with default features and 22 without — the four absent ones are
+/// `mmap.rs` — while every other gated crate runs an identical count both
+/// ways, `src/file.rs` holding the only `#[cfg(feature = ...)]` anywhere
+/// under `crates/*/src`. So five of these six steps are, today, an exact
+/// re-run of the plain step beside them. That is the cost of the ruling
+/// above and it is worth paying: the step has to be standing before the
+/// default feature arrives, not after.
+#[test]
+fn every_gated_crate_is_run_with_default_features_off() {
+    let commands = workflow_run_commands();
+    let mut missing = Vec::new();
+
+    for dir in common::gated_members() {
+        let name = dir
+            .file_name()
+            .expect("a crate directory has a name")
+            .to_string_lossy()
+            .to_string();
+        let required = format!("cargo test -p {name} --no-default-features");
+        // `<[String]>::contains` — element EQUALITY, not `str::contains`
+        // substring. The distinction runs both ways here: `cargo test -p
+        // mlmf-core` is a prefix of this command, so a substring match
+        // would let either step satisfy the requirement for the other.
+        // The sibling gate above was matching by substring and this
+        // command is what broke it; see its comment.
+        if !commands.contains(&required) {
+            missing.push(required);
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "C6 requires the suite to RUN with default features off. These gated \
+         crates have no such step in .github/workflows/ci.yml:\n  {}",
         missing.join("\n  ")
     );
 }

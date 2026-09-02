@@ -52,6 +52,59 @@ const FORBIDDEN_CRATES: &[&str] = &[
     "protobuf-codegen",
 ];
 
+/// Whether naming `crate_name` in a manifest is a violation **on this axis**.
+///
+/// C3 is scoped and the gate was not: *"No crate **on the format axis**
+/// references `std::fs`, `memmap2`, or any network client."* See
+/// `common::Axis`.
+///
+/// **This list is not `purity.rs`'s list**, and the difference is not
+/// cosmetic. A manifest spells a crate with hyphens and Rust source spells
+/// it with underscores, so `async-std`/`async_std` and
+/// `native-tls`/`native_tls` each appear on one side only, `hf-hub` and
+/// `hf_hub` are both here because a manifest can carry either, and
+/// `prost-build`/`protobuf-codegen` are here alone because C5 is about a
+/// build-dependency edge and not about a `use` line. Anything the two lists
+/// must agree on -- the relaxation below -- has to be changed in both.
+fn is_forbidden(crate_name: &str, axis: Axis) -> bool {
+    if !FORBIDDEN_CRATES.contains(&crate_name) {
+        return false;
+    }
+    // The relaxation, and it is one name. §3.4: "`memmap2` is a **default**
+    // feature of `mlmf-source-file`." Because this scan is `line.contains()`
+    // over every non-comment line, this is also what lets the `[features]`
+    // table spell `mmap = ["dep:memmap2"]`.
+    if axis == Axis::Source && crate_name == "memmap2" {
+        return false;
+    }
+    true
+}
+
+/// Every forbidden-crate mention in one manifest text, on the given axis.
+///
+/// Extracted from the body of `the_manifest_names_no_io_crate_anywhere` so
+/// that the axis-scoping self-test can drive it against fixture text without
+/// writing a crate to disk. The scan itself is unchanged: every non-comment
+/// line, `contains` against each name, **with no notion of which table the
+/// line is in** -- which is deliberate, and is why a `[features]` entry
+/// naming a forbidden crate is reported exactly as a `[dependencies]` entry
+/// is.
+fn scan_manifest(label: &str, text: &str, axis: Axis) -> Vec<String> {
+    let mut found = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('#') {
+            continue;
+        }
+        for c in FORBIDDEN_CRATES {
+            if line.contains(c) && is_forbidden(c, axis) {
+                found.push(format!("{label}: {line}  (names `{c}`)"));
+            }
+        }
+    }
+    found
+}
+
 /// What a manifest declares, as far as dependency gating cares.
 #[derive(Debug, Default, PartialEq)]
 struct Facts {
@@ -155,7 +208,7 @@ fn parse_manifest(text: &str) -> Facts {
 // include, not a dev-dependency.
 #[path = "common/mod.rs"]
 mod common;
-use common::gated_members;
+use common::{Axis, axis, gated_members};
 
 fn crate_name(dir: &Path) -> String {
     dir.file_name()
@@ -225,24 +278,65 @@ fn the_manifest_names_no_io_crate_anywhere() {
     for dir in gated_members() {
         let name = crate_name(&dir);
         let manifest = read_manifest(&dir);
-        let mut found = Vec::new();
-        for line in manifest.lines() {
-            let line = line.trim();
-            if line.starts_with('#') {
-                continue;
-            }
-            for c in FORBIDDEN_CRATES {
-                if line.contains(c) {
-                    found.push(format!("{line}  (names `{c}`)"));
-                }
-            }
-        }
+        let found = scan_manifest(&name, &manifest, axis(&dir));
         assert!(
             found.is_empty(),
-            "{name}'s manifest names an I/O or codegen crate (C3/C5):\n  {}",
+            "a gated crate's manifest names an I/O or codegen crate (C3/C5):\n  {}",
             found.join("\n  ")
         );
     }
+}
+
+#[test]
+fn the_axis_scopes_the_relaxation_to_memmap2() {
+    // The manifest half of the same scoping the purity gate does over `src/`.
+    // §3.4: "`memmap2` is a **default** feature of `mlmf-source-file`", so a
+    // source-axis manifest names it TWICE -- once as an optional dependency
+    // and once inside `[features]`. The scan is `line.contains()` over every
+    // non-comment line, with no notion of which table it is in, so the
+    // `[features]` line counts exactly as the `[dependencies]` one does.
+    let source_manifest = "[package]\nname = \"mlmf-source-file\"\n\n\
+         [dependencies]\nmlmf-core = { path = \"../mlmf-core\" }\n\
+         memmap2 = { version = \"0.9\", optional = true }\n\n\
+         [features]\ndefault = [\"mmap\"]\nmmap = [\"dep:memmap2\"]\n";
+
+    let on_source = scan_manifest("fixture", source_manifest, Axis::Source);
+    assert!(
+        on_source.is_empty(),
+        "a source-axis manifest must be allowed to declare memmap2: {on_source:?}"
+    );
+
+    let on_format = scan_manifest("fixture", source_manifest, Axis::Format);
+    assert_eq!(
+        on_format.len(),
+        2,
+        "the same manifest on the format axis must be rejected on BOTH the \
+         `[dependencies]` line and the `[features]` line -- the second is the \
+         one a table-aware parser would miss: {on_format:?}"
+    );
+
+    // The scope control, exhaustive rather than one example. Note both
+    // spellings of the hyphen/underscore pairs are in this list and each
+    // must be caught by its own spelling.
+    for name in FORBIDDEN_CRATES {
+        if *name == "memmap2" {
+            continue;
+        }
+        let manifest = format!("[dependencies]\n{name} = \"1\"\n");
+        assert!(
+            !scan_manifest("fixture", &manifest, Axis::Source).is_empty(),
+            "`{name}` was accepted in a source-axis manifest; the axis \
+             relaxes `memmap2` and nothing else"
+        );
+    }
+
+    // A comment still is not a declaration, on either axis. The scan moved
+    // out of the `#[test]` body to take an axis; this is the control that
+    // the move carried the comment skip with it.
+    assert!(
+        scan_manifest("fixture", "# memmap2 = \"0.9\"\n", Axis::Format).is_empty(),
+        "a commented-out dependency is not a declaration"
+    );
 }
 
 #[test]

@@ -59,3 +59,68 @@ pub fn gated_members() -> Vec<PathBuf> {
     );
     out
 }
+
+/// Which of spec §3.1's two orthogonal axes a gated crate sits on.
+///
+/// Format crates are `bytes -> structure` and do no I/O. Source crates are
+/// I/O only and know nothing about formats. The distinction is not cosmetic:
+/// C3 is **scoped to one of them**, verbatim — *"No crate **on the format
+/// axis** references `std::fs`, `memmap2`, or any network client"* — while
+/// §3.4 makes `memmap2` a **default** feature of `mlmf-source-file`.
+///
+/// The qualifier was dropped when the clause became a gate, so both C3 gates
+/// rejected `memmap2` over every crate under `crates/` with no axis
+/// distinction. Nothing was wrong while every crate was on the format axis.
+/// The first source-axis crate is the moment it becomes wrong, and it would
+/// have arrived as "the spec says a default feature, the gate says never" —
+/// with the gate looking authoritative because it is executable.
+///
+/// **The relaxation this enables is `memmap2` and nothing else.** `std::fs`,
+/// `std::io` and `std::path` are not forbidden by either gate on either
+/// axis; they are governed per-crate by `tests/allowed-std.list`, which this
+/// type does not touch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Axis {
+    /// `bytes -> structure`, no I/O. Every crate that existed when this was
+    /// written.
+    Format,
+    /// I/O only, no format knowledge.
+    Source,
+}
+
+/// Read a gated crate's axis from its own `tests/axis`.
+///
+/// **A missing file is a loud panic, not a default**, matching
+/// `deps.rs::allow_list`, whose doc gives the reason: a silently-defaulted
+/// policy file is trivially satisfied and nobody wrote it. Defaulting to
+/// `Format` here would even be the *safe* direction and still wrong — a
+/// source crate that forgot the file would fail with "names the I/O crate
+/// `memmap2`", which points at the dependency rather than at the missing
+/// declaration, and the author would go looking for a way to delete the
+/// dependency.
+///
+/// An unrecognised value panics too, for the same reason: `Source` with a
+/// capital S must not read as `format` by falling through to a default.
+pub fn axis(crate_dir: &Path) -> Axis {
+    let path = crate_dir.join("tests/axis");
+    let raw = fs::read_to_string(&path).unwrap_or_else(|e| {
+        panic!(
+            "{} must declare the crate's spec §3.1 axis, `format` or `source`: {e}",
+            path.display()
+        )
+    });
+    // `trim`, not a bare comparison: a Windows checkout with `core.autocrlf`
+    // hands back "format\r\n", and an editor may or may not leave a trailing
+    // newline at all.
+    match raw.trim() {
+        "format" => Axis::Format,
+        "source" => Axis::Source,
+        other => panic!(
+            "{} must read exactly `format` or `source`, not {other:?}. \
+             The value is compared literally — case included — because a \
+             near-miss silently falling back to `format` is how a source \
+             crate ends up gated as a format crate.",
+            path.display()
+        ),
+    }
+}

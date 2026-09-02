@@ -1,0 +1,59 @@
+[package]
+    description          = "Opens local files as mlmf-core byte sources. I/O only, no format knowledge."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-source-file"
+    repository.workspace = true
+    version.workspace    = true
+
+# PLAIN [dependencies] AND NOTHING ELSE, and the empty space below is the
+# ruling rather than an omission.
+#
+# The obvious way to give an integration test a scratch file is `tempfile`
+# under `[dev-dependencies]` -- which is what the legacy root `mlmf` package
+# does, so it is the form anyone looking inside this repository will copy.
+# `deps.rs::no_table_other_than_plain_dependencies_may_declare_an_edge`
+# refuses it, and that refusal is the design working: a dev-dependency is
+# still an edge, and C2 pins edges rather than the subset of them that ship.
+# `mlmf-conformance`'s manifest records the same ruling for the same gate.
+#
+# `tests/bytes.rs` uses `env!("CARGO_TARGET_TMPDIR")` instead -- a
+# compile-time macro Cargo sets for integration tests, costing no dependency
+# and no new entry in `tests/allowed-std.list`.
+[dependencies]
+    # OPTIONAL, and named here at all only because `tests/axis` says
+    # `source`. Both C3 gates read that file:
+    # `deps.rs::the_manifest_names_no_io_crate_anywhere` scans every
+    # non-comment line of this manifest with `line.contains()` and no notion
+    # of which table it is in, so on the format axis the `[features]` entry
+    # below is rejected exactly as this line is. Spec §3.4 is the warrant:
+    # "`memmap2` is a **default** feature of `mlmf-source-file`."
+    #
+    # Kept below `mlmf-core` in the file and ABOVE it in
+    # `tests/direct-deps.allow`, which is not an inconsistency:
+    # `direct_dependencies_match_allowlist` compares a SORTED vector against
+    # that file's lines in order, and `memmap2` sorts before `mlmf-core`.
+    memmap2 = { version = "0.9", optional = true }
+
+    # Spec §3.1: a source crate depends on mlmf-core alone and never on a
+    # format crate. That is what makes `any source x any format` compose --
+    # an edge to a format crate here would make this source usable with one
+    # format and would put format knowledge on the I/O axis.
+    mlmf-core = { path = "../mlmf-core", version = "0.4.0" }
+
+# DEFAULT, because spec §3.4 says default -- and C6 is the other half of that
+# sentence: "CI builds AND RUNS the full parser suite with
+# `--no-default-features`, proving the mmap-free path is functional rather
+# than merely compilable." Both CI steps for this crate already exist; the
+# `--no-default-features` one was added in the same commit as the plain-read
+# path, one task before this feature it is meant to subtract, precisely so
+# that it was not written by the same hand on the same day as the thing it
+# checks.
+#
+# `dep:memmap2` rather than a bare `memmap2`: the bare form would also create
+# an implicit `memmap2` feature, so `--features memmap2` would silently turn
+# the dependency on WITHOUT turning on `mmap`, and `#[cfg(feature = "mmap")]`
+# would compile the read path against a linked-in mapping crate.
+[features]
+    default = ["mmap"]
+    mmap    = ["dep:memmap2"]
