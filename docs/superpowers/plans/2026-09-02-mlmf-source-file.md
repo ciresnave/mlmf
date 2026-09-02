@@ -39,8 +39,13 @@ running the real `purity.rs` over a realistic `src/` written to this plan's
 own interfaces: with only `fs`/`path` allowed it reports `std::ops`, twice,
 because `RangedSource::read_range(&self, range: Range<u64>, …)` forces
 `use std::ops::Range;` — `traits.rs:8` does the same in core. `ffi` is added
-by the `OsString` ruling in Task 4. **`io` is NOT needed**: error conversion
-goes through `ErrorKind::Source(Box::new(e))` and names no `std::io` path.
+by the `OsString` ruling in Task 4. **`io` is not reached PROVIDED the error conversion leaves its
+closure argument unannotated.** Measured both ways: `.map_err(|e| …Box::new(e))`
+scans clean; `.map_err(|e: std::io::Error| …)` reports *"path names `std::io`"*.
+Annotating a closure argument to make a conversion readable is an ordinary
+thing to write, so this is a property of one spelling, not of the crate.
+*(`std::error` is genuinely not needed — `Box::new(e)` coerces without naming
+the trait, because the `Box<dyn …>` type is declared in `mlmf-core`.)*
 **Do not pre-populate `allowed-std.list` from that probe** — it was chosen
 to test the gate, not to model this crate.
 
@@ -173,8 +178,14 @@ differ only by a hyphen. `deps.rs` carries **both** `hf-hub` and `hf_hub`.
 - [ ] **Step 6: Sabotage.**
   1. ⚠️ **Delete the relaxation branch itself** — the `axis == Source && crate
      == "memmap2"` arm — and confirm the Step 2 source-axis fixtures redden.
-     **Then make `axis()` return `Format` unconditionally and confirm the same.**
-     This is the only mutation that proves the relaxation is load-bearing.
+     **Do NOT also test "`axis()` returns `Format` unconditionally" here — it
+     is a no-op at Task 0.** Measured: baseline 4 passed; delete the branch →
+     `step2_source_axis_fixture` FAILS; force `Format` → **4 passed, nothing
+     moves.** Step 2's fixtures pass an `Axis` *value* straight into
+     `scan_text`; `axis()` is the *file reader*, reachable only through
+     `every_gated_crate_performs_no_io` over real crates — and at Task 0 no
+     real crate names `memmap2`. **That mutation has no subject until Task 1
+     exists, so it moves to Task 1 Step 5.**
 
      *(An earlier revision's item 1 was "flip a real crate's axis to `source`
      and confirm the scanner stops rejecting `memmap2`" — a no-op, since
@@ -235,7 +246,14 @@ here for consistency, not something the seam already ruled.)*
 
 - [ ] **Step 4: Wire the crate in, then run.** Add to root `default-members`, and add **four** CI steps: `cargo test -p`, `cargo test -p … --no-default-features` (C6, and Task 5 will gate it), `cargo doc -p … --no-deps` **in its own `- name:` block with `env: RUSTDOCFLAGS: -D warnings`**, and `cargo clippy -p … --all-targets`. **Precondition 13 counts doc steps per crate and checks each carries that env.** *(The first draft said "run, confirm pass, then add the CI steps" — impossible: the gates go red the moment the manifest exists.)*
 
-- [ ] **Step 5: Sabotage.** Truncate the read by one byte → the exact-bytes test reddens. Return `Vec::new()` unconditionally → the non-empty test reddens **while the zero-length test stays green**, which is the control proving the empty case is not carrying the assertion.
+- [ ] **Step 5: Sabotage.** **First, the one relocated from Task 0:** make
+      `common::axis()` return `Format` unconditionally and confirm
+      `every_gated_crate_performs_no_io` reddens naming `mlmf-source-file`.
+      **This is the first moment that mutation has a subject** — the crate now
+      exists, declares `source`, and names `memmap2` in `src/`. At Task 0 it was
+      green either way.
+
+      Then: truncate the read by one byte → the exact-bytes test reddens. Return `Vec::new()` unconditionally → the non-empty test reddens **while the zero-length test stays green**, which is the control proving the empty case is not carrying the assertion.
 
 - [ ] **Step 6: Commit.**
 
@@ -344,13 +362,25 @@ silently matching a mangled one.
 
 - [ ] **Step 1: Write the failing test.** A directory holding `model.safetensors`, `model.gguf`, `README.md` and a subdirectory `nested/`. Assert **all four** are returned, sorted, with `is_dir` true for exactly one. Assert a file inside `nested/` is **not** returned.
 
-  **And a non-ASCII name — `模型.safetensors` — round-trips byte-exact.** Every
-  other name in the fixture is ASCII, which is the same blindness the GGUF
-  corpus has against clause 2.1, and the same remedy: an authored fixture,
-  because the realistic population does not contain the case. *(A name that is
-  not valid UTF-8 at all is platform-specific to construct; `OsString` is what
-  makes it representable rather than lossy, and this test pins the property
-  that choice exists for.)*
+  **And a name with NO `String` representation at all.** Not merely non-ASCII:
+  `模型.safetensors` is valid UTF-8, so `to_string_lossy()` is the identity on
+  it and **a `String`-typed field would round-trip it perfectly.** Measured —
+  the intended sabotage came back `SABOTAGE DETECTED? : false`, `bytes equal :
+  true`. Keep that name if you want a readability case, but it **is not the
+  control**: it pins losslessness for a name that was never at risk, which is
+  the vacuity mode this plan warns about, inside the fix for a finding about
+  silent loss.
+
+  **The control is an unpaired surrogate — U+D800 in the file name.**
+  `#[cfg(windows)]`, three lines via `std::os::windows::ffi::OsStringExt::from_wide`;
+  `std::os` is free here because `purity.rs` does not scan `tests/`. On Unix,
+  `OsStrExt::from_bytes` with an invalid byte. **Measured on this host, so
+  "platform-specific" does not mean impractical:** the file is creatable, the
+  honest name reads back byte-exact, the lossy round-trip turns U+D800 into
+  U+FFFD, and — the assertion worth writing — **reopening by the honest name
+  succeeds while reopening by the lossy name is `NotFound`.** That demonstrates
+  the OsString ruling's claim, *"a listing whose entries cannot be opened"*,
+  rather than arguing it.
 
 - [ ] **Step 2: Run, confirm failure.**
 
@@ -364,8 +394,10 @@ silently matching a mangled one.
 - [ ] **Step 5: Sabotage.** Filter to `.safetensors` → the test names the three
       dropped entries. Recurse into `nested/` → the not-returned assertion
       reddens. **Replace `OsString` with `to_string_lossy().into_owned()` →
-      the non-ASCII round-trip must redden.** If it stays green the fixture is
-      not exercising the property and the type choice is unjustified.
+      the SURROGATE round-trip must redden, and the reopen-by-name assertion
+      with it.** *(Against `模型.safetensors` this mutation is GREEN — measured.
+      A sabotage that cannot fail against your fixture means the fixture is
+      wrong, not that the code is right.)*
 
 - [ ] **Step 6: Commit.**
 
@@ -383,10 +415,11 @@ Survivable while no crate had a meaningful default feature. **This crate's mmap 
 
 - [ ] **Step 1: Write the failing test** — every gated crate has a `--no-default-features` test step, crate list derived from the filesystem as that file already does.
 - [ ] **Step 2: Run; confirm it fails naming FOUR crates** — `mlmf-conformance`,
-      `mlmf-ggml`, `mlmf-gguf`, `mlmf-safetensors`. **Measured, not derived:**
-      `mlmf-core` has a step today, and **Task 1 Step 4 adds one for
-      `mlmf-source-file`**, so two of the six are already covered when this
-      runs. *(An earlier revision said "five, six once Task 1 lands". Neither
+      `mlmf-ggml`, `mlmf-gguf`, `mlmf-safetensors`. **The rule, not the number: every gated crate that does
+      not already have such a step.** Measured today that is the four above —
+      `mlmf-core` has one, and **Task 1 Step 4 adds one for
+      `mlmf-source-file`**. *(Stated as a rule because the count is right today
+      and wrong after any CI edit; let Step 2 report the names.)* *(An earlier revision said "five, six once Task 1 lands". Neither
       is reachable — the number was introduced by a fix and never derived, and
       it sits inside the step that verifies the step. An implementer seeing
       four would go looking for a bug in their own test.)*
@@ -415,13 +448,22 @@ Survivable while no crate had a meaningful default feature. **This crate's mmap 
       earlier revision of THIS plan inherited the splice and hardened it into
       "Plan 3 found eleven".
 
-      **Both rates are worth recording. Neither is the other.** Plan 5's review
-      found six Important. If you want a vacuity rate, count controls that
-      could not reach their assertion, and keep the two series apart.
+      **Both rates are worth recording. Neither is the other.** If you want a
+      vacuity rate, count controls that could not reach their assertion, and
+      keep the two series apart.
+
+      **Do not carry a prior findings count into this plan at all.** No review
+      artefacts are stored; the commit subjects say "review findings" with no
+      severity band; and the nearest six — `79f4b1b`, *"six review findings from
+      the final whole-branch pass"* — is dated 2026-08-15 over
+      `mlmf-core`+`mlmf-ggml`, which is **plan 2, not plan 5**. **Record this
+      plan's own number and cite the commit that carries it.**
 
       *(A previous revision also claimed "no review artefacts are stored in
-      `docs/`". False — `grep -rn eleven docs/` finds the definition and two
-      carriers. A false absence-claim in a plan is worse than the silence it
+      `docs/`". False — `grep -rn eleven docs/` finds **four** hits outside this plan: the
+      definition (`2026-08-21…:81`), a restatement (`:1508`), one carrier
+      (`2026-08-26…:572`), and one false positive (`2026-08-19…:1653`, "the
+      eleven scalars"). Expect to discard one. A false absence-claim in a plan is worse than the silence it
       replaced.)*
 
 ---
