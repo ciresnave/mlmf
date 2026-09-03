@@ -13,3 +13,6 @@
 
 /// The spec §5 canonical key vocabulary, as a bidirectional data table.
 pub mod vocab;
+
+/// Chat-template extraction, including the GGUF multi-template indirection.
+pub mod template;
