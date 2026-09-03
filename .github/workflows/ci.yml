@@ -145,6 +145,32 @@ jobs:
       - name: cargo clippy -p mlmf-conformance
         run: cargo clippy -p mlmf-conformance --all-targets -- -D warnings
 
+      # mlmf-meta sits above mlmf-core and below every format crate: it holds
+      # the spec §5 canonical key vocabulary as DATA and reads a
+      # MetadataSource, so it has no I/O and names no format crate (C4).
+      #
+      # FOUR steps, not six, and that is a consequence rather than an
+      # omission. `a_crate_with_a_second_configuration_is_linted_and_documented_in_it`
+      # arms only on a NON-EMPTY default feature list; mlmf-meta declares no
+      # `[features]` at all, so there is no second configuration and the
+      # --no-default-features clippy and doc steps would lint the same build
+      # twice. The `cargo test --no-default-features` step below is still
+      # required: C6 pins that the suite RUNS in that configuration, whether
+      # or not the configuration differs.
+      - name: cargo test -p mlmf-meta
+        run: cargo test -p mlmf-meta
+
+      - name: cargo test -p mlmf-meta --no-default-features
+        run: cargo test -p mlmf-meta --no-default-features
+
+      - name: cargo doc -p mlmf-meta --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-meta --no-deps
+
+      - name: cargo clippy -p mlmf-meta
+        run: cargo clippy -p mlmf-meta --all-targets -- -D warnings
+
       # mlmf-source-file is the first crate on the SOURCE axis (spec §3.1):
       # I/O only, no format knowledge. It is gated exactly like the format
       # crates -- the axis scopes C3's prohibition on naming `memmap2`, and

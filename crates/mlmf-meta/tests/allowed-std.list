@@ -1,0 +1,12 @@
+# C3: the std submodules mlmf-meta may name. DELIBERATELY EMPTY.
+#
+# This crate is structure -> structure: it reads a `MetadataSource` and
+# returns owned values. It needs `String` and `Vec`, which are prelude
+# types and not `std::`-rooted paths, and nothing else. The purity gate
+# scans `src/` only, so the corpus differential that DOES touch the
+# filesystem lives in mlmf-conformance rather than here.
+#
+# The file exists rather than being absent because `purity.rs::allowed_std`
+# panics when a gated member does not declare a list -- an absent file and
+# an empty one would otherwise be indistinguishable, and the absent one
+# would look like a crate nobody had considered.
