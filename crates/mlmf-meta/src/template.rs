@@ -47,7 +47,15 @@ pub struct TemplateEntry {
 /// asserts a consistency the file never claimed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TemplateSet {
-    /// Templates found, default first when present.
+    /// Templates found: the default first when present, then the named
+    /// ones **sorted by name**.
+    ///
+    /// The order is part of the contract rather than an accident.
+    /// [`MetadataSource::keys`] is documented "in unspecified order", so
+    /// without sorting, two
+    /// extractions of the same file could differ in order alone — and a
+    /// consumer comparing template sets across readers would read that as
+    /// a disagreement about the files.
     pub entries: Vec<TemplateEntry>,
     /// Keys a name in the names array pointed at that yielded no usable
     /// template. Spelled as the key it would have been — see
@@ -144,12 +152,21 @@ impl TemplateSet {
         // `!n.is_empty()` filter is the other half, rejecting the exact key
         // `tokenizer.chat_template.`.
         let prefix = format!("{default_key}.");
-        let named: Vec<String> = source
+        let mut named: Vec<String> = source
             .keys()
             .into_iter()
             .filter_map(|k| k.strip_prefix(prefix.as_str()).map(ToString::to_string))
             .filter(|n| !n.is_empty())
             .collect();
+
+        // `MetadataSource::keys()` is documented "in unspecified order", so
+        // WITHOUT this sort the order of the named entries is whatever the
+        // source happened to hand back. A consumer diffing two extractions
+        // -- which is exactly what a cross-reader disagreement harness does
+        // -- would then see spurious differences that are an artefact of the
+        // source's iteration, not of the files. Deterministic costs one
+        // sort of a list that is at most a handful of names.
+        named.sort_unstable();
 
         let mut found: Vec<String> = Vec::new();
         for name in named {

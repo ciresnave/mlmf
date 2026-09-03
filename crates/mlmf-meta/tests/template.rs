@@ -149,3 +149,37 @@ fn a_non_string_template_value_is_not_coerced_and_the_loss_is_named() {
         vec!["tokenizer.chat_template".to_string()]
     );
 }
+
+#[test]
+fn named_entries_come_back_sorted_whatever_order_the_source_offers() {
+    // `MetadataSource::keys()` is documented "in unspecified order". This
+    // Fake hands the SAME three templates back in two different orders; the
+    // extraction must be identical both times, because a consumer diffing
+    // two extractions -- a cross-reader disagreement harness, say -- would
+    // otherwise read the source's iteration order as a disagreement about
+    // the files.
+    //
+    // Without the sort in `extract`, this test fails on the second order
+    // while the first still passes, which is why both are here.
+    let bodies = [("zeta", "Z"), ("alpha", "A"), ("mid", "M")];
+
+    let forward: Vec<(String, MetaValue)> = bodies
+        .iter()
+        .map(|(n, b)| (format!("tokenizer.chat_template.{n}"), s(b)))
+        .collect();
+    let mut reversed = forward.clone();
+    reversed.reverse();
+
+    let a = TemplateSet::extract(&Fake(forward), Format::Gguf);
+    let b = TemplateSet::extract(&Fake(reversed), Format::Gguf);
+
+    assert_eq!(a, b, "extraction must not depend on key iteration order");
+    assert_eq!(
+        a.entries
+            .iter()
+            .map(|e| e.name.as_deref().unwrap_or("<default>"))
+            .collect::<Vec<_>>(),
+        vec!["alpha", "mid", "zeta"],
+        "named entries are sorted by name"
+    );
+}
