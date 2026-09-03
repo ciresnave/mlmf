@@ -306,7 +306,36 @@ The shared crate is the standard for **mechanism**; these clauses are the standa
 - **1.1** A blank `chat_template` is **UNDECLARED**, not declared-empty. Check `trim().is_empty()`, not `is_empty()`. *(A blank template parses fine and renders an empty prompt — the model receives a request to continue nothing. Shipped and caught in review at Lightbulb.)*
 - **1.2** Absent means `None`, never a default, except under §6 (Supplied, attributed).
 - **1.3** A single-file `.gguf` is a first-class checkpoint. Companion JSON lives **beside** the file, never inside a directory named after it — `foo.gguf/tokenizer_config.json` is a path that can never exist, and constructing it silently yields empty BOS/EOS. For GGUF the in-file metadata is authoritative regardless.
-- **1.4** Chat-template extraction covers `tokenizer_config.json:chat_template` (string *or* a list of `{name, template}` where the `default` entry is wanted), the GGUF `tokenizer.chat_template` key, and the `chat_template.jinja` sidecar. Declared BOS/EOS likewise: `tokenizer_config.json`'s `bos_token`/`eos_token`; `config.json`'s `bos_token_id`/`eos_token_id` resolved through `tokenizer.json`'s `added_tokens`; GGUF's `tokenizer.ggml.{bos,eos}_token_id` indexed into `tokenizer.ggml.tokens`.
+- **1.4** ⚠️ **CORRECTED 2026-09-03. The previous text named ONE sidecar spelling and ONE shape for a declared token, and both are narrower than the checkpoints. It is quoted below, because a correction that deletes what it corrects leaves the next reader unable to judge it.**
+
+  Chat-template extraction covers **four sources**, and a checkpoint may use any one of them:
+
+  | Source | Shape | Measured on |
+  |---|---|---|
+  | `tokenizer_config.json:chat_template` | a **string** | TinyLlama-1.1B-Chat, SmolLM2-360M-Instruct |
+  | `tokenizer_config.json:chat_template` | a **list of `{name, template}`** objects, the `default` entry wanted | Hermes-3-Llama-3.1-8B — 2 entries, `default` + `tool_use` |
+  | a **sidecar file**, in either of two spellings | `chat_template.jinja` (raw Jinja) *or* `chat_template.json` (a JSON object with one `chat_template` key) | `.jinja` on openai/gpt-oss-20b; `.json` on google/gemma-3-4b-it |
+  | GGUF `tokenizer.chat_template` | a string, plus `tokenizer.chat_templates` naming siblings under `tokenizer.chat_template.<name>` | ggml-vocab-command-r.gguf — default + `rag` + `tool_use` |
+
+  ⚠️ **The sidecar spelling varies with the `transformers` version that saved the checkpoint, so a reader must try both and a THIRD will appear.** Written as a rule about sidecars rather than a list of two names for that reason. **And on `openai/gpt-oss-20b` the sidecar is the ONLY source — `tokenizer_config.json` carries no `chat_template` at all** (whole-file read, all nine top-level keys enumerated), so ignoring it yields no template rather than a stale one.
+
+  ⚠️ **The two list forms are opposite structures sharing a word.** HF's is an array of **objects carrying bodies**, whose default is a *named* entry. GGUF's is an array of **names**, with bodies in sibling keys and a default that is *unnamed and absent from the array*. **Handling one is not handling the other.**
+
+  Declared BOS/EOS likewise, and **`tokenizer_config.json`'s token values have two shapes**:
+
+  - `tokenizer_config.json`'s `bos_token`/`eos_token`/`unk_token` — **a string, OR an `AddedToken` object whose `content` key holds the text** (`{"__type": "AddedToken", "content": "<s>", "lstrip": …, "normalized": …, "rstrip": …, "single_word": …}`). ⚠️ **A reader that only accepts a string returns "not declared" for the object form, which is a fact about the reader reported as a fact about the checkpoint.** String on TinyLlama, SmolLM2, Hermes-3 and gpt-oss-20b; object on NousResearch/Llama-2-7b-chat-hf.
+  - `config.json`'s `bos_token_id`/`eos_token_id` resolved through `tokenizer.json`'s `added_tokens`.
+  - GGUF's `tokenizer.ggml.{bos,eos}_token_id` indexed into `tokenizer.ggml.tokens`.
+
+  ⚠️ **These are TWO INDEPENDENT PATHS to the same datum and both should be reported.** HF declares the token **text** directly and GGUF declares only an **id**; where both paths exist and disagree, **the disagreement is a finding about the checkpoint, not a reader bug.**
+
+  **`add_bos_token`/`add_eos_token` are not GGUF-only.** They appear in `tokenizer_config.json` too — `add_bos_token: true`, `add_eos_token: false` on NousResearch/Llama-2-7b-chat-hf, absent on the other four measured. ⚠️ **This clause previously implied the pair had no HF spelling by not mentioning one; four consecutive absences looked like a rule and one presence ended it.** They remain **declarations**, never the `add_special_tokens` flag — see clause 4.1.
+
+  **The original clause read:** *"Chat-template extraction covers `tokenizer_config.json:chat_template` (string or a list of `{name, template}` where the `default` entry is wanted), the GGUF `tokenizer.chat_template` key, and the **`chat_template.jinja`** sidecar. Declared BOS/EOS likewise: `tokenizer_config.json`'s `bos_token`/`eos_token`; …"*
+
+  ⚠️ **Why this survived, which is the transferable part.** The clause was **not wrong** — every source it named exists. It was **incomplete in a way that reads as complete**: a specific file name and a specific value shape look like the output of someone who checked. **`.jinja` is a real spelling, so nobody who saw one felt contradicted**, and a reader implementing it literally finds nothing on gemma-3 and reports *"no sidecar"* — a fact about the reader delivered as a fact about the checkpoint. **Incomplete is harder to notice than wrong**, because wrong eventually produces a contradiction and incomplete produces a silence. *(Same class as clause 4.1, corrected one day earlier: a statement narrower than reality, made authoritative by being specific.)*
+
+  *(Sidecar spellings and the `AddedToken` shape found by the portfolio PM by fetching Hub metadata; every claim here re-verified from the bytes by MLMF before being written down, including one that had been inferred from JSON key ordering rather than read.)*
 
 **§2 Byte-exactness**
 - **2.1** Vocabulary, BPE merges, and token strings round-trip **byte-exact**. No Unicode normalization, case folding, trimming, or reordering — ever. *(Unpopped: their token grammar forbids prefix/subset/normalization logic because `cuda:sm90` and `cuda:sm90a` are different compilation targets that a prefix match collapses into one entry serving the wrong kernel. Tokenizer merges and token strings have the identical "looks normalizable, isn't" property, and the failure is silent.)*
