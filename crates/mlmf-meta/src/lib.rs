@@ -11,11 +11,12 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-/// The spec §5 canonical key vocabulary, as a bidirectional data table.
-pub mod vocab;
-
-/// Chat-template extraction, including the GGUF multi-template indirection.
+// NO `///` DOC ON THESE DECLARATIONS. Each module carries its own `//!`
+// inner doc, which is what satisfies `missing_docs`. An OUTER doc here
+// would be merged with that inner one and the merged text resolved in
+// THIS module's scope, so `vocab`'s own `[`TABLE`]` link stops resolving
+// and `cargo doc -D warnings` -- a CI step -- fails. Measured, after I
+// added three such comments as an embellishment the plan did not ask for.
 pub mod template;
-
-/// Special-token declarations: what the file said, not what to do.
 pub mod tokens;
+pub mod vocab;
