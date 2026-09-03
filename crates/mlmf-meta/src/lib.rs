@@ -16,3 +16,6 @@ pub mod vocab;
 
 /// Chat-template extraction, including the GGUF multi-template indirection.
 pub mod template;
+
+/// Special-token declarations: what the file said, not what to do.
+pub mod tokens;
