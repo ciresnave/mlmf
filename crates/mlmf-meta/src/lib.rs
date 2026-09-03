@@ -10,3 +10,6 @@
 //! key in a byte stream is a parser, and lives elsewhere.
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+
+/// The spec §5 canonical key vocabulary, as a bidirectional data table.
+pub mod vocab;
