@@ -13,6 +13,23 @@
 //! that a real constraint rather than a tautology — but the strongest claim
 //! available here is still weaker than a real consumer, and `mlmf-hf-layout`
 //! has none yet.
+//!
+//! # It has fired. Twice, on real omissions, by its own author
+//!
+//! Recorded because the next person to read this will be deciding whether
+//! it earns its maintenance cost — and **"it has never fired" and "nobody
+//! recorded that it fired" are the same text.**
+//!
+//! | When | Which assertion | What it caught |
+//! |---|---|---|
+//! | 2026-09-05, adding `metadata_readable` | the **count** (8 ≠ 7) | A new public fn with no test naming it. Shipped in the same commit as a Codacy fix, an hour after this gate was written |
+//! | 2026-09-05, isolating the two assertions | **reachability** | `tensors` renamed in `src` only: the count stayed 7 and the name went unreached |
+//!
+//! ⚠️ **The second firing is why both assertions exist separately.** Adding
+//! an unreached fn trips the *count* and the reachability assertion never
+//! runs — so a control that only adds would leave the second one
+//! unexercised. "Assert position, not presence", applied to the gate built
+//! to catch that class.
 
 use std::fs;
 
