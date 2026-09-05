@@ -160,7 +160,9 @@ Root `Cargo.toml` `default-members`: **`crates/mlmf-hf-layout` sorts after `crat
 
 **Files:** create `src/shards.rs`, `tests/shards.rs`; **modify `tests/allowed-std.list`.**
 
-⚠️ **The allow-list is not optional here and Task 0 cannot predict it.** `impl std::error::Error for ShardError` names `std::error`, and with an empty list `purity.rs` fails: *"`mlmf-hf-layout`: …/src/shards.rs: path names `std::error`, which is not on the permitted-std allow-list (C3)"*. **Add `error` — and nothing else until a gate demands it.**
+⚠️ **The allow-list is not optional here and Task 0 cannot predict it.** `impl std::error::Error for ShardError` names `std::error`, and with an empty list `purity.rs` fails: *"`mlmf-hf-layout`: …/src/shards.rs: path names `std::error`, which is not on the permitted-std allow-list (C3)"*. **Add `error` AND `fmt`** — `std::error::Error` requires `Display`, which is `std::fmt`.
+
+⚠️ **This plan predicted only `error`. `fmt` arrived from the gate on the first full run**, as *"import names `std::fmt`, which is not on the permitted-std allow-list"*. **That is the allow-list working as designed, and it is why the instruction is "add what the gate demands" rather than a fixed list — the next `impl` will demand a third.**
 
 **Interfaces produced — full signatures, so nothing is guessed:**
 
@@ -420,6 +422,12 @@ out=$(cargo test -p mlmf-hf-layout --test shards 2>&1); printf '%s\n' "$out" | t
 # says applied, the guard above stays silent, and the suite prints ok.
 printf '%s\n' "$out" | grep -q '^test result: FAILED' \
   || echo '!! APPLIED BUT NOTHING REDDENED -- the mutation is a no-op, not a passing sabotage'
+# And a BUILD BREAK is not a red test either. Match rustc's own markers,
+# NOT a bare `^error` -- `cargo test` prints "error: test failed, to rerun
+# pass ..." on an ordinary FAILURE, which made this check a false positive
+# on three WORKING sabotages the first time it was written.
+printf '%s
+' "$out" | grep -qE 'error\[E|could not compile'   && echo '!! DID NOT COMPILE -- a build break, not a red test'
 cp "$BAK" crates/mlmf-hf-layout/src/shards.rs && rm -f "$BAK"
 ```
 
@@ -437,6 +445,8 @@ Expected: **FAIL on THREE tests** — `one_layer_may_span_two_shards_two_instanc
 **(c) `filter_map` the metadata members** instead of recording the unrepresentable ones → `an_unrepresentable_metadata_member_is_named_not_dropped` reddens.
 
 **(d) Return `Ok` with an empty index when `weight_map` is absent** → `a_missing_weight_map_is_an_error_not_an_empty_index` reddens.
+
+⚠️ **The mutation must make `parse` SUCCEED with an empty map.** Its first form replaced the `ok_or_else` with `.unwrap_or(&Value::Null)`, so `.as_object()` still returned `None` and the *next* `ok_or_else` still errored — **a different error, not a different outcome.** `cmp` said applied, the suite printed `14 passed`, exit code zero. **The third guard state is the only thing that caught it, and it fired on its first real use.**
 
 - [ ] **Step 6: `cargo fmt --all`; `cargo clippy -p mlmf-hf-layout --all-targets -- -D warnings`; gate on the exit code; commit.**
 
