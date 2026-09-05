@@ -532,3 +532,89 @@ fn toolchain_pin_matches_ci() {
         "rust-toolchain.toml pins {channel} but the workflow does not use          `{needle}` — CI would build with a different compiler than every          developer, and both would report green"
     );
 }
+
+/// Every `run:` line that uses a **redirect** declares `shell: bash`.
+///
+/// ⚠️ **Pins an audit that was performed once by hand and then had nothing
+/// re-running it.** The workflow's default shell on `windows-latest` is
+/// `pwsh`, where `>` is not a discard but a **path**: `cargo metadata
+/// --locked --format-version 1 > /dev/null` failed there with `OpenError`
+/// while the lockfile was perfectly clean.
+///
+/// ⚠️ **`scripts/local-gates.sh` CANNOT CATCH THIS CLASS.** It extracts
+/// `run:` lines and executes every one of them in bash, so a step that only
+/// works in bash passes locally and fails only on the Windows matrix leg. It
+/// reported `all 37 CI commands pass locally` and was correct — *about
+/// bash*. The instrument was silent on the axis the defect lived on, and its
+/// green read as coverage.
+///
+/// # Why REDIRECTS specifically, and not "bash syntax"
+///
+/// A general bash-ism detector needs a judgement about which tokens count
+/// (`&&` works in pwsh 7; `|` works; `$(...)` does not) and would carry a
+/// false-positive rate. ⚠️ **A guard that is sometimes wrong about a class
+/// with zero current members is a guard that gets disabled the first time it
+/// fires** — the same trained-ignorable failure as a permanently-red check,
+/// arriving through the other door.
+///
+/// `>` and `>>` are unambiguous, and they are the exact token that broke.
+/// Widen this only if a second token class actually bites.
+#[test]
+fn every_redirecting_run_line_declares_bash() {
+    // Comments are stripped first: THIS repository's own workflow explains
+    // the hazard in a comment that necessarily contains `> /dev/null`, and a
+    // checker that read its own documentation as a violation would be the
+    // instrument-measures-itself failure in miniature.
+    let workflow = workflow_without_comments();
+    let lines: Vec<&str> = workflow.lines().collect();
+
+    let mut redirecting = 0;
+    let mut violations = Vec::new();
+
+    for (i, line) in lines.iter().enumerate() {
+        let Some(cmd) = line.trim_start().strip_prefix("run: ") else {
+            continue;
+        };
+        if !cmd.contains('>') {
+            continue;
+        }
+        redirecting += 1;
+
+        // The step this `run:` belongs to: from the nearest `- name:` or
+        // `- uses:` down to this line. Scoped to the STEP rather than the
+        // file, because a `shell: bash` on some other step says nothing
+        // about this one.
+        let step_start = lines[..=i]
+            .iter()
+            .rposition(|l| {
+                let t = l.trim_start();
+                t.starts_with("- name:") || t.starts_with("- uses:")
+            })
+            .unwrap_or(0);
+        let declares_bash = lines[step_start..=i]
+            .iter()
+            .any(|l| l.trim() == "shell: bash");
+
+        if !declares_bash {
+            violations.push(cmd.to_string());
+        }
+    }
+
+    // ⚠️ NON-VACUITY GUARD. "Zero violations" is trivially true over zero
+    // redirecting lines, and a parser that stopped recognising `run:` would
+    // report exactly that — a clean pass describing nothing. The check is
+    // only evidence if it found something to check.
+    assert!(
+        redirecting > 0,
+        "no `run:` line with a redirect was found at all. Either the parser \
+         is broken or the last redirect left the workflow; a zero-violation \
+         result over an empty set is not a pass"
+    );
+
+    assert!(
+        violations.is_empty(),
+        "these `run:` lines redirect but do not declare `shell: bash`, so \
+         they will fail on windows-latest under pwsh — where `>` is a path, \
+         not a discard — for a reason unrelated to what they test: {violations:?}"
+    );
+}
