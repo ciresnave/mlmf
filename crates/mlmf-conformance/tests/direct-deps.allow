@@ -25,3 +25,10 @@ mlmf-core
 mlmf-gguf
 mlmf-meta
 mlmf-safetensors
+
+# Both for examples/dump_gguf_meta.rs only -- the cross-project harness emit.
+# serde_json escapes; sha2 hashes. Sorted: serde_json before sha2 ("e" < "h"),
+# and deps.rs compares POSITIONALLY, so an entry in the wrong place fails
+# exactly as a missing one does.
+serde_json
+sha2

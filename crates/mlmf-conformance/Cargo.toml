@@ -40,3 +40,19 @@
     mlmf-gguf        = { path = "../mlmf-gguf", version = "0.4.0" }
     mlmf-meta        = { path = "../mlmf-meta", version = "0.4.0" }
     mlmf-safetensors = { path = "../mlmf-safetensors", version = "0.4.0" }
+
+    # For the cross-project disagreement harness (examples/dump_gguf_meta.rs).
+    # lightbulb and mlmf each dump to a stable artifact and a comparator reads
+    # both -- deliberately NO cross-repo dependency, because under a git
+    # dependency "call mlmf for the thing lightbulb should compute itself"
+    # becomes the path of least resistance, and that turns a comparison into a
+    # self-check. Agreement from a shared implementation is indistinguishable
+    # from agreement between independent ones.
+    #
+    # serde_json for correct escaping -- template text and token strings carry
+    # newlines, quotes and non-ASCII (deepseek's U+FF5C, U+2581), and
+    # hand-rolled JSON escaping is exactly the thing that goes subtly wrong.
+    # sha2 because the contract is sha256 OF THE UTF-8 BODY, and no crate in
+    # this workspace hashes anything.
+    serde_json       = { version = "1.0", default-features = false, features = ["std"] }
+    sha2             = "0.10"
