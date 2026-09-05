@@ -12,3 +12,5 @@
 //! breaking the module's own links. Both measured, both cost a red commit.
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+
+pub mod shards;

@@ -5,13 +5,21 @@
 # and there never should be -- the caller reads the file and hands over the
 # bytes.
 #
-# `error` is present because `ShardError` implements `std::error::Error`,
-# which is what lets a consumer put it in a `Box<dyn Error>` alongside
-# every other error in the workspace. It was added because the gate
-# demanded it, not in advance.
+# `error` and `fmt` are present because `ShardError` implements
+# `std::error::Error`, which requires `Display`, which is `std::fmt`. The
+# first lets a consumer put it in a `Box<dyn Error>` alongside every other
+# error in the workspace; the second is the trait that makes it printable.
+#
+# BOTH were added because the gate demanded them, not in advance -- and the
+# plan predicted only `error`. `fmt` arrived from
+# `purity.rs::every_gated_crate_performs_no_io` on the first full run:
+#   "import names `std::fmt`, which is not on the permitted-std allow-list"
+# which is the allow-list working as designed. An entry added "just in
+# case" would be a permission nobody re-examines.
 #
 # The file exists rather than being absent because `purity.rs::allowed_std`
 # panics when a gated member does not declare a list -- an absent file and
 # an empty one would otherwise be indistinguishable, and the absent one
 # would look like a crate nobody had considered.
 error
+fmt
