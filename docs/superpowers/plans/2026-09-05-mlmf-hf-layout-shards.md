@@ -580,7 +580,13 @@ fn the_gate_can_fail() {
 ⚠️ **The `-p` is required and its absence is not a typo to shrug at.** Unscoped, the command reaches the legacy root package — **`default-members` includes `"."` deliberately** — which is **422 clippy errors on an untouched tree** and is excluded from CI on the record. An unscoped gate here is a definition-of-done that cannot be met before any work begins. **No command in `ci.yml` or `local-gates.sh` is unscoped; verified.**
 
 ```bash
-grep -rn "allow(dead_code)" crates/mlmf-hf-layout/ && echo "!! dead_code silenced -- that is the defect, not the fix"
+# SCOPED TO THE ATTRIBUTE, not the words. A bare `allow(dead_code)` grep
+# fires on the reachability gate's OWN DOCUMENTATION, which explains why
+# not to use it -- the documentation of an absence is indistinguishable,
+# to a text search, from the presence it documents. Measured: 3 false hits
+# on this crate.
+grep -rnE "^\s*#!?\[allow\([^)]*dead_code" crates/mlmf-hf-layout/ ; echo "exit=$?"   # expect 1
+grep -rcE "^\s*#!?\[(warn|forbid|must_use|test)" crates/mlmf-hf-layout/ | head -3     # control
 ```
 
 - [ ] **Step 3: Axis and dependency claims, each with a positive control.**
@@ -588,16 +594,23 @@ grep -rn "allow(dead_code)" crates/mlmf-hf-layout/ && echo "!! dead_code silence
 ```bash
 grep -rnE "\bPath\b|PathBuf|std::fs" crates/mlmf-hf-layout/src/ ; echo "exit=$?"   # expect 1, nothing
 grep -rnE "\bstr\b" crates/mlmf-hf-layout/src/ | head -2                            # control: greps DO match here
-# ⚠️ ANY `pub` item on a line with serde_json -- fn, struct, enum, TYPE ALIAS,
-# or a public FIELD. The narrow `pub (fn|struct|enum)` form misses a public
-# field (`pub raw: serde_json::Value`), which is exactly what
-# mlmf-safetensors had to solve with `pub(crate) entries: serde_json::Map`,
-# and misses any signature rustfmt wrapped across lines.
-grep -rn "serde_json" crates/mlmf-hf-layout/src/ | grep -vE "^\s*[0-9]+:\s*//" \
-  | grep -E "\bpub\b" ; echo "exit=$?"                              # expect 1, nothing
-# ...and the multi-line case the line-oriented grep cannot see:
-grep -rnA3 -E "^\s*pub fn " crates/mlmf-hf-layout/src/ | grep serde_json ; echo "exit=$?"
-grep -rnE "^pub (fn|struct|enum)" crates/mlmf-hf-layout/src/ | head -3   # control: greps match here
+# NOT A GREP. Every line-oriented form is wrong in one direction, and both
+# were measured on this very crate:
+#   grep -A3 "pub fn"     catches `parse`'s BODY, where a local
+#                         serde_json::Value is legitimate. FALSE POSITIVE.
+#   pub (fn|struct|enum)  misses a public FIELD -- `pub raw:
+#                         serde_json::Value` -- which is exactly what
+#                         mlmf-safetensors solved with `pub(crate)
+#                         entries: serde_json::Map`. FALSE NEGATIVE.
+# So parse the SIGNATURE: `pub fn|struct|enum|type|const` up to the first
+# `{` or `;`, plus every `pub <field>:` line. A body may use serde_json
+# freely; a signature may not.
+python crates/mlmf-hf-layout/tests/no-serde-in-public-api.py ; echo "exit=$?"   # expect 0
+
+# POSITIVE CONTROL, REQUIRED. Inject `pub raw: serde_json::Value` into
+# ShardIndex, re-run, confirm it is NAMED, revert. A check for an absence
+# that has never seen the presence is not known to discriminate -- and this
+# one replaced two greps that did not.
 cargo tree -p mlmf-hf-layout --edges normal --depth 1
 ```
 
