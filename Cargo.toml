@@ -25,6 +25,7 @@ default-members = [
     "crates/mlmf-core",
     "crates/mlmf-ggml",
     "crates/mlmf-gguf",
+    "crates/mlmf-meta",
     "crates/mlmf-safetensors",
     "crates/mlmf-source-file",
 ]

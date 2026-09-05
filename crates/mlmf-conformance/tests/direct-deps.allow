@@ -1,15 +1,27 @@
 # C2: mlmf-conformance's direct dependencies. Changing this file is a
 # deliberate act. Keep sorted.
 #
-# All three, and that combination is the entire reason this crate exists. It
-# is the only place in the workspace where more than one backend is linked
-# into one binary, which is what a cross-backend conformance test needs and
-# what neither backend may have -- a dependency between two sibling backends
-# is not a relationship the seam describes.
+# The two BACKENDS, and that combination is the entire reason this crate
+# exists. It is the only place in the workspace where more than one backend
+# is linked into one binary, which is what a cross-backend conformance test
+# needs and what neither backend may have -- a dependency between two
+# sibling backends is not a relationship the seam describes.
+#
+# mlmf-meta is here for the same reason and not a different one: its corpus
+# differential needs mlmf-meta and mlmf-gguf in ONE binary, and
+# [dev-dependencies] is refused for every gated member, so the test cannot
+# live in mlmf-meta. Putting it in mlmf-gguf instead would make a FORMAT
+# crate depend on mlmf-meta, which is the edge C4 exists to refuse. This
+# crate is shaped like a consumer, and a consumer is what reaches both.
+#
+# (This line said "All three" until mlmf-meta made it four. A count in a
+# comment has to be EDITED to stay true, and the edit is the step that gets
+# skipped -- so it is now a description rather than a tally.)
 #
 # A missing file here is a loud panic in deps.rs::allow_list rather than a
 # trivially-satisfied empty list, which is why this file is written out
 # rather than left absent.
 mlmf-core
 mlmf-gguf
+mlmf-meta
 mlmf-safetensors

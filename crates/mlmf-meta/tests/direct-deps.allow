@@ -1,0 +1,12 @@
+# C2: mlmf-meta's direct dependencies. Changing this file is a deliberate
+# act. Keep sorted -- `deps.rs::direct_dependencies_match_allowlist`
+# compares against the manifest's sorted dependency list with `assert_eq!`
+# over a VECTOR, not a set, so an entry in the wrong position fails exactly
+# as a missing one does.
+#
+# C4 is why `mlmf-core` is the only entry this crate may ever have: this
+# crate names no format crate. It holds the spec §5 vocabulary as a data
+# table, and a table row saying GGUF spells a key `tokenizer.chat_template`
+# is not format knowledge -- an edge to mlmf-gguf, which WOULD be, is the
+# thing this list exists to refuse.
+mlmf-core
