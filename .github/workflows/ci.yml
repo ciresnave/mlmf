@@ -171,6 +171,31 @@ jobs:
       - name: cargo clippy -p mlmf-meta
         run: cargo clippy -p mlmf-meta --all-targets -- -D warnings
 
+      # mlmf-hf-layout parses a HuggingFace checkpoint's shard index and
+      # reports where each tensor lives (spec line 90). Format axis: bytes
+      # in, structure out, and it "never enumerates a directory" -- the
+      # caller reads the file and hands over the bytes.
+      #
+      # FOUR steps, not six, for the same reason as mlmf-meta and
+      # mlmf-conformance: `a_crate_with_a_second_configuration_is_linted_and
+      # _documented_in_it` arms only on a NON-EMPTY default feature list, and
+      # this crate declares no `[features]` at all. The C6 test step below is
+      # still required -- it pins that the suite RUNS in that configuration,
+      # whether or not the configuration differs.
+      - name: cargo test -p mlmf-hf-layout
+        run: cargo test -p mlmf-hf-layout
+
+      - name: cargo test -p mlmf-hf-layout --no-default-features
+        run: cargo test -p mlmf-hf-layout --no-default-features
+
+      - name: cargo doc -p mlmf-hf-layout --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-hf-layout --no-deps
+
+      - name: cargo clippy -p mlmf-hf-layout
+        run: cargo clippy -p mlmf-hf-layout --all-targets -- -D warnings
+
       # mlmf-source-file is the first crate on the SOURCE axis (spec §3.1):
       # I/O only, no format knowledge. It is gated exactly like the format
       # crates -- the axis scopes C3's prohibition on naming `memmap2`, and
