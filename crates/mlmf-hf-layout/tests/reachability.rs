@@ -75,8 +75,8 @@ fn every_public_fn_is_named_by_an_integration_test() {
     // matcher visible; a floor is not.
     assert_eq!(
         declared.len(),
-        7,
-        "expected the seven public fns this crate declares, found {declared:?} -- \
+        8,
+        "expected the eight public fns this crate declares, found {declared:?} -- \
          a matcher that silently drops some is indistinguishable from a clean tree"
     );
 

@@ -243,3 +243,41 @@ fn a_non_object_top_level_is_an_error() {
     assert!(ShardIndex::parse(b"[1,2]").is_err());
     assert!(ShardIndex::parse(b"{ not json").is_err());
 }
+
+#[test]
+fn an_unreadable_metadata_container_is_told_apart_from_a_member_named_metadata() {
+    // ⚠️ FOUND BY ENUMERATING A COMPLEXITY FINDING RATHER THAN DECLINING
+    // IT. Before `metadata_readable` existed, these two produced an
+    // IDENTICAL answer -- measured, both `["metadata"]`:
+    //
+    //   {"metadata": 5, ...}                  the CONTAINER is not an object
+    //   {"metadata": {"metadata": {..}}, ...} a MEMBER happens to be named
+    //                                         `metadata` and is unreadable
+    //
+    // Those are different facts. A consumer merging the loss lists could
+    // not tell "no member could be enumerated at all" from "one member
+    // called metadata was unreadable".
+    let container = ShardIndex::parse(br#"{"metadata":5,"weight_map":{"a":"s.safetensors"}}"#)
+        .expect("a bad metadata is recorded, not refused -- §5 rule 1");
+    assert!(!container.metadata_readable());
+    assert_eq!(
+        container.metadata_unrepresentable(),
+        &[] as &[String],
+        "no MEMBER was unreadable -- none could be enumerated"
+    );
+
+    let member = ShardIndex::parse(
+        br#"{"metadata":{"metadata":{"x":1}},"weight_map":{"a":"s.safetensors"}}"#,
+    )
+    .unwrap();
+    assert!(
+        member.metadata_readable(),
+        "the container read fine; one member did not"
+    );
+    assert_eq!(member.metadata_unrepresentable(), &["metadata".to_string()]);
+
+    // And the control: absent metadata is READABLE and loses nothing.
+    let absent = ShardIndex::parse(br#"{"weight_map":{"a":"s.safetensors"}}"#).unwrap();
+    assert!(absent.metadata_readable());
+    assert_eq!(absent.metadata_unrepresentable(), &[] as &[String]);
+}

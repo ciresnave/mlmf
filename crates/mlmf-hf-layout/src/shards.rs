@@ -74,6 +74,7 @@ pub struct ShardIndex {
     total_size: Option<u64>,
     extras: Vec<(String, MetaValue)>,
     unrepresentable: Vec<String>,
+    metadata_readable: bool,
 }
 
 impl ShardIndex {
@@ -97,62 +98,15 @@ impl ShardIndex {
             .as_object()
             .ok_or_else(|| ShardError::new("the top level is not a JSON object"))?;
 
-        let weight_map = root
-            .get("weight_map")
-            .ok_or_else(|| ShardError::new("no `weight_map`: this is not a shard index"))?
-            .as_object()
-            .ok_or_else(|| ShardError::new("`weight_map` is not an object"))?;
-
-        let mut map = Vec::with_capacity(weight_map.len());
-        for (tensor, file) in weight_map {
-            let file = file.as_str().ok_or_else(|| {
-                ShardError::new(format!(
-                    "`weight_map` value for `{tensor}` is not a filename"
-                ))
-            })?;
-            map.push((tensor.clone(), file.to_string()));
-        }
-        map.sort_unstable();
-
-        let mut total_size = None;
-        let mut extras = Vec::new();
-        let mut unrepresentable = Vec::new();
-
-        // `metadata` is optional and OPEN. Two instances showed only
-        // `total_size`; two instances is not a closed set, and §5 rule 1
-        // says preserve what you do not understand.
-        if let Some(meta) = root.get("metadata") {
-            match meta.as_object() {
-                None => unrepresentable.push("metadata".to_string()),
-                Some(members) => {
-                    for (key, value) in members {
-                        if key == "total_size" {
-                            // A declared-but-unreadable total_size is
-                            // NAMED, not silently None. Six inputs would
-                            // otherwise produce one indistinguishable
-                            // answer.
-                            match value.as_u64() {
-                                Some(n) => total_size = Some(n),
-                                None => unrepresentable.push(key.clone()),
-                            }
-                            continue;
-                        }
-                        match meta_value(value) {
-                            Some(v) => extras.push((key.clone(), v)),
-                            None => unrepresentable.push(key.clone()),
-                        }
-                    }
-                }
-            }
-        }
-        extras.sort_by(|a, b| a.0.cmp(&b.0));
-        unrepresentable.sort_unstable();
+        let map = parse_weight_map(root)?;
+        let meta = parse_metadata(root.get("metadata"));
 
         Ok(Self {
             map,
-            total_size,
-            extras,
-            unrepresentable,
+            total_size: meta.total_size,
+            extras: meta.extras,
+            unrepresentable: meta.unrepresentable,
+            metadata_readable: meta.readable,
         })
     }
 
@@ -199,15 +153,116 @@ impl ShardIndex {
         &self.extras
     }
 
-    /// `metadata` members that were declared and have no [`MetaValue`]
+    /// `metadata` MEMBERS that were declared and have no [`MetaValue`]
     /// representation — an object, a null, an array containing either, or
     /// a `total_size` that is not a `u64`. Sorted.
     ///
     /// §5 rule 3: the loss is named per key rather than left silent.
+    ///
+    /// ⚠️ **Members only.** Whether the `metadata` OBJECT ITSELF could be
+    /// read is [`metadata_readable`](Self::metadata_readable), because a
+    /// container that is not an object and a member that happens to be
+    /// *named* `metadata` are different facts. An earlier version reported
+    /// both as `["metadata"]` — measured — and a consumer could not tell
+    /// them apart.
     #[must_use]
     pub fn metadata_unrepresentable(&self) -> &[String] {
         &self.unrepresentable
     }
+
+    /// Whether `metadata` was absent or was a readable object.
+    ///
+    /// `false` means the file declared a `metadata` that is **not** an
+    /// object, so no member of it could be enumerated at all. `true` covers
+    /// both "absent" and "read fine", which are told apart by whether
+    /// [`total_size`](Self::total_size) and
+    /// [`metadata_extras`](Self::metadata_extras) are empty.
+    ///
+    /// `mlmf-safetensors` rules the same way on the same shape: a
+    /// `__metadata__` that is not an object *"means no key could be
+    /// enumerated at all"*, and is reported rather than made an error.
+    #[must_use]
+    pub fn metadata_readable(&self) -> bool {
+        self.metadata_readable
+    }
+}
+
+/// `weight_map` as a sorted `(tensor, filename)` list.
+///
+/// # Errors
+///
+/// `weight_map` is absent, is not an object, or holds a non-string value.
+fn parse_weight_map(
+    root: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Vec<(String, String)>, ShardError> {
+    let weight_map = root
+        .get("weight_map")
+        .ok_or_else(|| ShardError::new("no `weight_map`: this is not a shard index"))?
+        .as_object()
+        .ok_or_else(|| ShardError::new("`weight_map` is not an object"))?;
+
+    let mut map = Vec::with_capacity(weight_map.len());
+    for (tensor, file) in weight_map {
+        let file = file.as_str().ok_or_else(|| {
+            ShardError::new(format!(
+                "`weight_map` value for `{tensor}` is not a filename"
+            ))
+        })?;
+        map.push((tensor.clone(), file.to_string()));
+    }
+    map.sort_unstable();
+    Ok(map)
+}
+
+/// What `metadata` yielded. Never an error: §5 rule 1 says preserve what you
+/// do not understand, so an unreadable member is recorded rather than
+/// refused.
+struct Metadata {
+    total_size: Option<u64>,
+    extras: Vec<(String, MetaValue)>,
+    unrepresentable: Vec<String>,
+    readable: bool,
+}
+
+/// Read `metadata` permissively.
+///
+/// It is optional and **open**: two real instances showed only `total_size`,
+/// and two instances is not a closed set — the safetensors convention
+/// documents it as an open object.
+fn parse_metadata(meta: Option<&serde_json::Value>) -> Metadata {
+    let mut out = Metadata {
+        total_size: None,
+        extras: Vec::new(),
+        unrepresentable: Vec::new(),
+        readable: true,
+    };
+    let Some(meta) = meta else { return out };
+    let Some(members) = meta.as_object() else {
+        // The CONTAINER is unreadable. Reported here rather than as a
+        // member name, which would collide with a member actually called
+        // `metadata` -- measured, both produced ["metadata"].
+        out.readable = false;
+        return out;
+    };
+    for (key, value) in members {
+        if key == "total_size" {
+            // A declared-but-unreadable total_size is NAMED, not silently
+            // None: absent, a string, a float and a negative would
+            // otherwise produce one indistinguishable answer.
+            match value.as_u64() {
+                Some(n) => out.total_size = Some(n),
+                None => out.unrepresentable.push(key.clone()),
+            }
+            continue;
+        }
+        match meta_value(value) {
+            Some(v) => out.extras.push((key.clone(), v)),
+            None => out.unrepresentable.push(key.clone()),
+        }
+    }
+    out.extras.sort_by(|a, b| a.0.cmp(&b.0));
+    out.unrepresentable.sort_unstable();
+    out
 }
 
 /// A JSON value as a [`MetaValue`], **without parsing strings**.
