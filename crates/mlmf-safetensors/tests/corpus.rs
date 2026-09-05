@@ -48,6 +48,9 @@ use std::io::Write as _;
 use mlmf_core::{DType, Encoding, MetaValue, MetadataSource, TensorContainer};
 use mlmf_safetensors::{parse_header, parse_metadata, parse_tensors};
 
+#[path = "../../mlmf-core/tests/support/armed.rs"]
+mod armed;
+
 /// Where the corpus lives when it lives anywhere.
 ///
 /// Two model files totalling 2.9 GB, not in the repository, so this is a
@@ -71,8 +74,12 @@ fn corpus_root() -> String {
 /// notice nobody counts is indistinguishable from a run that verified
 /// everything; set `MLMF_CORPUS_REQUIRED=1` on any machine that is supposed
 /// to have the corpus and a skip becomes red.
+///
+/// Delegates to the portfolio's shared predicate — see
+/// `crates/mlmf-core/tests/support/armed.rs` for the three spellings this
+/// replaced and why each was wrong, **including this repo's own.**
 fn corpus_required() -> bool {
-    std::env::var("MLMF_CORPUS_REQUIRED").is_ok_and(|v| v != "0" && !v.is_empty())
+    armed::armed("MLMF_CORPUS_REQUIRED")
 }
 
 /// One row of `corpus-safetensors.tsv`.
