@@ -46,10 +46,18 @@ use mlmf_meta::vocab::Format;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-/// `schema` is emitted so a comparator can refuse a dump it does not
-/// understand rather than mis-read one. Bump it when a field changes
-/// meaning, not when one is added.
-const SCHEMA: u32 = 1;
+/// Emitted so a comparator can refuse a dump it does not understand rather
+/// than mis-read one. Bump it when a field changes meaning, not when one is
+/// added.
+///
+/// **A NAMED schema, not a bare integer.** This was `1` while lightbulb's
+/// was `"gguf-metadata-dump/v1"`, so a comparator checking schema
+/// compatibility would have refused the pair -- and that refusal would have
+/// been CORRECT BEHAVIOUR firing on a cosmetic difference, which is how a
+/// real guard gets disabled. A bare `1` versions an unnamed thing. Name it,
+/// then version it. Ruled by the portfolio PM; lightbulb specified first
+/// and this side changed.
+const SCHEMA: &str = "gguf-metadata-dump/v1";
 
 fn sha256_of(body: &str) -> String {
     let mut h = Sha256::new();
@@ -84,8 +92,19 @@ fn gguf_files(root: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Relative, slash-separated, so a dump from this machine compares against
-/// a dump from any other. An absolute path would make every row differ.
+/// Relative to the scan root, slash-separated, so a dump from this machine
+/// compares against a dump from any other. An absolute path would make
+/// every row differ.
+///
+/// **The join key is the RELATIVE PATH, never the basename**, and the
+/// difference is not cosmetic. Basenames are unique in today's corpus -- 0
+/// collisions on either side, measured -- but that is a property of the
+/// corpus, not of the format. Two `model.gguf` files in different
+/// directories collide silently, and a silent collision in a comparator's
+/// join key produces FALSE AGREEMENT: two different files reported as one
+/// row that agrees. For an instrument whose entire purpose is to earn
+/// agreement between independent readers, that is the worst available
+/// failure. The path form has no such mode. Ruled by the portfolio PM.
 fn relative(root: &Path, p: &Path) -> String {
     p.strip_prefix(root)
         .unwrap_or(p)
@@ -184,12 +203,20 @@ fn main() {
     let root = PathBuf::from(root);
     let files = gguf_files(&root);
 
-    // A dump of nothing is a valid JSON document and a useless artifact,
-    // and it looks identical to a corpus in which nothing was found. Say so
-    // on stderr rather than emitting a confident empty file.
-    if files.is_empty() {
-        eprintln!("no .gguf files under {}", root.display());
-    }
+    // AN EMPTY CORPUS IS A REFUSAL, NOT AN EMPTY DUMP.
+    //
+    // Two empty dumps are byte-identical, so a comparator diffs them and
+    // reports AGREEMENT while measuring nothing. The previous version
+    // warned on stderr and still wrote a well-formed `files: []` -- and a
+    // warning on stderr beside a well-formed artifact on stdout is the
+    // worst combination, because the ARTIFACT is what gets consumed and it
+    // looks complete. lightbulb guards this on their side; this is the
+    // same guard.
+    assert!(
+        !files.is_empty(),
+        "no .gguf files under {} -- refusing to emit an empty dump. Two empty dumps compare EQUAL, so this would report agreement while measuring nothing. Check the scan root.",
+        root.display()
+    );
 
     let rows: Vec<Value> = files.iter().map(|p| row(&root, p)).collect();
     let doc = json!({
