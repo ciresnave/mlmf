@@ -136,9 +136,11 @@ crates/mlmf-hf-layout/
 //! spec line 90 is explicit that this crate never enumerates a directory.
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
-
-pub mod shards;
 ```
+
+⚠️ **NO `pub mod shards;` YET. Task 1 adds it, in Task 1.** Declaring a module before its file exists is `error[E0583]: file not found for module`, and it is not contained: **Step 4 below wires `cargo test -p mlmf-hf-layout` into `ci.yml`, and `local-gates.sh` runs every `run:` line it finds there**, so Step 5's "gate on the exit code" becomes unsatisfiable and the branch's first commit is red.
+
+⚠️ **MEASURED DURING IMPLEMENTATION, after THREE audits missed it** — because every audit built the *finished* crate and none built this intermediate state. **An audit that only ever constructs the end state cannot see a defect that exists between two commits.**
 
 ⚠️ **No `[` `]` links in that doc comment.** An intra-doc link to a module fails `cargo doc -D warnings` — a CI step, run by `local-gates.sh` — at the commit that introduces it. ⚠️ **And no `///` above `pub mod shards;`**: an outer doc merges with the module's own `//!` and the merged text resolves in **this** module's scope, breaking the module's own links.
 
@@ -388,6 +390,8 @@ fn a_non_object_top_level_is_an_error() {
 ```
 
 ⚠️ **No test enumerates expected tensor names.** The set is architecture-dependent; a fixture from one model cannot validate a name list.
+
+**Add to `lib.rs`:** `pub mod shards;` — now that `src/shards.rs` exists.
 
 - [ ] **Step 2: Run.** `cargo test -p mlmf-hf-layout --test shards` → **FAIL**, unresolved import.
 

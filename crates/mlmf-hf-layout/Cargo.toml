@@ -1,0 +1,26 @@
+[package]
+    description          = "HuggingFace shard index: where each tensor lives. Bytes to structure; no I/O."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-hf-layout"
+    repository.workspace = true
+    version.workspace    = true
+
+# NO [features] SECTION, deliberately, matching mlmf-conformance and
+# mlmf-meta.
+#
+# `mlmf-core` has `default = []` and NO `std` feature, so the obvious
+# `std = ["mlmf-core/std"]` does not resolve -- and a broken feature
+# reference in one member fails `cargo` at RESOLUTION for EVERY member,
+# taking the whole workspace down rather than just this crate. Measured.
+#
+# An empty feature set also keeps
+# `ci_coverage::a_crate_with_a_second_configuration_is_linted_and_documented_in_it`
+# disarmed, which is honest: there is no second configuration to lint.
+
+[dependencies]
+    mlmf-core = { path = "../mlmf-core", version = "0.4.0" }
+    # Same form as mlmf-safetensors, which parses the safetensors JSON
+    # header. `serde_json` types never reach this crate's public API --
+    # see mlmf-safetensors/src/header.rs for the rule and its reason.
+    serde_json = { version = "1.0", default-features = false, features = ["std"] }

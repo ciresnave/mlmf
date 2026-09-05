@@ -923,6 +923,7 @@ version = "0.4.0"
 dependencies = [
  "mlmf-core",
  "mlmf-gguf",
+ "mlmf-meta",
  "mlmf-safetensors",
 ]
 
@@ -948,6 +949,21 @@ version = "0.4.0"
 dependencies = [
  "mlmf-core",
  "mlmf-ggml",
+]
+
+[[package]]
+name = "mlmf-hf-layout"
+version = "0.4.0"
+dependencies = [
+ "mlmf-core",
+ "serde_json",
+]
+
+[[package]]
+name = "mlmf-meta"
+version = "0.4.0"
+dependencies = [
+ "mlmf-core",
 ]
 
 [[package]]
