@@ -69,22 +69,65 @@ fn names(haystack: &str, needle: &str) -> bool {
         .any(|w| w == needle)
 }
 
-fn read_rs(dir: &str) -> String {
+/// Concatenate every `.rs` file directly under `dir`, and report how many
+/// were read.
+///
+/// The count is returned, not discarded, because this reader is the one
+/// part of the gate its own control cannot reach. `the_gate_can_fail`
+/// exercises `public_fns` and `names` on synthetic strings -- by design,
+/// so it needs no throwaway file -- which means a silently-narrowed
+/// `read_rs` passes the control and then makes the assertion fail for the
+/// wrong stated reason. Measured: skipping `shards.rs` reports "found []",
+/// which reads as "this crate declares no public functions" rather than
+/// "the reader stopped seeing files".
+///
+/// "A control that does not exercise the instrument is not a control for
+/// it" -- the portfolio's rule, and this is where mine did not.
+fn read_rs(dir: &str) -> (String, usize) {
     let mut out = String::new();
+    let mut read = 0;
     for entry in fs::read_dir(dir).unwrap_or_else(|e| panic!("{dir} is readable: {e}")) {
         let path = entry.expect("readable entry").path();
         if path.extension().is_some_and(|x| x == "rs") {
             out.push_str(&fs::read_to_string(&path).expect("source is readable"));
             out.push('\n');
+            read += 1;
         }
     }
-    out
+    (out, read)
+}
+
+/// How many `.rs` files sit directly under `dir`, counted independently.
+///
+/// Deliberately a SECOND enumeration rather than a reuse of `read_rs`'s:
+/// a control that shares the machinery it checks cannot disagree with
+/// it. This one counts without reading, so a reader that opens fewer
+/// files than exist is visible as a mismatch.
+fn count_rs(dir: &str) -> usize {
+    fs::read_dir(dir)
+        .unwrap_or_else(|e| panic!("{dir} is readable: {e}"))
+        .filter(|e| {
+            e.as_ref()
+                .is_ok_and(|e| e.path().extension().is_some_and(|x| x == "rs"))
+        })
+        .count()
 }
 
 #[test]
 fn every_public_fn_is_named_by_an_integration_test() {
-    let declared = public_fns(&read_rs("src"));
-    let tests = read_rs("tests");
+    let (src, src_read) = read_rs("src");
+    let (tests, tests_read) = read_rs("tests");
+    let declared = public_fns(&src);
+
+    // THE READER'S OWN CONTROL, before any claim about its contents.
+    // Without it, a reader that silently stops seeing files reports "found
+    // []" -- which names the CRATE as empty rather than the READER as
+    // broken, and sends the next person to look in the wrong place.
+    assert_eq!(
+        (src_read, tests_read),
+        (count_rs("src"), count_rs("tests")),
+        "read_rs opened fewer files than exist: the gate's own reader is broken, and nothing below this line is a claim about the crate"
+    );
 
     // ⚠️ A gate that finds NOTHING and a gate that CANNOT find anything are
     // the same output -- and so are a gate that finds SEVEN and one that
