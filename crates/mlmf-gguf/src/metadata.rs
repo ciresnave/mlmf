@@ -10,7 +10,20 @@ use crate::header::{Header, parse_header};
 use crate::value::{ValueType, decode_value, read_array_prefix, skip_value};
 
 /// GGUF's documented default when `general.alignment` is absent.
-const DEFAULT_ALIGNMENT: u64 = 32;
+///
+/// `u32` because the specification types the key as `uint32`. This is the
+/// SINGLE source of truth for that 32: `crate::requirements` supplies it as
+/// a CD-1 citable default, and a second literal there could have drifted
+/// from this one silently.
+pub(crate) const DEFAULT_ALIGNMENT_U32: u32 = 32;
+
+/// The same 32, widened once for offset arithmetic.
+///
+/// Derived rather than written again — widening `u32` to `u64` is lossless,
+/// and a derived constant cannot disagree with its source. (A test asserting
+/// the two agree would be vacuous for exactly that reason, so there isn't
+/// one.)
+const DEFAULT_ALIGNMENT: u64 = DEFAULT_ALIGNMENT_U32 as u64;
 
 /// One indexed key: where its value is, and its value once decoded.
 #[derive(Debug)]

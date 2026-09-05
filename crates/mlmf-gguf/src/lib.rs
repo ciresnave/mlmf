@@ -110,6 +110,7 @@ pub mod cursor;
 pub mod error;
 pub mod header;
 pub mod metadata;
+pub mod requirements;
 pub mod tensors;
 pub mod value;
 

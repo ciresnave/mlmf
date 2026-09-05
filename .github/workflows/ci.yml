@@ -76,6 +76,47 @@ jobs:
         shell: bash
         run: bash scripts/check-deps.sh
 
+      # Cargo.lock must already satisfy every manifest.
+      #
+      # Nothing else in this workflow passes --locked, so cargo was free to
+      # re-resolve and rewrite the lockfile on every run. That is silent by
+      # construction: `crates/mlmf-conformance/Cargo.toml` declared `sha2`
+      # from 5e70999 onward and Cargo.lock never listed it or its six
+      # transitive crates, across every green run in between.
+      #
+      # The cost does not land on CI, which is why CI could not see it. It
+      # lands on CHECKOUTS: the first build in a fresh tree leaves Cargo.lock
+      # dirty, and a dirty Cargo.lock is enough to make `git pull` REFUSE --
+      # already paid for once here, as a `git pull ... 2>/dev/null` whose
+      # failure went to a discarded stderr and produced work written against
+      # a stale main.
+      #
+      # A DEDICATED STEP, not --locked sprinkled onto `cargo test`. With the
+      # flag on the test step a dependency-hygiene defect presents itself as
+      # a test failure, which is the wrong first question for whoever reads
+      # the log. This one fails by name.
+      #
+      # `cargo metadata` because it resolves without compiling: the check is
+      # about the lockfile, and it should not wait on a build to say so.
+      # Adopted from lightbulb's #64, which found the same gap in their tree
+      # after this repo found the defect it catches.
+      # ⚠️ `shell: bash` IS LOAD-BEARING, and its absence was a FALSE RED on
+      # Windows: the default shell there is pwsh, where `> /dev/null` is not
+      # a discard but an invalid PATH, so the step failed with `OpenError`
+      # while the lockfile was perfectly clean. A gate that fails for a
+      # reason unrelated to its subject is worse than no gate -- it teaches
+      # readers to skip it.
+      #
+      # ⚠️ AND `scripts/local-gates.sh` CANNOT CATCH THIS CLASS. It extracts
+      # `run:` lines and executes all of them in bash, so a step that only
+      # works in bash passes locally and fails only on the Windows matrix
+      # leg. The local gate was RIGHT about bash and SILENT about pwsh, and
+      # reported 37/37. Anything added here with a redirect, a pipe, `&&` or
+      # `$(...)` needs this line.
+      - name: cargo metadata --locked
+        shell: bash
+        run: cargo metadata --locked --format-version 1 > /dev/null
+
       # #![warn(missing_docs)] is only meaningful if a warning fails a build.
       - name: cargo doc -p mlmf-core --no-deps
         env:
