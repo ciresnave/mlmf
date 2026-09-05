@@ -38,4 +38,5 @@
 [dependencies]
     mlmf-core        = { path = "../mlmf-core", version = "0.4.0" }
     mlmf-gguf        = { path = "../mlmf-gguf", version = "0.4.0" }
+    mlmf-meta        = { path = "../mlmf-meta", version = "0.4.0" }
     mlmf-safetensors = { path = "../mlmf-safetensors", version = "0.4.0" }

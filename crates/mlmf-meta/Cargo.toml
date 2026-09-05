@@ -1,0 +1,26 @@
+[package]
+    description          = "Canonical key vocabulary and declared-metadata extraction. Structure to structure; no I/O, no format knowledge."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-meta"
+    repository.workspace = true
+    version.workspace    = true
+
+# NO [features] SECTION, deliberately, matching mlmf-conformance.
+#
+# `mlmf-core` has `default = []` and NO `std` feature, so the obvious
+# `std = ["mlmf-core/std"]` does not resolve -- and a broken feature
+# reference in one member fails `cargo` at RESOLUTION for EVERY member,
+# taking the whole workspace down rather than just this crate. Measured
+# during this plan's audit, which is why the absence is written down.
+#
+# An empty feature set also keeps
+# `ci_coverage::a_crate_with_a_second_configuration_is_linted_and_documented_in_it`
+# disarmed, which is honest: there is no second configuration to lint, and
+# arming it would buy two CI steps that check the same build twice.
+
+[dependencies]
+    # `version` alongside `path`, matching all eight existing workspace path
+    # edges. A path-only dependency cannot be published, and this crate is
+    # not `publish = false`.
+    mlmf-core = { path = "../mlmf-core", version = "0.4.0" }
