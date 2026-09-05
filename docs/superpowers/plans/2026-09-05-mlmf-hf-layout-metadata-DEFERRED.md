@@ -1,3 +1,14 @@
+> # ⚠️ SUPERSEDED — DO NOT IMPLEMENT THIS FILE
+>
+> **This is the two-half plan, kept verbatim as the record of two audit rounds. It was RENAMED, not rewritten, and nothing below was changed.**
+>
+> **What replaced it:**
+>
+> - **The shard-index half** — `Task 4` below — was extracted, corrected and now lives in **`2026-09-05-mlmf-hf-layout-shards.md`**. ⚠️ **Do not build `src/shards.rs` or `tests/shards.rs` from Task 4 below.** Its interface returns `Result<Self, HfError>`, a shared error type that **does not compile**: private fields are module-scoped, so a second module cannot construct it. Part A uses a `ShardError` of its own. Task 4 also derives `Eq` on a type holding `MetaValue`, which has `F32`/`F64` and derives only `PartialEq`.
+> - **The metadata half** — `HfLayout`, the sidecars, and `mlmf-meta`'s `BOS_TOKEN_TEXT` — **has not been rewritten yet.** When it is, it is written **fresh**, not patched from here.
+>
+> **Why it is kept.** Two audits found twelve blocking findings between them, and **four of the second round's six were created by the first round's fixes.** The revision table at the top of the plan and the findings in the body are the record of that, and deleting them would leave the next author to rediscover them. ⚠️ **In particular: `token_decl` below has four tests and three sabotages and is called by NOTHING** — the defect that forced the split, and the one a fresh part B has to avoid re-creating.
+
 # `mlmf-hf-layout` — HuggingFace checkpoint layout (§12 step 5)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

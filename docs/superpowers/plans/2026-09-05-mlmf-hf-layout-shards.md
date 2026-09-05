@@ -18,7 +18,9 @@
 
 **The two halves share almost nothing** — measured: one error type and one helper function, both removable. **All of round 2's entanglement is on the metadata side**, where a fix to where one function is called cascades into four tasks across two crates.
 
-**So this plan is the shard index alone.** It is independently useful, it is the half a consumer is waiting on, and **its tests were built and run during the round-2 audit — all eight of the version audited passed, and this plan carries twelve, the four extra closing defects that audit found in the shard half itself.** The metadata half — `HfLayout`, the sidecars, and `mlmf-meta`'s `BOS_TOKEN_TEXT` — is deferred to part B, written fresh rather than patched.
+**So this plan is the shard index alone.** It is independently useful, it is the half a consumer is waiting on, and **its tests were built and run during the round-2 audit — all eight of the version audited passed, and this plan carries twelve, the four extra closing defects that audit found in the shard half itself.**
+
+⚠️ **The metadata half is NOT yet written.** `2026-09-05-mlmf-hf-layout-metadata-DEFERRED.md` is the old two-half plan **renamed and not rewritten**, kept only as the record of the two audits; it carries a SUPERSEDED header saying so and warning that its Task 4 builds the same two files this plan builds, with an interface that does not compile. **Part B will be written fresh when it is written — that is a statement of intent, not of fact.**
 
 **Carried from those two rounds, and from plan 7's seven:**
 
@@ -91,10 +93,13 @@ if [ "$rc" -ne 0 ]; then echo "$rc gate(s) FAILED -- do not commit"; fi
 ```
 crates/mlmf-hf-layout/
   Cargo.toml · tests/{axis,allowed-std.list,direct-deps.allow}
-  src/lib.rs      module registration ONLY -- no `///`, and NO intra-doc links
-  src/shards.rs   ShardIndex, ShardError
-  tests/shards.rs
+  src/lib.rs             module registration ONLY -- no `///`, no intra-doc links
+  src/shards.rs          ShardIndex, ShardError                        Task 1
+  tests/shards.rs        the 12 tests                                  Task 1
+  tests/reachability.rs  the gate + the_gate_can_fail                  Task 2
 ```
+
+⚠️ **THREE places name this crate's file set** — this block, Task 0's `tests/{…}` list, and each task's **Files:** line. **A split already desynchronised two of them once.** When you add a file, change all three.
 
 ---
 
@@ -151,12 +156,22 @@ Root `Cargo.toml` `default-members`: **`crates/mlmf-hf-layout` sorts after `crat
 
 ### Task 1: `ShardIndex`
 
-**Files:** create `src/shards.rs`, `tests/shards.rs`.
+**Files:** create `src/shards.rs`, `tests/shards.rs`; **modify `tests/allowed-std.list`.**
+
+⚠️ **The allow-list is not optional here and Task 0 cannot predict it.** `impl std::error::Error for ShardError` names `std::error`, and with an empty list `purity.rs` fails: *"`mlmf-hf-layout`: …/src/shards.rs: path names `std::error`, which is not on the permitted-std allow-list (C3)"*. **Add `error` — and nothing else until a gate demands it.**
 
 **Interfaces produced — full signatures, so nothing is guessed:**
 
 ```rust
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A parsed `model.safetensors.index.json`.
+///
+/// ⚠️ **`PartialEq` but NOT `Eq`.** `metadata_extras` holds
+/// [`mlmf_core::MetaValue`], which has `F32`/`F64` variants and therefore
+/// derives only `PartialEq` (`mlmf-core/src/meta.rs:43`). Deriving `Eq`
+/// here does not compile — and hand-writing `impl Eq for ShardIndex {}` to
+/// get past that ships a type asserting total equality that is **not
+/// reflexive**, because `MetaValue::F64(NAN) != MetaValue::F64(NAN)`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ShardIndex { /* private */ }
 
 /// Why an index could not be read. Owns its message; no foreign type.
@@ -174,7 +189,18 @@ impl ShardIndex {
     pub fn shards(&self) -> Vec<&str>;
     /// Every tensor name, sorted.
     pub fn tensors(&self) -> Vec<&str>;
-    /// `metadata.total_size` in BYTES, if declared.
+    /// `metadata.total_size` in BYTES, if declared **and readable as a
+    /// `u64`**.
+    ///
+    /// ⚠️ **A `None` here is ambiguous on its own, and that is why
+    /// `metadata_unrepresentable` covers this key too.** Six inputs
+    /// produce `None` — absent, a string, a float, a negative, a
+    /// non-object `metadata`, an absent `metadata` — and the plan's own
+    /// argument for `a_missing_weight_map_is_an_error_not_an_empty_index`
+    /// applies verbatim: a declared-but-unreadable value must not be
+    /// indistinguishable from an undeclared one. **A `total_size` that was
+    /// declared and could not be read appears in
+    /// `metadata_unrepresentable`**, per §5 rule 3.
     pub fn total_size(&self) -> Option<u64>;
     /// `metadata` members other than `total_size`, preserved verbatim,
     /// sorted by key.
@@ -371,19 +397,29 @@ fn a_non_object_top_level_is_an_error() {
 
 - [ ] **Step 5: Sabotage (AD-2), four times.** Each mutates `shards.rs` — **the code that runs.**
 
+⚠️ **Sabotage (a) is a HAND EDIT, not a `perl`.** The first draft used a regex that prepended a discarded call and left the original expression intact — **a semantic no-op that `cmp` reported as applied and that left all 12 tests green.** There is no reliable one-line regex for "make `shard_of` wrong", so do it by hand and let the third guard state catch you if you get it wrong.
+
 ```bash
-# (a) Derive the shard from the layer index -- the defect the real files refute.
+# (a) Make shard_of ignore the map -- the defect the real files refute.
+#     HAND EDIT: change shard_of's body to
+#         self.map.first().map(|(_, f)| f.as_str())
+#     i.e. return the FIRST shard for every tensor, which is what
+#     "derive the shard from the layer index" degenerates to.
 BAK=$(mktemp); cp crates/mlmf-hf-layout/src/shards.rs "$BAK"
-# replace shard_of's map lookup with a layer-derived guess; adapt to your text
-perl -0pi -e 's/self\.map\.binary_search_by/self.map.first().map(|_| ()); self.map.binary_search_by/' crates/mlmf-hf-layout/src/shards.rs
+${EDITOR:-code} crates/mlmf-hf-layout/src/shards.rs   # make the edit above
 rc=0; cmp "$BAK" crates/mlmf-hf-layout/src/shards.rs || rc=$?
 case $rc in 0) echo '!! MUTATION DID NOT APPLY -- fix the pattern, do not proceed' ;;
              1) ;; *) echo '!! GUARD BROKEN -- no backup; re-run the cp' ;; esac
-cargo test -p mlmf-hf-layout --test shards 2>&1 | tail -14 || true   # exit code is NOT the signal
+out=$(cargo test -p mlmf-hf-layout --test shards 2>&1); printf '%s\n' "$out" | tail -14
+# ⚠️ THE THIRD STATE. Applied-and-nothing-reddened is a NO-OP MUTATION, and
+# without this line it is indistinguishable from a working sabotage: `cmp`
+# says applied, the guard above stays silent, and the suite prints ok.
+printf '%s\n' "$out" | grep -q '^test result: FAILED' \
+  || echo '!! APPLIED BUT NOTHING REDDENED -- the mutation is a no-op, not a passing sabotage'
 cp "$BAK" crates/mlmf-hf-layout/src/shards.rs && rm -f "$BAK"
 ```
 
-⚠️ **(a) is written against text this plan does not fix, so it is the one most likely not to apply. If `cmp` says the mutation did not land, hand-edit `shard_of` to return the first shard for every tensor** and confirm `one_layer_may_span_two_shards_two_instances_mistral_qwen` reddens. **Do not skip it because the pattern missed** — that is the vacuity this whole guard exists for.
+Expected: **FAIL on THREE tests** — `one_layer_may_span_two_shards_two_instances_mistral_qwen`, `first_and_last_tensors_do_not_follow_map_position`, and `a_missing_tensor_is_none_rather_than_a_guess`. Measured. ⚠️ **Three, not one:** returning the first shard for everything breaks every mapping claim, and a run reddening only one means the edit was narrower than intended.
 
 **(b) Narrow `total_size` with a WRAPPING cast.** Replace the `as_u64` result with `(v as u32) as u64`.
 
@@ -449,18 +485,29 @@ fn every_public_fn_is_named_by_an_integration_test() {
         }
     }
 
-    // A gate that finds nothing and a gate that CANNOT find anything are
-    // the same output. This crate has public functions today.
-    assert!(
-        declared.len() >= 5,
-        "found {} public fns -- the scan is broken, not the crate empty",
-        declared.len()
+    // ⚠️ A gate that finds NOTHING and a gate that CANNOT find anything
+    // are the same output -- and so are a gate that finds SEVEN and one
+    // that finds FIVE OF SEVEN. The interface block specifies exactly
+    // seven public fns; an equality is what makes a silently-narrowed
+    // matcher visible, and a floor is not.
+    assert_eq!(
+        declared.len(),
+        7,
+        "expected the seven public fns the plan specifies, found {:?} -- \
+         a matcher that silently drops some is indistinguishable from a \
+         clean tree",
+        declared
     );
 
-    let unreached: Vec<_> = declared
-        .iter()
-        .filter(|f| !sources.contains(f.as_str()))
-        .collect();
+    // ⚠️ WORD-BOUNDED, not `contains`. A substring match passes any name
+    // that happens to occur in unrelated test text: `metadata` appears in
+    // every JSON fixture here and `shard` appears in `shard_of`,
+    // `shards`, `shards.rs` and the string "3 shards". Both are plausible
+    // next-API names, and both would be silently reported as reached.
+    let named = |f: &str| {
+        sources.split(|c: char| !c.is_alphanumeric() && c != '_').any(|w| w == f)
+    };
+    let unreached: Vec<_> = declared.iter().filter(|f| !named(f)).collect();
     assert!(
         unreached.is_empty(),
         "public functions no integration test names: {unreached:?}\n\n\
@@ -479,21 +526,44 @@ fn the_gate_can_fail() {
     //
     // Exercises the MATCHER on synthetic sources, so it needs no
     // throwaway function in the real crate and cannot be forgotten.
-    let src = "pub fn reached() {}\npub fn unreached() {}\nfn private() {}\n";
+    // ⚠️ `pub(crate) fn` is in this fixture DELIBERATELY. The failure
+    // message above tells the implementer to demote a genuinely-internal
+    // fn to `pub(crate)`; a loose matcher (`contains("pub") &&
+    // contains("fn ")`) passes this control and then FLAGS the demoted
+    // fn, leaving `#[allow(dead_code)]` -- which the same message forbids
+    // -- as the only escape. The remedy the gate prescribes must be one
+    // the gate accepts.
+    let src = "pub fn reached() {}\n\
+               pub fn unreached() {}\n\
+               pub(crate) fn internal() {}\n\
+               fn private() {}\n";
     let declared = public_fns(src);
-    assert_eq!(declared, vec!["reached".to_string(), "unreached".to_string()],
-               "private fns are not the subject; pub fns are");
+    assert_eq!(
+        declared,
+        vec!["reached".to_string(), "unreached".to_string()],
+        "only `pub fn` is the subject: `pub(crate)` and private are not"
+    );
 
-    let tests = "assert!(reached());";
-    let unreached: Vec<_> = declared.iter().filter(|f| !tests.contains(f.as_str())).collect();
-    assert_eq!(unreached, vec![&"unreached".to_string()],
-               "the matcher must NAME an unreached fn, not merely count");
+    // A SUBSTRING match would call `reach` reached; a word match does not.
+    let tests = "assert!(reached()); let reachability = 1; let unreachable_x = 2;";
+    let named = |f: &str| {
+        tests.split(|c: char| !c.is_alphanumeric() && c != '_').any(|w| w == f)
+    };
+    let unreached: Vec<_> = declared.iter().filter(|f| !named(f)).collect();
+    assert_eq!(
+        unreached,
+        vec![&"unreached".to_string()],
+        "the matcher must NAME an unreached fn, and must not be fooled by \
+         `unreachable_x` or `reachability` sharing a prefix"
+    );
 }
 ```
 
 ⚠️ **`the_gate_can_fail` is what makes the first test evidence rather than decoration**, and because it is a test it runs in CI on every commit — which is the point. **The two defects this catches passed every other gate in the repo.**
 
-- [ ] **Step 2: `cargo clippy --all-targets -- -D warnings` with NO `#![allow(dead_code)]` anywhere.**
+- [ ] **Step 2: `cargo clippy -p mlmf-hf-layout --all-targets -- -D warnings` with NO `#![allow(dead_code)]` anywhere.**
+
+⚠️ **The `-p` is required and its absence is not a typo to shrug at.** Unscoped, the command reaches the legacy root package — **`default-members` includes `"."` deliberately** — which is **422 clippy errors on an untouched tree** and is excluded from CI on the record. An unscoped gate here is a definition-of-done that cannot be met before any work begins. **No command in `ci.yml` or `local-gates.sh` is unscoped; verified.**
 
 ```bash
 grep -rn "allow(dead_code)" crates/mlmf-hf-layout/ && echo "!! dead_code silenced -- that is the defect, not the fix"
@@ -504,8 +574,16 @@ grep -rn "allow(dead_code)" crates/mlmf-hf-layout/ && echo "!! dead_code silence
 ```bash
 grep -rnE "\bPath\b|PathBuf|std::fs" crates/mlmf-hf-layout/src/ ; echo "exit=$?"   # expect 1, nothing
 grep -rnE "\bstr\b" crates/mlmf-hf-layout/src/ | head -2                            # control: greps DO match here
-grep -rnE "pub (fn|struct|enum)[^\n]*serde_json" crates/mlmf-hf-layout/src/ ; echo "exit=$?"  # expect 1
-grep -rnE "^pub (fn|struct|enum)" crates/mlmf-hf-layout/src/ | head -3               # control
+# ⚠️ ANY `pub` item on a line with serde_json -- fn, struct, enum, TYPE ALIAS,
+# or a public FIELD. The narrow `pub (fn|struct|enum)` form misses a public
+# field (`pub raw: serde_json::Value`), which is exactly what
+# mlmf-safetensors had to solve with `pub(crate) entries: serde_json::Map`,
+# and misses any signature rustfmt wrapped across lines.
+grep -rn "serde_json" crates/mlmf-hf-layout/src/ | grep -vE "^\s*[0-9]+:\s*//" \
+  | grep -E "\bpub\b" ; echo "exit=$?"                              # expect 1, nothing
+# ...and the multi-line case the line-oriented grep cannot see:
+grep -rnA3 -E "^\s*pub fn " crates/mlmf-hf-layout/src/ | grep serde_json ; echo "exit=$?"
+grep -rnE "^pub (fn|struct|enum)" crates/mlmf-hf-layout/src/ | head -3   # control: greps match here
 cargo tree -p mlmf-hf-layout --edges normal --depth 1
 ```
 
