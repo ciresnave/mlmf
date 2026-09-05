@@ -7,6 +7,10 @@
 > - **The shard-index half** — `Task 4` below — was extracted, corrected and now lives in **`2026-09-05-mlmf-hf-layout-shards.md`**. ⚠️ **Do not build `src/shards.rs` or `tests/shards.rs` from Task 4 below.** Its interface returns `Result<Self, HfError>`, a shared error type that **does not compile**: private fields are module-scoped, so a second module cannot construct it. Part A uses a `ShardError` of its own. Task 4 also derives `Eq` on a type holding `MetaValue`, which has `F32`/`F64` and derives only `PartialEq`.
 > - **The metadata half** — `HfLayout`, the sidecars, and `mlmf-meta`'s `BOS_TOKEN_TEXT` — **has not been rewritten yet.** When it is, it is written **fresh**, not patched from here.
 >
+> **⚠️ PART B IS NOT SCHEDULED, AND THAT IS A RULING, NOT AN OVERSIGHT (2026-09-05).** Nothing is blocked on it — no consumer is waiting — and this plan is superseded for cause, so a rewrite needs a driver. **What was NOT acceptable is that the gap was invisible:** `mlmf-meta` declares one `Format::HuggingFace` vocabulary row and **nothing in the workspace can produce keys in its spelling**, so the row reads as capability while being fed by nothing — this plan's own B1 shape, as a dead row rather than a note.
+>
+> **THIS DEFERRAL HAS A DETECTOR: `crates/mlmf-hf-layout/tests/part_b_deferral.rs`.** It asserts this crate still has no `MetadataSource`, so it goes red the day Part B lands, and its failure message points back here. Delete that file when closing this item — the note and the detector are removed together or neither.
+>
 > **Why it is kept.** Two audits found twelve blocking findings between them, and **four of the second round's six were created by the first round's fixes.** The revision table at the top of the plan and the findings in the body are the record of that, and deleting them would leave the next author to rediscover them. ⚠️ **In particular: `token_decl` below has four tests and three sabotages and is called by NOTHING** — the defect that forced the split, and the one a fresh part B has to avoid re-creating.
 
 # `mlmf-hf-layout` — HuggingFace checkpoint layout (§12 step 5)
