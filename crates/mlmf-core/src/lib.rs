@@ -19,6 +19,7 @@ pub mod report;
 pub mod shape;
 pub mod tensor;
 pub mod traits;
+pub mod write_check;
 
 pub use dtype::DType;
 pub use encoding::{BlockSpec, Encoding};
@@ -43,3 +44,4 @@ pub const NOTICE_TOKEN: &str = "MLMF-NOTICE";
 pub use shape::Shape;
 pub use tensor::TensorDescriptor;
 pub use traits::{ByteSource, MetadataSource, RangedSource, TensorContainer};
+pub use write_check::{CitedDefault, Requirement, Resolution, WriteCheck};
