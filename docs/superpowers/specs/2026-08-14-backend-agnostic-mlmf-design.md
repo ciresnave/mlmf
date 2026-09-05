@@ -348,7 +348,31 @@ The shared crate is the standard for **mechanism**; these clauses are the standa
 - **3.3** Lossiness is marked **per field**, not per crate.
 
 **§4 Handoff obligations**
-- **4.1** A rendered chat template must be tokenized with **`add_special_tokens = false`**, and that rule travels **with** the template as a field of the returned value, not as prose. *(Templates interpolate `bos_token` into prompt text; a tokenizer whose post-processor is `TemplateProcessing` then prepends BOS again, so a Llama-3 checkpoint receives `128000, 128000, 128006, …` — a pair it never saw in training. Invisible to every text-level assertion, because the render is byte-identical either way.)*
+- **4.1** ⚠️ **CORRECTED 2026-09-03. The previous text described a DEFECT, and is quoted below because the correction is worthless without it.**
+
+  **A rendered chat template must be tokenized with `add_special_tokens` set to whether the RENDER already opens with BOS — not unconditionally `false`.** The decision is a property of the **rendered output**, so it cannot be a static field of an extraction and **`mlmf-meta` must not return one**. What extraction returns instead is the template plus the checkpoint's declared **`bos`/`eos` strings**, which is what lets a consumer compute the flag:
+
+  ```rust
+  // lightbulb, src/api/openai/chat.rs:389
+  let emits_leading_bos =
+      !t.tokens.bos.is_empty() && text.starts_with(t.tokens.bos.as_str());
+  BuiltPrompt { text, add_special_tokens: !emits_leading_bos }
+  ```
+
+  *(`text` is the rendered string, not the template. Scanning the template SOURCE for `bos_token` tells you the template mentions BOS; it does not tell you whether the rendered prompt OPENS with one — and Llama-2 emits `bos_token` inside its message loop, so a three-turn conversation contains three while a post-processor adds only a leading one.)*
+
+  **The original clause read:** *"A rendered chat template must be tokenized with **`add_special_tokens = false`**, and that rule travels with the template as a field of the returned value."* Its rationale was real — a Llama-3 checkpoint receiving `128000, 128000, 128006, …`, invisible to every text-level assertion because the render is byte-identical either way. **But it fixed double-BOS by forbidding BOS, so a template that does NOT emit one got none at all.**
+
+  **Measured by the Lightbulb architect on TinyLlama-1.1B-Chat Q4_0, whose template never references `bos_token` — same prompt, same temperature:**
+
+      22 ids, no BOS   ->  "France| Paris, France</s>"
+      23 ids, with BOS ->  "The French capital of France.</s>"
+
+  **Fixed in lightbulb PR #19, 2026-09-02.** Their doc comment: *"THE FLAG MUST ANSWER 'DOES THIS TEMPLATE EMIT BOS?', NOT 'WAS A TEMPLATE APPLIED?'. Those are different questions, and answering the second removed BOS entirely from every checkpoint whose template does not emit one."*
+
+  ⚠️ **Why this survived, which is the part worth keeping.** The clause was written while the double-BOS failure was fresh and is **an accurate description of the code at that moment** — code that was already defective. In its author's words: *"I generalised from ONE observed direction and produced a rule that fixes that direction by forbidding the opposite one. **The half I had measured became the whole rule**."* And: *"nobody re-derived it afterwards **because it had a citation**."*
+
+  **A clause carrying a measurement reads as settled.** §14 exists so decisions can be checked by their owners; this one was, and it did not survive. **The same question is worth asking of every other clause whose evidence is a single observed direction.**
 - **4.2** The Jinja dialect required to render real Hub templates is documented alongside extraction even though rendering is the consumer's job: `macros`, `loop_controls`, `json`/`tojson`, `strftime_now` registered as a **global**, and Python `str`/`dict` methods via minijinja-contrib's `pycompat`. A narrower list does not degrade rendering — it makes real checkpoint templates **fail to parse**, which falls through to a family guess and then reports success at a lower tier. *(8 of 9 real Hub templates measured at Lightbulb render only with all of it.)*
 
 **§5 Derived artifacts**
