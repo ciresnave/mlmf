@@ -188,7 +188,7 @@ dependencies = [
 [[package]]
 name = "candlelight"
 version = "0.2.1"
-source = "git+https://github.com/ciresnave/candlelight#d70a03f325294a7c3ac354dc74d4768c4c96db5e"
+source = "git+https://github.com/ciresnave/candlelight?rev=d70a03f325294a7c3ac354dc74d4768c4c96db5e#d70a03f325294a7c3ac354dc74d4768c4c96db5e"
 dependencies = [
  "candle-core",
  "candle-nn",
