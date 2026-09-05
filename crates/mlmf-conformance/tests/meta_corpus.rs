@@ -20,6 +20,9 @@ use mlmf_meta::template::TemplateSet;
 use mlmf_meta::tokens::SpecialTokens;
 use mlmf_meta::vocab::Format;
 
+#[path = "../../mlmf-core/tests/support/armed.rs"]
+mod armed;
+
 fn corpus_root() -> Option<PathBuf> {
     let root =
         std::env::var("MLMF_GGUF_CORPUS").unwrap_or_else(|_| "C:/Models/gguf-corpus".to_string());
@@ -27,13 +30,18 @@ fn corpus_root() -> Option<PathBuf> {
     p.is_dir().then_some(p)
 }
 
-/// Whether a missing corpus is a failure rather than a skip.
+/// True when a skip must be a FAILURE rather than a notice.
 ///
-/// Spelled exactly as `crates/mlmf-gguf/tests/corpus.rs` spells it. Under
-/// an `== "1"` reading, `MLMF_CORPUS_REQUIRED=true` would silently skip —
-/// two readings of one variable in one repo, failing green.
+/// **The half that makes the skip measured rather than merely loud.** A
+/// notice nobody counts is indistinguishable from a run that verified
+/// everything; set `MLMF_CORPUS_REQUIRED=1` on any machine that is supposed
+/// to have the corpus and a skip becomes red.
+///
+/// Delegates to the portfolio's shared predicate — see
+/// `crates/mlmf-core/tests/support/armed.rs` for the three spellings this
+/// replaced and why each was wrong, **including this repo's own.**
 fn corpus_required() -> bool {
-    std::env::var("MLMF_CORPUS_REQUIRED").is_ok_and(|v| v != "0" && !v.is_empty())
+    armed::armed("MLMF_CORPUS_REQUIRED")
 }
 
 /// Skips when the corpus is genuinely absent, fails when it is required.
