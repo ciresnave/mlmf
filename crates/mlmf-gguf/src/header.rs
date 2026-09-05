@@ -3,8 +3,15 @@
 use crate::cursor::Cursor;
 use crate::error::{GgufError, Stage};
 
-/// Versions this build reads. v1 used 32-bit counts and is refused rather
-/// than misparsed — see the crate docs.
+/// Versions this build reads.
+///
+/// A **set**, not an equality, and that distinction is load-bearing:
+/// lightbulb refused v2 for months from `if version != 3`, which produced a
+/// loud, specific, correct-looking error for a file their parser could read
+/// perfectly. One line took them from 17 to 18 reachable vocabularies.
+///
+/// **v1 is refused deliberately, not overlooked** — see the crate docs for
+/// the population, the cost and the date.
 const SUPPORTED: &[u32] = &[2, 3];
 
 /// The fixed-size prologue of a GGUF file.

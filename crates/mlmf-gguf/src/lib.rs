@@ -77,6 +77,31 @@
 //! open is proportional to the number of keys — at most 42 in the corpus —
 //! rather than to the size of the vocabulary. `array_get` decodes one
 //! element without materializing its array.
+//!
+//! # GGUF v1 is refused, and that is a decision
+//!
+//! `SUPPORTED` is `&[2, 3]`. v1 is **not** read, and this section exists
+//! because the constant alone cannot tell a considered scope decision
+//! from an oversight — both produce the same loud, specific refusal.
+//!
+//! **Measured 2026-09-05**, corpus root `C:/Models/gguf-corpus`:
+//!
+//! | | |
+//! |---|---|
+//! | population | **1 file of 29** — `legacy/tinyllamas-stories-260k-f32.gguf` |
+//! | what it costs | that file is **readable**: parsed by hand with v1 field widths it yields 48 tensors, 18 KV pairs, `general.architecture = llama` and a **512-token vocabulary** |
+//! | what it would take | v1 uses `u32` where v2+ uses `u64` — for the tensor and KV counts **and every length-prefixed string and array in the file**. A second parse path at every read site, not a constant change |
+//! | who asked | nobody. Neither Fuel nor Lightbulb reads v1 |
+//!
+//! ⚠️ **So the refusal is a cost decision against a population of one,
+//! and it should be revisited if a second v1 file appears or a consumer
+//! asks.** It is not a claim that the file is bad. Three sessions called
+//! that file unreadable in one exchange and it reads fine.
+//!
+//! §5 rule 1 is satisfied by refusing *with the version named*:
+//! [`GgufError::UnsupportedVersion`] says which version it saw, so a
+//! caller can tell "this build does not read that" from "that file is
+//! broken".
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
