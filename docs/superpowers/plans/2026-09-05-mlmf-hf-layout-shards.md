@@ -18,13 +18,13 @@
 
 **The two halves share almost nothing** — measured: one error type and one helper function, both removable. **All of round 2's entanglement is on the metadata side**, where a fix to where one function is called cascades into four tasks across two crates.
 
-**So this plan is the shard index alone.** It is independently useful, it is the half a consumer is waiting on, and **its eight tests were built and run during the round-2 audit and all eight passed.** The metadata half — `HfLayout`, the sidecars, and `mlmf-meta`'s `BOS_TOKEN_TEXT` — is deferred to part B, written fresh rather than patched.
+**So this plan is the shard index alone.** It is independently useful, it is the half a consumer is waiting on, and **its tests were built and run during the round-2 audit — all eight of the version audited passed, and this plan carries twelve, the four extra closing defects that audit found in the shard half itself.** The metadata half — `HfLayout`, the sidecars, and `mlmf-meta`'s `BOS_TOKEN_TEXT` — is deferred to part B, written fresh rather than patched.
 
 **Carried from those two rounds, and from plan 7's seven:**
 
 | Hazard | Guard |
 |---|---|
-| A feature with tests but **no caller** — twice now | ⚠️ **Task 3 asserts the crate's public surface is reachable and used.** Sabotage the code that RUNS |
+| A feature with tests but **no caller** — twice now | ⚠️ **Task 2 is a reachability GATE with its own `the_gate_can_fail`.** Sabotage the code that RUNS |
 | `git diff --stat` is **silent on an untracked file** | `cmp` against an `mktemp` copy |
 | A build break exits non-zero and changes the file, exactly like a working sabotage | Read the **`failures:` block**, never the exit code |
 | A `///` on a `pub mod` merges with the module's `//!` and resolves in the **parent's** scope | No outer docs on module declarations |
@@ -385,7 +385,14 @@ cp "$BAK" crates/mlmf-hf-layout/src/shards.rs && rm -f "$BAK"
 
 ⚠️ **(a) is written against text this plan does not fix, so it is the one most likely not to apply. If `cmp` says the mutation did not land, hand-edit `shard_of` to return the first shard for every tensor** and confirm `one_layer_may_span_two_shards_two_instances_mistral_qwen` reddens. **Do not skip it because the pattern missed** — that is the vacuity this whole guard exists for.
 
-**(b) Narrow `total_size` with a WRAPPING cast**, `as u32 as u64` rather than `try_from`. ⚠️ **`try_from().ok()` yields `None` and reddens the test for the wrong reason; the measured hazard is a silent WRAP.** Expect `total_size_exceeds_u32_and_must_not_be_narrowed` to fail with a wrapped value, not with `None`.
+**(b) Narrow `total_size` with a WRAPPING cast.** Replace the `as_u64` result with `(v as u32) as u64`.
+
+⚠️ **NOT `try_from(v).ok()`.** That fails **loudly**, yields `None`, and reddens the test down a path the real defect never takes — **a sabotage that substitutes a loud failure for a silent one does not exercise the hazard**, and a test that survives it says nothing about the hazard. The measured values wrap to plausible numbers:
+
+    14483464192 as u32 as u64  ->  1598562304    a believable byte count
+    15231233024 as u32 as u64  ->  2346331136    a believable byte count
+
+**Expect `total_size_exceeds_u32_and_must_not_be_narrowed` to fail with `left: Some(1598562304)`, not with `None`.** ⚠️ **If it fails with `None`, the wrong sabotage was applied — the equality assertion is what discriminates, and a test asserting only `is_some()` would have survived this.**
 
 **(c) `filter_map` the metadata members** instead of recording the unrepresentable ones → `an_unrepresentable_metadata_member_is_named_not_dropped` reddens.
 
@@ -399,20 +406,92 @@ cp "$BAK" crates/mlmf-hf-layout/src/shards.rs && rm -f "$BAK"
 
 ⚠️ **This task exists because two audit rounds found the same defect: a feature with tests, docs and sabotages that no production path called.** Clippy caught it the second time (`function is never used`), and **the obvious repair — `#[allow(dead_code)]` — silences the only instrument that noticed.**
 
-- [ ] **Step 1: Every public item is reachable and used by a test.**
+- [ ] **Step 1: A reachability GATE, as a test, with its own can-fail companion.**
 
-```bash
-# Every `pub fn` in the crate's public modules...
-grep -rnE "^\s*pub fn " crates/mlmf-hf-layout/src/ | sed 's/.*pub fn \([a-z_]*\).*/\1/' | sort -u > /tmp/pub.txt
-# ...must appear in the integration tests, which can only reach public API.
-for f in $(cat /tmp/pub.txt); do
-  n=$(grep -c "\b$f\b" crates/mlmf-hf-layout/tests/*.rs)
-  [ "$n" -eq 0 ] && echo "!! UNREACHED PUBLIC FN: $f"
-done
-echo "checked $(wc -l < /tmp/pub.txt) public fns"
+⚠️ **Not a shell command run once.** A control run by hand proves the check worked **that day**, and the failure this guards against is an instrument that **silently stops discriminating**. `mlmf-core` already has the pattern in three places — `deps.rs:343`, `purity.rs:553`, `skip_notice.rs:144` all pair a gate with `the_gate_can_fail`, which exercises the **matcher** against synthetic inputs without editing any crate. Follow it.
+
+```rust
+// crates/mlmf-hf-layout/tests/reachability.rs
+//! Every public function must be named by an integration test.
+//!
+//! This exists because TWO audit rounds of this crate's plan found the
+//! same defect: a function with tests, docs and sabotages that **no
+//! production path called**. Clippy caught the second one
+//! (`function is never used`) — and the obvious repair,
+//! `#[allow(dead_code)]`, silences the only instrument that noticed.
+//!
+//! **What this does NOT do**, said plainly so nobody reads more into a
+//! pass than it earns: it does not check that a function is called by
+//! anything a USER would run, only that this crate's own integration
+//! tests name it. Integration tests can reach only the public API, which
+//! is what makes that a real constraint and not a tautology — but the
+//! strongest available claim here is still weaker than a real consumer.
+
+use std::fs;
+
+fn public_fns(src: &str) -> Vec<String> { /* lines matching `pub fn NAME` */ }
+
+#[test]
+fn every_public_fn_is_named_by_an_integration_test() {
+    let mut sources = String::new();
+    for e in fs::read_dir("tests").expect("tests dir") {
+        let p = e.expect("entry").path();
+        if p.extension().is_some_and(|x| x == "rs") {
+            sources.push_str(&fs::read_to_string(&p).expect("readable"));
+        }
+    }
+
+    let mut declared = Vec::new();
+    for e in fs::read_dir("src").expect("src dir") {
+        let p = e.expect("entry").path();
+        if p.extension().is_some_and(|x| x == "rs") {
+            declared.extend(public_fns(&fs::read_to_string(&p).expect("readable")));
+        }
+    }
+
+    // A gate that finds nothing and a gate that CANNOT find anything are
+    // the same output. This crate has public functions today.
+    assert!(
+        declared.len() >= 5,
+        "found {} public fns -- the scan is broken, not the crate empty",
+        declared.len()
+    );
+
+    let unreached: Vec<_> = declared
+        .iter()
+        .filter(|f| !sources.contains(f.as_str()))
+        .collect();
+    assert!(
+        unreached.is_empty(),
+        "public functions no integration test names: {unreached:?}\n\n\
+         A function with tests but no caller passed every other gate in \
+         this repo, twice. If one of these is genuinely internal, make it \
+         `pub(crate)`; do not add `#[allow(dead_code)]`, which silences \
+         the instrument rather than the defect."
+    );
+}
+
+#[test]
+fn the_gate_can_fail() {
+    // ⚠️ THE CONTROL, AND IT RUNS EVERY TIME. A reachability check that
+    // has never fired is not known to work, and a control run once by
+    // hand proves only that it worked that day.
+    //
+    // Exercises the MATCHER on synthetic sources, so it needs no
+    // throwaway function in the real crate and cannot be forgotten.
+    let src = "pub fn reached() {}\npub fn unreached() {}\nfn private() {}\n";
+    let declared = public_fns(src);
+    assert_eq!(declared, vec!["reached".to_string(), "unreached".to_string()],
+               "private fns are not the subject; pub fns are");
+
+    let tests = "assert!(reached());";
+    let unreached: Vec<_> = declared.iter().filter(|f| !tests.contains(f.as_str())).collect();
+    assert_eq!(unreached, vec![&"unreached".to_string()],
+               "the matcher must NAME an unreached fn, not merely count");
+}
 ```
 
-⚠️ **POSITIVE CONTROL, and it is required**: add a throwaway `pub fn unused_probe() {}` to `shards.rs`, re-run, and confirm the check **names it**. Remove it. **A reachability check that has never fired is not known to work** — and the two defects it exists to catch both passed every other gate.
+⚠️ **`the_gate_can_fail` is what makes the first test evidence rather than decoration**, and because it is a test it runs in CI on every commit — which is the point. **The two defects this catches passed every other gate in the repo.**
 
 - [ ] **Step 2: `cargo clippy --all-targets -- -D warnings` with NO `#![allow(dead_code)]` anywhere.**
 
