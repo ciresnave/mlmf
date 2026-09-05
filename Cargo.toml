@@ -66,7 +66,7 @@ version    = "0.4.0"
     # script fetches CUTLASS from GitHub and checks out files with extremely long
     # Doxygen-generated HTML names that exceed Windows' MAX_PATH (260 chars), breaking
     # the build on Windows entirely.
-    candlelight = { git = "https://github.com/ciresnave/candlelight", default-features = false }
+    candlelight = { git = "https://github.com/ciresnave/candlelight", rev = "d70a03f325294a7c3ac354dc74d4768c4c96db5e", default-features = false }
 
     # Serialization and file handling
     safetensors = "0.7"
