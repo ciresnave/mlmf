@@ -106,13 +106,26 @@ impl GGUFContent {
             })
     }
 
-    /// Get all tensor names for now (tensor loading to be implemented)
+    /// Every tensor name the GGUF directory declares.
+    ///
+    /// ⚠️ This said "tensor loading to be implemented". It IS implemented --
+    /// `load_gguf` loads every declared tensor -- and the claim was left
+    /// standing when that landed. A stale doc comment on a `pub fn` asserts
+    /// the present by default, and this one told a reader the loader was a
+    /// stub.
     pub fn get_all_tensor_names(&self) -> Vec<String> {
         self.candle_content.tensor_infos.keys().cloned().collect()
     }
 }
 
-/// Load GGUF model with options (simplified for now)
+/// Load a GGUF checkpoint into a [`LoadedModel`].
+///
+/// ⚠️ This said "simplified for now", which read as "this is a stub" and no
+/// longer describes it: the config is read from the file's key-value block
+/// and every declared tensor is loaded. What IS still true, and is the useful
+/// warning, is that tensor reading goes through `candlelight`'s
+/// `quantized::gguf_file` rather than `mlmf-gguf` -- spec §12 schedules that
+/// move, and `formats/gguf.rs` is dispositioned Superseded because of it.
 pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
     // Report progress
     if let Some(callback) = &options.progress {
