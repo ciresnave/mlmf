@@ -291,7 +291,7 @@ fn the_default_feature_parser_reads_the_key_and_not_a_prefix_of_it() {
     assert_eq!(
         default_features_in(with_prefixed_sibling).as_deref(),
         Some("[\"mmap\"]"),
-        "a feature merely BEGINNING with `default` must not be read as the key,          and must not make the crate escape the gate"
+        "a feature merely BEGINNING with `default` must not be read as the key, and must not make the crate escape the gate"
     );
 
     // The arms that decide arming, each stated rather than implied.
@@ -398,7 +398,7 @@ fn a_crate_with_a_second_configuration_is_linted_and_documented_in_it() {
 
     assert!(
         missing.is_empty(),
-        "these crates declare a non-empty `default` feature list, so          `--no-default-features` is a REAL second configuration — and it is          tested there but not linted or documented there:
+        "these crates declare a non-empty `default` feature list, so `--no-default-features` is a REAL second configuration — and it is tested there but not linted or documented there:
   {}",
         missing.join("
   ")
@@ -410,7 +410,7 @@ fn a_crate_with_a_second_configuration_is_linted_and_documented_in_it() {
     // workspace stopped having features.
     assert!(
         !armed.is_empty(),
-        "no crate armed this gate. At least `mlmf-source-file` declares a          non-empty `default`, so this means the manifest scan is broken."
+        "no crate armed this gate. At least `mlmf-source-file` declares a non-empty `default`, so this means the manifest scan is broken."
     );
 }
 
@@ -481,7 +481,7 @@ fn rustdoc_warnings_are_fatal_for_every_documented_crate() {
 
     assert!(
         undocumented.is_empty(),
-        "these gated crates have no `cargo doc` step at all, and a step that          is absent cannot be toothless — so this check has nothing to say          about them:
+        "these gated crates have no `cargo doc` step at all, and a step that is absent cannot be toothless — so this check has nothing to say about them:
   {}",
         undocumented.join("
   ")
@@ -529,7 +529,7 @@ fn toolchain_pin_matches_ci() {
     let needle = format!("dtolnay/rust-toolchain@{channel}");
     assert!(
         workflow.contains(&needle),
-        "rust-toolchain.toml pins {channel} but the workflow does not use          `{needle}` — CI would build with a different compiler than every          developer, and both would report green"
+        "rust-toolchain.toml pins {channel} but the workflow does not use `{needle}` — CI would build with a different compiler than every developer, and both would report green"
     );
 }
 

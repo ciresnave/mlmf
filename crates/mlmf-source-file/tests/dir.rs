@@ -381,7 +381,7 @@ fn a_dangling_symlink_does_not_take_the_listing_down_with_it() {
         use std::io::Write as _;
         let _ = writeln!(
             std::io::stderr(),
-            "{}: SKIPPED: could not create a symlink ({e}). The dangling-link              behaviour of `is_dir` was NOT verified on this run. On Windows              this needs Developer Mode or elevation.",
+            "{}: SKIPPED: could not create a symlink ({e}). The dangling-link behaviour of `is_dir` was NOT verified on this run. On Windows this needs Developer Mode or elevation.",
             mlmf_core::NOTICE_TOKEN
         );
         return;

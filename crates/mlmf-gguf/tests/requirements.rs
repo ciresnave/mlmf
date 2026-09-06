@@ -159,7 +159,7 @@ fn check_file(path: &Path) -> Option<Outcome> {
                 meta.declaration("general.quantization_version"),
                 Declaration::Declared(_)
             ),
-        "{name} has quantized tensors, so the spec requires          general.quantization_version: \"If any tensors are quantized, this _must_          be present.\""
+        "{name} has quantized tensors, so the spec requires general.quantization_version: \"If any tensors are quantized, this _must_ be present.\""
     );
 
     let check = WriteCheck::run(&meta, &requirements(quantized));
@@ -217,10 +217,10 @@ fn corpus_files_or_skip() -> Option<Vec<PathBuf>> {
     if !root.is_dir() {
         assert!(
             !corpus_required(),
-            "MLMF_CORPUS_REQUIRED is set and there is no corpus at {root_s}.              Refusing to pass by skipping."
+            "MLMF_CORPUS_REQUIRED is set and there is no corpus at {root_s}. Refusing to pass by skipping."
         );
         println!(
-            "{}: SKIPPED: no corpus at {root_s}. The synthetic tests above still ran;              the table was NOT checked against real files. Point MLMF_GGUF_CORPUS at one,              or set MLMF_CORPUS_REQUIRED=1 to make this a failure.",
+            "{}: SKIPPED: no corpus at {root_s}. The synthetic tests above still ran; the table was NOT checked against real files. Point MLMF_GGUF_CORPUS at one, or set MLMF_CORPUS_REQUIRED=1 to make this a failure.",
             mlmf_core::NOTICE_TOKEN
         );
         return None;
@@ -272,7 +272,7 @@ fn the_corpus_satisfies_the_table_or_says_it_was_not_there() {
     );
     assert!(
         unquantized_with_tensors > 0,
-        "no unquantized-with-tensors file: the condition was never seen to be FALSE          for a file that has tensors, so agreement proves nothing"
+        "no unquantized-with-tensors file: the condition was never seen to be FALSE for a file that has tensors, so agreement proves nothing"
     );
     println!(
         "checked {} files: {quantized} quantized, {unquantized_with_tensors} unquantized with tensors",
