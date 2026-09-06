@@ -195,28 +195,30 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
         }
     }
 
-    // Extract metadata from GGUF to create proper config
-    // For now, use defaults but this should read from GGUF metadata
-    let config = ModelConfig {
-        vocab_size: 32000, // TODO: Read from GGUF metadata
-        hidden_size: 4096,
-        num_attention_heads: 32,
-        num_key_value_heads: 32, // GGUF doesn't specify GQA, default to same
-        num_hidden_layers: 32,
-        intermediate_size: 11008,
-        max_position_embeddings: 4096,
-        layer_norm_eps: 1e-6,
-        dropout: 0.0,
-        attention_dropout: 0.0,
-        activation_function: "silu".to_string(),
-        rope_theta: 10000.0,
-        tie_word_embeddings: false,
-        architecture: name_mapper
+    // The config now comes from the FILE. See `config_from_gguf`.
+    //
+    // ⚠️ THE METADATA WAS ALREADY BEING PARSED AND THROWN AWAY.
+    // `GGUFContent::read` above calls `quantized::gguf_file::Content::read`,
+    // which parses the whole file INCLUDING the key-value block -- and this
+    // module used only `tensor_infos.keys()` from it, then hardcoded a config
+    // beneath a `// TODO: Read from GGUF metadata`. The values were in memory
+    // the entire time.
+    //
+    // This reads the bytes a second time through `mlmf-gguf` rather than
+    // reaching into candlelight's already-parsed metadata, DELIBERATELY: §12
+    // moves this crate OFF candlelight, and `mlmf-gguf` reports what it cannot
+    // read where the shim does not. The second read is a known cost taken for
+    // that direction, not an oversight -- and it is a performance cost, where
+    // the thing it replaces was a correctness one.
+    let gguf_path: &Path = path.as_ref();
+    let config = config_from_gguf(
+        &std::fs::read(gguf_path)?,
+        &gguf_path.display().to_string(),
+        name_mapper
             .architecture()
             .cloned()
             .unwrap_or(crate::name_mapping::Architecture::LLaMA),
-        raw_config: serde_json::Value::Null,
-    };
+    )?;
 
     // Create VarBuilder from loaded tensors
     let var_builder = if !raw_tensors.is_empty() {
@@ -282,6 +284,161 @@ pub fn find_gguf_files(model_dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(gguf_files)
 }
 
+/// Build a [`ModelConfig`] from what the GGUF file actually **declares**.
+///
+/// # What this replaces
+///
+/// ⚠️ This function exists because the code it replaced returned a
+/// **hardcoded LLaMA-7B config for every GGUF file** — `vocab_size: 32000`,
+/// `hidden_size: 4096`, 32 heads, 32 layers — beneath a
+/// `// TODO: Read from GGUF metadata`. A SmolLM2-135M loaded through
+/// `universal_loader` reported every field wrong **with no error path**.
+///
+/// Its excuse was false on its own terms: *"GGUF doesn't specify GQA, default
+/// to same"*. GGUF specifies it — `attention.head_count_kv` is declared by
+/// real files, and gemma-4 declares it as a **per-layer array**. The reader
+/// was not defaulting because the format was silent; it was defaulting
+/// because it never read.
+///
+/// # Absent means REFUSE, not "substitute a different default"
+///
+/// The five structural fields below are read or the load is **refused with
+/// the missing key named**. ⚠️ **Measured 2026-09-06 over the 28-file corpus:
+/// every parseable file declares all five, so this refuses nothing real** —
+/// the refusal is there for the file that does not, where a default would be
+/// a fabricated fact about a model nobody read.
+///
+/// # Three fields GGUF has no vocabulary for at all
+///
+/// `activation_function`, `tie_word_embeddings` and the dropout rates are
+/// **not "absent from this file"** — measured, **zero** corpus files declare
+/// anything of that shape under any architecture prefix. They are outside
+/// the format's vocabulary, so they cannot be read and their values here do
+/// not claim to come from the file. That `ModelConfig` demands them at all
+/// is the normalized-struct problem the design spec dispositions separately.
+fn config_from_gguf(
+    bytes: &[u8],
+    origin: &str,
+    architecture: crate::name_mapping::Architecture,
+) -> Result<ModelConfig> {
+    use mlmf_core::{MetaValue, MetadataSource};
+
+    let (meta, _report) = mlmf_gguf::GgufMetadata::parse(bytes, origin)
+        .map_err(|e| Error::invalid_format(format!("{origin}: unreadable as GGUF: {e}")))?;
+
+    let arch = meta
+        .get("general.architecture")
+        .and_then(MetaValue::as_str)
+        .ok_or_else(|| {
+            Error::invalid_format(format!(
+                "{origin}: `general.architecture` is not declared. The GGUF specification marks it required, and every other key is namespaced under its value, so nothing else can be located without it."
+            ))
+        })?
+        .clone();
+
+    let num_attention_heads = required_u(&meta, &arch, "attention.head_count", origin)?;
+
+    Ok(ModelConfig {
+        hidden_size: required_u(&meta, &arch, "embedding_length", origin)?,
+        num_hidden_layers: required_u(&meta, &arch, "block_count", origin)?,
+        intermediate_size: required_u(&meta, &arch, "feed_forward_length", origin)?,
+        max_position_embeddings: required_u(&meta, &arch, "context_length", origin)?,
+        num_attention_heads,
+
+        // Absent means MULTI-HEAD ATTENTION -- one KV head per query head,
+        // which is what the field MEANS when a file declares no separate
+        // count, not a guess. gpt-2 and mpt omit it for exactly that reason.
+        num_key_value_heads: optional_u(&meta, &arch, "attention.head_count_kv")
+            .unwrap_or(num_attention_heads),
+
+        vocab_size: vocab_size_of(&meta, &arch, origin)?,
+
+        // Architecture-specific and legitimately absent for some: falcon and
+        // gpt-2 declare no RoPE base, bert-bge no RMS epsilon. Where the file
+        // is silent these values do NOT claim to come from it.
+        rope_theta: optional_f(&meta, &arch, "rope.freq_base").unwrap_or(10000.0),
+        layer_norm_eps: optional_f(&meta, &arch, "attention.layer_norm_rms_epsilon")
+            .unwrap_or(1e-6),
+
+        // ⚠️ NOT FILE FACTS. Measured: zero corpus files declare anything of
+        // this shape under any architecture prefix. GGUF has no vocabulary
+        // for them, so these are not "absent" -- they are unrepresentable.
+        activation_function: "silu".to_string(),
+        tie_word_embeddings: false,
+        dropout: 0.0,
+        attention_dropout: 0.0,
+
+        architecture,
+        raw_config: serde_json::Value::Null,
+    })
+}
+
+/// A declared unsigned value, or a refusal that NAMES THE KEY.
+///
+/// ⚠️ The refusal is the point. The code this replaced substituted a
+/// constant here, and a constant is a fabricated fact about a model nobody
+/// read. Measured over the 28-file corpus: every parseable file declares
+/// every key this is called with, so the refusal path costs nothing today.
+fn required_u(
+    meta: &mlmf_gguf::GgufMetadata<'_>,
+    arch: &str,
+    suffix: &str,
+    origin: &str,
+) -> Result<usize> {
+    use mlmf_core::MetadataSource;
+    let key = format!("{arch}.{suffix}");
+    let Some(v) = meta.get(&key) else {
+        return Err(Error::invalid_format(format!(
+            "{origin}: `{key}` is not declared. Refusing rather than substituting a default: a default here would be a fabricated fact about a model that was never read, which is what this function replaced."
+        )));
+    };
+    if v.as_array().is_some() {
+        return Err(Error::invalid_format(format!(
+            "{origin}: `{key}` is declared as an ARRAY, and this config holds one number. gemma-4 declares per-layer attention geometry this way. Refusing rather than picking an element."
+        )));
+    }
+    v.as_u64().map(|n| n as usize).ok_or_else(|| {
+        Error::invalid_format(format!(
+            "{origin}: `{key}` is declared but is not an unsigned integer."
+        ))
+    })
+}
+
+/// A declared unsigned value, or `None`. For keys whose absence is MEANINGFUL
+/// rather than missing.
+fn optional_u(meta: &mlmf_gguf::GgufMetadata<'_>, arch: &str, suffix: &str) -> Option<usize> {
+    use mlmf_core::{MetaValue, MetadataSource};
+    meta.get(&format!("{arch}.{suffix}"))
+        .and_then(MetaValue::as_u64)
+        .map(|n| n as usize)
+}
+
+/// A declared float, or `None`.
+fn optional_f(meta: &mlmf_gguf::GgufMetadata<'_>, arch: &str, suffix: &str) -> Option<f64> {
+    use mlmf_core::{MetaValue, MetadataSource};
+    meta.get(&format!("{arch}.{suffix}"))
+        .and_then(MetaValue::as_f64)
+}
+
+/// The vocabulary size, from whichever key declares it.
+///
+/// `{arch}.vocab_size` is declared by only some files; the token list is
+/// declared by all 28 of the corpus, and its LENGTH is the vocabulary size.
+/// ⚠️ Reading a declared array's length is READING, not inferring.
+fn vocab_size_of(meta: &mlmf_gguf::GgufMetadata<'_>, arch: &str, origin: &str) -> Result<usize> {
+    use mlmf_core::MetadataSource;
+    optional_u(meta, arch, "vocab_size")
+        .or_else(|| {
+            meta.array_len("tokenizer.ggml.tokens")
+                .map(|n| n as usize)
+        })
+        .ok_or_else(|| {
+            Error::invalid_format(format!(
+                "{origin}: neither `{arch}.vocab_size` nor `tokenizer.ggml.tokens` is declared, so the vocabulary size cannot be read from this file."
+            ))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,6 +484,147 @@ mod tests {
     /// is written: an unused dependency and an absent one are the same thing
     /// to everyone except `cargo`. It reads a synthetic v3 header through
     /// `mlmf-gguf` and asserts the version came from the bytes.
+    /// A GGUF v3 header plus one string key-value pair.
+    ///
+    /// Enough to reach `config_from_gguf`'s refusal path without a corpus:
+    /// `general.architecture` is declared, and nothing else is.
+    fn gguf_with_only_architecture(arch: &str) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(b"GGUF");
+        b.extend_from_slice(&3u32.to_le_bytes()); // version
+        b.extend_from_slice(&0u64.to_le_bytes()); // tensor count
+        b.extend_from_slice(&1u64.to_le_bytes()); // kv count
+        let key = b"general.architecture";
+        b.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        b.extend_from_slice(key);
+        b.extend_from_slice(&8u32.to_le_bytes()); // value type: string
+        b.extend_from_slice(&(arch.len() as u64).to_le_bytes());
+        b.extend_from_slice(arch.as_bytes());
+        b
+    }
+
+    /// ⚠️ ABSENT MEANS REFUSE, AND THE REFUSAL NAMES THE KEY.
+    ///
+    /// The code this replaced substituted `hidden_size: 4096` here. A default
+    /// is a fabricated fact about a model nobody read, so the load is refused
+    /// instead -- and the message says which key was missing, because
+    /// "something was wrong with the file" is not actionable.
+    // ⚠️ Asserts the arch PREFIX and the reason, not WHICH structural key
+    // is reported first. Which one surfaces depends on evaluation order
+    // inside `config_from_gguf`, which is an implementation detail; the
+    // contract is that a namespaced key is named and the refusal explains
+    // itself. Pinning the order would make a harmless reorder go red.
+    #[test]
+    fn a_missing_structural_key_is_refused_by_name() {
+        let bytes = gguf_with_only_architecture("llama");
+        let err = config_from_gguf(
+            &bytes,
+            "synthetic.gguf",
+            crate::name_mapping::Architecture::LLaMA,
+        )
+        .expect_err("a file declaring only its architecture cannot yield a config");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("llama.") && msg.contains("is not declared"),
+            "the refusal names a key namespaced under the declared architecture: {msg}"
+        );
+        assert!(
+            msg.contains("Refusing rather than substituting a default"),
+            "the refusal says why it is a refusal: {msg}"
+        );
+    }
+
+    /// ⚠️ THE CONTROL for the test above: the SAME bytes with an architecture
+    /// the keys are namespaced under still refuse, so the refusal is about the
+    /// MISSING KEY and not about the architecture string being unrecognised.
+    #[test]
+    fn the_refusal_is_about_the_missing_key_not_the_architecture() {
+        let err = config_from_gguf(
+            &gguf_with_only_architecture("qwen2"),
+            "synthetic.gguf",
+            crate::name_mapping::Architecture::LLaMA,
+        )
+        .expect_err("still no structural keys");
+        assert!(
+            err.to_string().contains("qwen2."),
+            "the key is namespaced under the DECLARED architecture: {err}"
+        );
+    }
+
+    /// A file with no `general.architecture` cannot be read at all, because
+    /// every other key is namespaced under its value.
+    #[test]
+    fn a_file_without_general_architecture_is_refused() {
+        let mut b = Vec::new();
+        b.extend_from_slice(b"GGUF");
+        b.extend_from_slice(&3u32.to_le_bytes());
+        b.extend_from_slice(&0u64.to_le_bytes());
+        b.extend_from_slice(&0u64.to_le_bytes());
+        let err = config_from_gguf(
+            &b,
+            "synthetic.gguf",
+            crate::name_mapping::Architecture::LLaMA,
+        )
+        .expect_err("no architecture, no config");
+        assert!(
+            err.to_string().contains("general.architecture"),
+            "names the key the GGUF specification requires: {err}"
+        );
+    }
+
+    /// ⚠️ THE FIELD VALUES COME FROM THE FILE, AND THE CONTROL IS THE FILE.
+    ///
+    /// A differential against the OLD behaviour would disagree everywhere by
+    /// design and prove nothing, so every expected number below was read out
+    /// of the same checkpoint by an INDEPENDENT reader (a Python KV walker),
+    /// not by this code.
+    ///
+    /// The old hardcoded config claimed hidden 4096 / layers 32 / heads 32 /
+    /// kv 32 / intermediate 11008 / ctx 4096 / vocab 32000 for this same file.
+    /// Every one of those is wrong, and the KV-head count was wrong by 10.7x.
+    #[test]
+    fn the_config_is_read_from_a_real_checkpoint() {
+        let path =
+            std::path::Path::new("C:/Models/gguf-corpus/quants/SmolLM2-135M-Instruct-Q4_0.gguf");
+        let Ok(bytes) = std::fs::read(path) else {
+            println!(
+                "SKIPPED: no corpus checkpoint at {}. The refusal paths above still ran; \
+                 the read path did NOT.",
+                path.display()
+            );
+            return;
+        };
+
+        let cfg = config_from_gguf(
+            &bytes,
+            "SmolLM2-135M-Instruct-Q4_0.gguf",
+            crate::name_mapping::Architecture::LLaMA,
+        )
+        .expect("a real llama checkpoint declares every structural key");
+
+        assert_eq!(cfg.hidden_size, 576, "llama.embedding_length");
+        assert_eq!(cfg.num_hidden_layers, 30, "llama.block_count");
+        assert_eq!(cfg.num_attention_heads, 9, "llama.attention.head_count");
+        assert_eq!(cfg.num_key_value_heads, 3, "llama.attention.head_count_kv");
+        assert_eq!(cfg.intermediate_size, 1536, "llama.feed_forward_length");
+        assert_eq!(cfg.max_position_embeddings, 8192, "llama.context_length");
+        assert_eq!(cfg.vocab_size, 49152, "llama.vocab_size");
+        assert!(
+            (cfg.rope_theta - 100_000.0).abs() < 1.0,
+            "llama.rope.freq_base, got {}",
+            cfg.rope_theta
+        );
+
+        // ⚠️ GQA IS READ, NOT ASSUMED. The replaced code hardcoded 32 for both
+        // under a comment claiming "GGUF doesn't specify GQA". It does, and
+        // this checkpoint declares 9 query heads against 3 KV heads.
+        assert_ne!(
+            cfg.num_attention_heads, cfg.num_key_value_heads,
+            "this checkpoint is GQA; equal counts would mean the KV head count \
+             was defaulted rather than read"
+        );
+    }
+
     #[test]
     fn the_mlmf_gguf_edge_is_reachable_from_the_legacy_crate() {
         let mut bytes = Vec::new();
