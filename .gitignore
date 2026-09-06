@@ -55,3 +55,11 @@ supertool
 # `CONTRIBUTING.md` do not match, and nothing under a subdirectory does.
 /*_README.md
 /*_model_card.json
+
+# Output of `cargo run --example onnx_export_example`, which writes into the
+# REPOSITORY ROOT. Committed once and removed in the third documentation pass;
+# `ONNX_SUPPORT.md` DESCRIBES the example creating it rather than depending on
+# the committed copy, so nothing reads it. Same reasoning as the
+# `*_model_card.json` entries above: a deletion without an ignore is a fix
+# with a scheduled recurrence.
+/test_transformer.onnx

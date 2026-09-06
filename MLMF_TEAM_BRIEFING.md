@@ -1,3 +1,11 @@
+> ⚠️ **HISTORICAL — this briefing describes v0.1.0 and the crate is at 0.4.0.** It states
+> "MLMF v0.1.0 is now production-ready", dated **November 11 2025**, in four places. **Do not
+> integrate against it.** ⚠️ It names its readers — *"for Lightbulb & Cognition Teams"* — and
+> lightbulb is an active project, so this is the one unreferenced document in this repository
+> with a named audience. Its four broken import paths were corrected in PR #31; the
+> **version and readiness claims below were not**, and are wrong. For what is true now, read
+> `README.md` and `docs/superpowers/specs/2026-08-14-backend-agnostic-mlmf-design.md`.
+
 # MLMF - Machine Learning Model Files Framework
 ## **Production-Ready Release Brief for Lightbulb & Cognition Teams**
 
