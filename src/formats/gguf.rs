@@ -149,11 +149,21 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
         None
     };
 
-    // Load a subset of tensors for now to avoid memory issues
-    // In production, you might want to load tensors on-demand
-    let sample_tensor_names: Vec<_> = tensor_names.iter().take(10).collect();
-
-    for tensor_name in &sample_tensor_names {
+    // ⚠️ EVERY TENSOR, NOT THE FIRST TEN.
+    //
+    // This read `tensor_names.iter().take(10)` under the comment "load a
+    // subset of tensors for now to avoid memory issues". Measured on
+    // SmolLM2-135M-Instruct-Q4_0, which declares 272 tensors: the returned
+    // `LoadedModel` carried TEN, and `load_gguf` returned `Ok`. A caller
+    // received 96% of a model missing, with no error path -- the same shape
+    // as the hardcoded config this function used to build.
+    //
+    // It was not a memory optimisation either: nothing chose WHICH ten, no
+    // threshold was configurable, and the truncated set became the
+    // `VarBuilder` a consumer builds from. Loading every declared tensor is
+    // what a loader does; a caller that wants fewer has `tensor_names` and
+    // can ask for them.
+    for tensor_name in &tensor_names {
         match content.get_qtensor(tensor_name) {
             Ok(qtensor) => {
                 if options.preserve_quantization {
@@ -622,6 +632,52 @@ mod tests {
             cfg.num_attention_heads, cfg.num_key_value_heads,
             "this checkpoint is GQA; equal counts would mean the KV head count \
              was defaulted rather than read"
+        );
+    }
+
+    /// ⚠️ EVERY DECLARED TENSOR IS RETURNED, AND THE FILE IS ITS OWN CONTROL.
+    ///
+    /// The expected count is not a constant -- it is read from the same
+    /// checkpoint through `mlmf-gguf`, so the assertion compares the loader
+    /// against the FILE rather than against a number I typed. A differential
+    /// against the previous behaviour would be meaningless: it returned ten
+    /// for everything.
+    ///
+    /// Measured before the fix: 272 declared, TEN returned, `Ok`.
+    #[test]
+    fn every_declared_tensor_is_loaded() {
+        let path =
+            std::path::Path::new("C:/Models/gguf-corpus/quants/SmolLM2-135M-Instruct-Q4_0.gguf");
+        let Ok(bytes) = std::fs::read(path) else {
+            println!(
+                "SKIPPED: no corpus checkpoint at {}. The truncation fix was NOT verified                  against a real file on this run.",
+                path.display()
+            );
+            return;
+        };
+
+        // What the FILE declares, read independently of the loader.
+        let (meta, _) = mlmf_gguf::GgufMetadata::parse(&bytes, "control")
+            .expect("the control checkpoint parses");
+        let (tensors, _) =
+            mlmf_gguf::parse_tensors(&bytes, &meta, "control").expect("its directory parses");
+        let declared = mlmf_core::TensorContainer::tensors(&tensors).len();
+
+        // ⚠️ NON-VACUITY: a file with ten or fewer tensors could not tell the
+        // truncated loader from a correct one.
+        assert!(
+            declared > 10,
+            "the control checkpoint declares {declared} tensors; a file with 10 or fewer              cannot distinguish `take(10)` from loading everything"
+        );
+
+        let opts = crate::loader::LoadOptions::default();
+        let loaded = load_gguf(path, &opts).expect("a real quantized checkpoint loads");
+
+        assert_eq!(
+            loaded.raw_tensors.len(),
+            declared,
+            "load_gguf returned {} of {declared} declared tensors",
+            loaded.raw_tensors.len()
         );
     }
 
