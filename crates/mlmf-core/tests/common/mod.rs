@@ -124,3 +124,33 @@ pub fn axis(crate_dir: &Path) -> Axis {
         ),
     }
 }
+
+/// Root-level `*.md` documents, sorted.
+///
+/// The consumer-facing corpus: `README.md`, the briefing, the release notes, the
+/// compliance analysis. Shared by `documented_imports.rs` and
+/// `documented_paths.rs`, which check two different properties of it — that an
+/// import RESOLVES and that a citation EXISTS. It lives here for the reason
+/// stated at the top of this file: the same helper in two test binaries is a
+/// helper that can be fixed in one and not the other.
+pub fn root_documents(root: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = fs::read_dir(root)
+        .expect("the workspace root is readable")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "md"))
+        .collect();
+    out.sort();
+    out
+}
+
+/// Is this markdown line quoted rather than asserted?
+///
+/// ⚠️ Both document scanners need this and neither may skip it. A `DISCHARGED`
+/// note has to QUOTE the wording or the path it retires, or a reader cannot tell
+/// what was corrected — so a scan that counts the retraction fires on its own
+/// remedy and can only be satisfied by deleting the record. The lightbulb lane
+/// predicted that case against an in-flight fix before either scanner had been
+/// run against it.
+pub fn is_quoted(line: &str) -> bool {
+    line.trim_start().starts_with('>')
+}

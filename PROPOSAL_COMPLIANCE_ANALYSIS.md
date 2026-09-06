@@ -2,9 +2,11 @@
 
 ## Executive Summary
 
-**MLMF Implementation Status: ✅ 95% COMPLETE**
+**⚠️ MLMF Implementation Status: SUPERSEDED — read `docs/superpowers/specs/2026-08-14-backend-agnostic-mlmf-design.md` §10 and its `src/` disposition table instead.**
 
-MLMF has successfully implemented **nearly all** the requirements specified in both the Lightbulb Candle-Hub proposal and the Cognition Model Loader proposal. The framework has exceeded the original scope in several areas, particularly with the addition of advanced features like multi-modal support, distributed processing, and intelligent caching.
+This is a **2025-era snapshot of the legacy root crate against two proposals**, and both the crate and the charter have moved since. §10 has ruled several of the ✅ rows below **out of scope entirely** — `distributed*.rs` (2,374 lines, *"not model-file work under any reading of the charter"*), `multimodal*.rs`, `model_card.rs`, calibration-based `quantization*.rs` — and the spec's table, not this one, is where a row's status is now maintained. Two rows below were also **false rather than merely stale** and are corrected in place with the measurement.
+
+> ⚠️ **DISCHARGED 2026-09-06.** The header read *"**MLMF Implementation Status: ✅ 95% COMPLETE**"* and *"MLMF has successfully implemented **nearly all** the requirements … The framework has **exceeded the original scope**"*. **The figure was re-derived by nothing and carried no population** — 95% of which requirement set, measured when, against which tree. It is removed rather than restated, because a percentage in an executive summary is the number a reader quotes and the one nothing maintains: this document is referenced by no other file in the repository, so nothing would ever have contradicted it. Found by the Claim Auditor, 2026-09-06.
 
 ---
 
@@ -15,7 +17,7 @@ MLMF has successfully implemented **nearly all** the requirements specified in b
 | **Requirement**        | **Proposal Status** | **MLMF Status**     | **Implementation**                            | **Notes**                             |
 | ---------------------- | ------------------- | ------------------- | --------------------------------------------- | ------------------------------------- |
 | **Core Loading**       |                     |                     |                                               |                                       |
-| Safetensors loading    | ✅ Must-have         | ✅ **IMPLEMENTED**   | `src/loader.rs`, `src/formats/safetensors.rs` | Memory-mapped, progress callbacks     |
+| Safetensors loading    | ✅ Must-have         | ✅ **IMPLEMENTED**   | `src/loader.rs`; reader now `crates/mlmf-safetensors` | ⚠️ **NOT memory-mapped**; progress callbacks yes |
 | Config JSON parsing    | ✅ Must-have         | ✅ **IMPLEMENTED**   | `src/config.rs`                               | HFConfig → ModelConfig transformation |
 | TensorNameMapper       | ✅ Must-have         | ✅ **IMPLEMENTED**   | `src/name_mapping.rs`, `src/smart_mapping.rs` | Enhanced with ML-powered oracle       |
 | Architecture detection | ✅ Must-have         | ✅ **IMPLEMENTED**   | `src/name_mapping.rs`                         | LLaMA, GPT-2, GPT-NeoX, BERT, T5      |
@@ -26,17 +28,19 @@ MLMF has successfully implemented **nearly all** the requirements specified in b
 | **Format Support**     |                     |                     |                                               |                                       |
 | GGUF loading           | ✅ Should-have       | ✅ **IMPLEMENTED**   | `src/formats/gguf.rs`                         | Metadata extraction, tokenizer        |
 | AWQ loading            | ✅ Should-have       | ✅ **IMPLEMENTED**   | `src/loader.rs`                               | CUDA validation, Marlin kernels       |
-| PyTorch `.pth`         | ✅ Nice-to-have      | ✅ **IMPLEMENTED**   | `src/formats/pytorch_loader.rs`               | Full tensor loading                   |
+| PyTorch `.pth`         | ✅ Nice-to-have      | ⚠️ **NOT IMPLEMENTED — a stub** | `src/formats/pytorch_loader.rs`   | ⚠️ Never parses a pickle: `load_zip_pickle` and `load_legacy_pickle` **both return `Err` unconditionally**. §12 step 6 plans `mlmf-pickle` |
 | ONNX loading           | ✅ Nice-to-have      | ✅ **IMPLEMENTED**   | `src/formats/onnx_import.rs`                  | Complete ONNX graph support           |
 | **Advanced Features**  |                     |                     |                                               |                                       |
 | Validation utilities   | ✅ Required          | ✅ **IMPLEMENTED**   | `src/validation.rs`                           | CUDA checks, dtype validation         |
 | Error handling         | ✅ Required          | ✅ **IMPLEMENTED**   | `src/error.rs`                                | Comprehensive error types             |
 | **Beyond Proposal**    |                     |                     |                                               |                                       |
 | Multi-modal support    | ❌ Not requested     | ✅ **BONUS FEATURE** | `src/multimodal*.rs`                          | Cross-modal attention, fusion         |
-| Distributed loading    | ❌ Not requested     | ✅ **BONUS FEATURE** | `src/distributed*.rs`                         | Sharding, load balancing              |
+| Distributed loading    | ❌ Not requested     | ⚠️ **OUT OF CHARTER (§10); the loader PANICS** | `src/distributed*.rs`     | ⚠️ 8 live `todo!()` in `distributed_loader.rs`; `DistributedModelLoader::new()` panics. `distributed.rs` and `distributed_core.rs` have 0 |
 | Advanced caching       | ❌ Not requested     | ✅ **BONUS FEATURE** | `src/cache*.rs`                               | LRU eviction, memory pressure         |
 
-**Lightbulb Compliance: ✅ 100% COMPLETE + BONUS FEATURES**
+**⚠️ Lightbulb Compliance: NOT 100%, and the table above now says so.** One requirement row is a stub that never parses its format (PyTorch `.pth`), one names a capability the code does not have (safetensors is not memory-mapped), and one "bonus" panics on construction. **Measured 2026-09-06 at `4e688b11`.**
+
+> ⚠️ **DISCHARGED 2026-09-06.** This read *"**Lightbulb Compliance: ✅ 100% COMPLETE + BONUS FEATURES**"* directly beneath a table three of whose rows were false. **A total is the line a reader takes away, and it was computed from nothing — no row here was ever re-derived.** The rows themselves are corrected in place above, with the measurement, rather than annotated.
 
 ### 2. Cognition Model Loader Proposal Requirements
 
@@ -115,7 +119,7 @@ MLMF has implemented several advanced features that were not requested in either
 
 ### ✅ **COMPLETE COVERAGE**
 
-**Both proposals are 100% implemented with significant enhancements:**
+**⚠️ Not 100%.** The Lightbulb table above carries a stub (PyTorch `.pth`), a capability claim the code does not meet (safetensors is not memory-mapped), and a "bonus" that panics on construction. The Cognition table below **was not re-measured** in the 2026-09-06 pass and is neither confirmed nor disputed here — say which, rather than letting a total imply both.
 
 1. **Lightbulb Candle-Hub Proposal**: ✅ All must-have, should-have, and nice-to-have features implemented
 2. **Cognition Model Loader Proposal**: ✅ All core, training, and advanced features implemented
@@ -152,6 +156,8 @@ The following features could be added but are not critical:
 
 ## Final Verdict
 
-**✅ MLMF has successfully implemented 100% of the requirements from both proposals plus significant bonus features. The framework is production-ready and exceeds the original vision for a shared model loading infrastructure.**
+**⚠️ This conclusion is SUPERSEDED and its recommendation must not be acted on.**
 
-**Recommendation**: MLMF is complete and ready for deployment across both Lightbulb and Cognition projects, with the bonus capabilities providing future-proofing for advanced ML workflows.
+> ⚠️ **DISCHARGED 2026-09-06.** It read *"**✅ MLMF has successfully implemented 100% of the requirements from both proposals** … The framework is **production-ready** and exceeds the original vision"*, and recommended *"MLMF is complete and ready for deployment across both Lightbulb and Cognition projects"*. **Three rows of the Lightbulb table were false when this was written or became false since**, and the architecture has moved underneath the rest: spec §10 rules `distributed*`, `multimodal*`, `model_card.rs` and calibration-based `quantization*` **out of charter**, and §11/§12 schedule the legacy root crate for **rewrite across the format axis rather than repair**.
+
+**What to read instead:** `docs/superpowers/specs/2026-08-14-backend-agnostic-mlmf-design.md` — §10 for what is in charter, and the `src/` disposition table for the per-file status, which is maintained. The five merged `crates/mlmf-*` readers are the current supported surface; this document describes the legacy root crate.
