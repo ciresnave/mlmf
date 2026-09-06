@@ -1,3 +1,5 @@
+> **HISTORICAL — GENERATED SAMPLE OUTPUT, not documentation of a real model.** Produced by `src/model_card.rs` and committed with the initial v0.1.0 release. `model_card.rs` is dispositioned **Delete** by the design spec's §10.
+
 # GPTNeoX-Small
 
 A GPT-NeoX model with 123.7M parameters

@@ -1,3 +1,5 @@
+> **HISTORICAL — GENERATED SAMPLE OUTPUT, not documentation of a real model.** Produced by `src/model_card.rs` and committed with the initial v0.1.0 release. ⚠️ Its own fields disagree: a *medium* model labelled `Variant: Small`. `model_card.rs` is dispositioned **Delete** by the design spec's §10.
+
 # GPT2-Medium
 
 A GPT-2 model with 353.5M parameters
