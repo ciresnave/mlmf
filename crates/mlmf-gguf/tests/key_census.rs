@@ -65,33 +65,32 @@ fn gguf_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-#[test]
-fn the_key_census_still_supports_the_argument_it_is_cited_for() {
+/// The corpus files, or `None` having announced the skip.
+fn corpus_files_or_skip() -> Option<Vec<PathBuf>> {
     let root_s = corpus_root();
     let root = Path::new(&root_s);
     if !root.is_dir() {
         assert!(
             !corpus_required(),
-            "MLMF_CORPUS_REQUIRED is set and there is no corpus at {root_s}. \
-             Refusing to pass by skipping."
+            "MLMF_CORPUS_REQUIRED is set and there is no corpus at {root_s}. Refusing to pass by skipping."
         );
         println!(
-            "{}: SKIPPED: no corpus at {root_s}. The key census was NOT re-derived; \
-             the figures quoted in src/requirements.rs are unverified on this run.",
+            "{}: SKIPPED: no corpus at {root_s}. The key census was NOT re-derived; the figures quoted in src/requirements.rs are unverified on this run.",
             mlmf_core::NOTICE_TOKEN
         );
-        return;
+        return None;
     }
-
     let mut files = Vec::new();
     gguf_files(root, &mut files);
     files.sort();
+    Some(files)
+}
 
-    // key -> how many files declare it
+/// `key -> how many files declare it`, plus how many files were parseable.
+fn build_census(files: &[PathBuf]) -> (BTreeMap<String, usize>, usize) {
     let mut census: BTreeMap<String, usize> = BTreeMap::new();
     let mut parsed = 0usize;
-
-    for path in &files {
+    for path in files {
         let name = path.file_name().unwrap_or_default().to_string_lossy();
         let Ok(bytes) = std::fs::read(path) else {
             continue;
@@ -105,6 +104,15 @@ fn the_key_census_still_supports_the_argument_it_is_cited_for() {
             *census.entry(key.to_string()).or_default() += 1;
         }
     }
+    (census, parsed)
+}
+
+#[test]
+fn the_key_census_still_supports_the_argument_it_is_cited_for() {
+    let Some(files) = corpus_files_or_skip() else {
+        return;
+    };
+    let (census, parsed) = build_census(&files);
 
     // ⚠️ NON-VACUITY, BEFORE ANY CLAIM ABOUT THE SHAPE. A reader that parsed
     // nothing produces an empty census, in which "most keys are singletons"
@@ -112,13 +120,11 @@ fn the_key_census_still_supports_the_argument_it_is_cited_for() {
     // that has no members to be absent from.
     assert!(
         parsed >= 2,
-        "parsed {parsed} file(s); a census over fewer than two files cannot \
-         distinguish a universal key from a singleton at all"
+        "parsed {parsed} file(s); a census over fewer than two files cannot distinguish a universal key from a singleton at all"
     );
     assert!(
         census.len() > 50,
-        "only {} distinct keys found across {parsed} files; the reader is \
-         not seeing key-value blocks",
+        "only {} distinct keys found across {parsed} files; the reader is not seeing key-value blocks",
         census.len()
     );
 
@@ -130,36 +136,24 @@ fn the_key_census_still_supports_the_argument_it_is_cited_for() {
     let singletons = census.values().filter(|n| **n == 1).count();
 
     println!(
-        "key census, re-derived: {parsed} parseable of {} files, {} distinct keys, \
-         {} universal, {singletons} singletons",
+        "key census, re-derived: {parsed} parseable of {} files, {} distinct keys, {} universal, {singletons} singletons",
         files.len(),
         census.len(),
         universal.len()
     );
 
     // 1. The example that makes "emitted" and "required" provably different.
-    //    `general.name` is in EVERY file and the specification does not
-    //    require it; if it ever stopped being universal, the sharpest
-    //    argument in `src/requirements.rs` would quietly become false.
     assert!(
         universal.contains(&"general.name"),
-        "`general.name` is no longer declared by every parseable file. \
-         src/requirements.rs cites it as the key that is universally EMITTED \
-         and not REQUIRED -- that argument now needs a different example. \
-         Universal keys are currently: {universal:?}"
+        "`general.name` is no longer declared by every parseable file. src/requirements.rs cites it as the key that is universally EMITTED and not REQUIRED -- that argument now needs a different example. Universal keys are currently: {universal:?}"
     );
 
-    // 2. The shape another lane ranked its own work from: the long tail is
-    //    architecture-specific, so an unread-key count is not a list of
-    //    equally-weighted gaps. Asserted as a MAJORITY rather than as 124,
-    //    because the integer is a property of this corpus and the shape is
-    //    the claim.
+    // 2. The shape another lane ranked its own work from. Asserted as a
+    //    MAJORITY rather than as 124, because the integer is a property of
+    //    this corpus and the shape is the claim.
     assert!(
         singletons * 2 > census.len(),
-        "singletons ({singletons}) are no longer a majority of the {} distinct \
-         keys. src/requirements.rs, and lightbulb's ranking of unread keys, both \
-         rest on the long tail being architecture-specific rather than broadly \
-         supported -- re-check both if this corpus has changed shape",
+        "singletons ({singletons}) are no longer a majority of the {} distinct keys. src/requirements.rs, and lightbulb's ranking of unread keys, both rest on the long tail being architecture-specific rather than broadly supported -- re-check both if this corpus has changed shape",
         census.len()
     );
 }
