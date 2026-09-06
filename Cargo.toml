@@ -87,6 +87,14 @@ version    = "0.4.0"
     # the shim already uses).
     mlmf-gguf = { path = "crates/mlmf-gguf", version = "0.4.0" }
 
+    # Required BY the gguf config reader, not ahead of it: `mlmf-gguf` returns
+    # `Option<&MetaValue>` and the `MetadataSource` trait supplies `get` and
+    # `array_len`, both of which live in `mlmf-core` and are not re-exported.
+    # Unlike the `mlmf-gguf` edge in #36, this one lands WITH its consumer
+    # because it has one -- a one-line manifest change the diff beside it
+    # demonstrably uses is not a separate review burden.
+    mlmf-core = { path = "crates/mlmf-core", version = "0.4.0" }
+
     # Serialization and file handling
     safetensors = "0.7"
     serde       = { version = "1.0", features = ["derive"] }
