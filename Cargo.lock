@@ -948,6 +948,7 @@ dependencies = [
  "half",
  "indicatif",
  "memmap2",
+ "mlmf-gguf",
  "prost",
  "prost-build",
  "prost-types",

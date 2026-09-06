@@ -68,6 +68,25 @@ version    = "0.4.0"
     # the build on Windows entirely.
     candlelight = { git = "https://github.com/ciresnave/candlelight", rev = "d70a03f325294a7c3ac354dc74d4768c4c96db5e", default-features = false }
 
+    # The FIRST edge from the legacy root package to the backend-agnostic
+    # crates. §12 has scheduled retiring this package since August and nothing
+    # could start, because the root package depended on NONE of the `mlmf-*`
+    # crates -- `mlmf-core` appeared in this file only as a comment and a
+    # workspace member.
+    #
+    # ⚠️ It is here to fix a WRONG ANSWER, not to tidy the graph.
+    # `src/formats/gguf.rs`, reached from the public `universal_loader`,
+    # returns a hardcoded LLaMA-7B `ModelConfig` for EVERY GGUF file --
+    # vocab 32000, hidden 4096, 32 heads, 32 layers -- above a
+    # `// TODO: Read from GGUF metadata`. A SmolLM2-135M loaded through it
+    # reports every field wrong with no error path.
+    #
+    # `mlmf-gguf` is candlelight-free and reports what it cannot read, which
+    # is why the fix routes through it rather than through
+    # `candlelight::quantized::gguf_file` (already a dependency, and the thing
+    # the shim already uses).
+    mlmf-gguf = { path = "crates/mlmf-gguf", version = "0.4.0" }
+
     # Serialization and file handling
     safetensors = "0.7"
     serde       = { version = "1.0", features = ["derive"] }
