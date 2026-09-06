@@ -485,6 +485,18 @@ Status vocabulary, so "planned" and "done" cannot be confused:
 
 ⚠️ **AND THE mmap DEFECT SURVIVES THE DELETION.** `loader.rs::load_safetensors_mmap` — the function `use_mmap: true` actually reaches — still forwards to regular loading and is **not** in this table. **The join key both functions share, which no row gives you, is the source comment** `// For now, use regular loading - memory mapping API is different in this Candle version`; grepping the behaviour finds both, grepping the name finds one. Its disposition is **explicitly out of scope** here, stated rather than left to silence, because silence is how this becomes "we fixed mmap" in a changelog.
 
+### ⚠️ GAP: the legacy root crate has NO integration tests, and the recorded remedy would not add any
+
+**Filed 2026-09-06. Owner: the mlmf lane. Detector: NONE — see below.**
+
+**Measured:** the root `mlmf` package has **69 `#[test]` functions, all inside `src/`**, and **no `tests/` directory at all**. No CI step runs it, which `ci.yml` records deliberately and with a re-entry condition: *"When that lands, `cargo test --workspace` belongs in the matrix above."*
+
+⚠️ **That re-entry condition would not close this gap.** `cargo test --workspace` would run the 69 existing unit tests and **zero integration tests, because there are none to run.** The recorded remedy is sufficient for the recorded problem (the crate is not built in CI) and insufficient for this one (the crate has no end-to-end coverage to build).
+
+**What is uncovered, concretely:** loading a real GGUF, safetensors or AWQ checkpoint from disk through the public entry points. A deleted script, `test_real_models.rs`, was the only artefact that walked that path — 0 assertions, 42 `println!`s, and it imported `candle_core` where the workspace has `candlelight`, so it had not compiled for some time. **It is recorded here rather than kept, because the gap is the valuable part and the script was not evidence of coverage.**
+
+**Detector: NONE, stated rather than omitted.** One is cheaply buildable — assert the root crate still has no `tests/` directory, so it reddens when someone adds one and names this note for closure. It is **not built** because the sequencing puts a live reader defect (`src/formats/gguf.rs` returning a hardcoded config for every GGUF file) ahead of instrument work, and a detector here would guard a crate CI does not run. **Recorded as available, not as done.**
+
 **Three rows carried Superseded, totalling 589 lines.** That is the honest measure of how much of `src/` five merged crates have actually retired, and it is small because the merged crates are readers of two formats while `src/` is mostly loading policy, deletion candidates, and export paths. The reader that replaced `formats/gguf.rs` is not smaller than it — `mlmf-gguf` is larger — because it does the job without candlelight and reports what it cannot read.
 
 One file in `src/` is not Rust and has no row: `src/mlmf.code-workspace`, a VS Code multi-root workspace pointing at `..` and `../../lightbulb`, committed by an evacuation commit. It is editor configuration that landed under `src/` by accident, and it is noted here only so that "37 files" and a directory listing of 38 entries do not read as a contradiction.
