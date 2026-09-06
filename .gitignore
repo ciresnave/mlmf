@@ -45,3 +45,13 @@ examples/output/
 .claude/
 .serena/
 supertool
+
+# Output of `cargo run --example model_card_example`, which writes into the
+# REPOSITORY ROOT. Six such files were committed with v0.1.0 and removed in
+# PR #33; without these entries the next run re-creates them and `git add .`
+# re-commits them -- a deletion with a scheduled recurrence.
+#
+# Root-anchored and underscore-prefixed on purpose: `README.md` and
+# `CONTRIBUTING.md` do not match, and nothing under a subdirectory does.
+/*_README.md
+/*_model_card.json
