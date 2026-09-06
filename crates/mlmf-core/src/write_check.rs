@@ -30,6 +30,24 @@
 //! had to enumerate every format's conditions, which is the interpretation
 //! this project does not do.
 
+//! # ⚠️ Nothing consumes this yet, and that is not visible from a green run
+//!
+//! **There is no GGUF writer.** The spec records it directly — *"there is
+//! still no GGUF writer, which is why `formats/gguf_export.rs` above is
+//! Planned rather than Superseded"* — so **CD-3's refusal currently has no
+//! conversion to refuse.** Every test here drives this module directly.
+//!
+//! ⚠️ **An unexercised gate and a working one are indistinguishable in any
+//! coverage summary.** Both show green, both show tests passing, and neither
+//! says whether a real caller has ever reached the code. Stated here so the
+//! absence is a recorded fact rather than something a reader has to notice
+//! is missing — the same reason a supplied value must be reported rather
+//! than merely correct.
+//!
+//! This is the seam a writer will need, and it is built to the spec rather
+//! than to a caller. **When one arrives, delete this section** — its
+//! accuracy is the only thing keeping it here.
+
 use crate::error::{Error, ErrorKind};
 use crate::meta::MetaValue;
 use crate::report::Declaration;
