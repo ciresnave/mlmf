@@ -253,29 +253,34 @@ impl PyTorchLoader {
             format: "PyTorch ZIP".to_string(),
         });
 
-        // PyTorch loading framework ready but needs specific candle-core API integration
+        // NOT IMPLEMENTED. This function has never parsed a pickle; it detects the
+        // format and then bails. The message below says that plainly, because the
+        // wording it replaced said the opposite and this Err is the only thing a
+        // user ever sees from this path.
         return Err(Error::model_loading(&format!(
-            "PyTorch ZIP loading implementation ready but requires candle-core API integration.
-             
+            "PyTorch loading is NOT IMPLEMENTED in MLMF. This is a stub: no pickle is parsed.
+
              File: {}
-             
-             Status: MLMF has comprehensive PyTorch support framework including:
-             ✅ Format detection and validation  
-             ✅ Security options (weights_only, file size limits)
-             ✅ Progress reporting and metadata extraction
-             ✅ Universal loader integration
-             
-             ❌ Waiting for stable candle-core pickle API
-             
-             Current workaround - convert to SafeTensors:
+
+             What exists: format detection, the weights_only and file-size options, progress
+             reporting, and universal-loader routing. What does not exist: reading a pickle.
+             Both loaders return this error unconditionally.
+
+             The plan is `mlmf-pickle` (spec §12 step 6) — an opcode-level pickle reader that
+             is never a general pickle interpreter, not a wait on any upstream API.
+
+             Workaround - convert to SafeTensors:
              ```python
              import torch
              from safetensors.torch import save_file
-             state_dict = torch.load('{}', map_location='cpu')
+             # weights_only=True: a pickle is a PROGRAM, and torch.load defaults to
+             # executing it. This message used to omit the flag while claiming the
+             # loader had security measures.
+             state_dict = torch.load('{}', map_location='cpu', weights_only=True)
              save_file(state_dict, 'model.safetensors')
              ```
-             
-             The converted SafeTensors file will load perfectly with MLMF!",
+
+             SafeTensors loading is implemented and this path is supported.",
             path.display(),
             path.display()
         )));
@@ -298,21 +303,23 @@ impl PyTorchLoader {
             ));
         }
 
-        // Framework ready for candle-core integration
+        // NOT IMPLEMENTED, same as the ZIP path above: no pickle is ever parsed.
         Err(Error::model_loading(&format!(
-            "Legacy PyTorch pickle loading ready for candle-core integration.
-             
+            "Legacy PyTorch pickle loading is NOT IMPLEMENTED in MLMF. This is a stub.
+
              File: {}
-             
-             Status: Complete framework with enhanced security for legacy files.
-             
-             Security note: Legacy pickle files can execute arbitrary code.
-             MLMF framework includes safety measures:
-             ✅ Requires weights_only=true
-             ✅ File size limits  
-             ✅ Format validation
-             
-             Recommended: Convert to SafeTensors for security and performance",
+
+             The weights_only, file-size and format-validation checks above this line are
+             real and did run — but nothing then reads the pickle, so they gate a path that
+             does not exist. The plan is `mlmf-pickle` (spec §12 step 6).
+
+             Security note: a pickle is a PROGRAM and loading one can execute arbitrary
+             code. That is why the eventual reader will implement the opcodes directly and
+             refuse everything outside a fixed allow-list, rather than interpreting pickles
+             in general.
+
+             Recommended: convert to SafeTensors (`torch.load(..., weights_only=True)`, then
+             `safetensors.torch.save_file`), which MLMF does load.",
             path.display()
         )))
     }
