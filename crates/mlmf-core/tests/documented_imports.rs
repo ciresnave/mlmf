@@ -49,6 +49,13 @@
 //! plans under `docs/` import `mlmf_core`, `mlmf_ggml`, `mlmf_meta` and the other
 //! split crates, which are real crates whose paths only a compiler can settle;
 //! they are out of scope here rather than silently unexamined.
+//!
+//! **The sibling check — that a *cited* `*.rs` path exists — is
+//! `documented_paths.rs`.** The two were one file until Codacy reported it at 501
+//! non-comment lines against a limit of 500; the seam was already there rather
+//! than invented to satisfy a number, because an import must RESOLVE (needing the
+//! crate surface, module sources and a `use`-tree parser) while a citation must
+//! merely EXIST. Their one shared helper lives in `common/mod.rs`.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -63,10 +70,6 @@ mod common;
 /// asserts nothing and passes. 42 items were present when this was written, so a
 /// floor of 20 catches a broken extractor without failing on ordinary editing.
 const MIN_IMPORTS_EXAMINED: usize = 20;
-
-/// The lowest number of cited `*.rs` paths a healthy scan sees. 79 were present
-/// when this was written.
-const MIN_PATHS_EXAMINED: usize = 40;
 
 /// One `use mlmf::…` item: the module path it names, and the item at the end.
 #[derive(Debug, PartialEq, Eq)]
@@ -132,7 +135,7 @@ fn imports_in(doc: &str) -> Vec<(usize, Import)> {
     let mut out = Vec::new();
     for (i, line) in doc.lines().enumerate() {
         let t = line.trim();
-        if t.starts_with('>') {
+        if common::is_quoted(line) {
             continue;
         }
         let Some(tail) = t.strip_prefix("use mlmf::") else {
@@ -270,50 +273,6 @@ fn unresolved(
     ))
 }
 
-/// Backticked repo-relative `*.rs` paths a document cites, with line numbers.
-///
-/// Only tokens containing a `/` count: a bare `loader.rs` names no location and
-/// a citation without a location cannot be checked. Blockquoted lines are
-/// skipped for the same reason as in `imports_in`.
-///
-/// ⚠️ AND A GLOB IS NOT A LOCATION. `src/multimodal*.rs` names a FAMILY, which is
-/// legitimate shorthand in a summary table and cannot be resolved to a file.
-/// This was found the hard way: the shell census that sized this check used a
-/// character class with no `*` in it, so glob citations were **invisible in the
-/// census and present in the guard** — it reported 79 paths and 1 violation for a
-/// rule that produced 10. Third instance this session of a prototype whose
-/// extractor was narrower than the guard built from it, and the first where the
-/// lesson had already been written down.
-fn cited_paths(doc: &str) -> Vec<(usize, String)> {
-    let mut out = Vec::new();
-    for (i, line) in doc.lines().enumerate() {
-        if line.trim_start().starts_with('>') {
-            continue;
-        }
-        for tok in line.split('`').skip(1).step_by(2) {
-            let t = tok.trim();
-            let checkable = t.ends_with(".rs")
-                && t.contains('/')
-                && !t.contains(' ')
-                && !t.contains(['*', '?', '{', '}']);
-            if checkable {
-                out.push((i + 1, t.to_string()));
-            }
-        }
-    }
-    out
-}
-
-fn root_documents(root: &Path) -> Vec<PathBuf> {
-    let mut out: Vec<PathBuf> = fs::read_dir(root)
-        .expect("the workspace root is readable")
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "md"))
-        .collect();
-    out.sort();
-    out
-}
-
 #[test]
 fn every_documented_import_names_a_path_that_resolves() {
     let root = common::workspace_root();
@@ -328,7 +287,7 @@ fn every_documented_import_names_a_path_that_resolves() {
     });
     let surface = crate_surface(&lib);
 
-    let docs = root_documents(&root);
+    let docs = common::root_documents(&root);
     let mut examined = 0usize;
     let mut violations = Vec::new();
     for doc in &docs {
@@ -369,55 +328,6 @@ fn every_documented_import_names_a_path_that_resolves() {
          does not exist — and note that a resolvable path is a FLOOR: it does \
          not promise the example compiles or runs.",
         violations.join("\n  "),
-        docs.len()
-    );
-}
-
-#[test]
-fn every_cited_source_path_exists() {
-    // The sibling half of the same class: an import names an ITEM that must
-    // resolve, a citation names a FILE that must be there. Measured at
-    // `4e688b11`: 79 cited paths, **1 absent** — `PROPOSAL_COMPLIANCE_ANALYSIS.md`
-    // credited *"Safetensors loading ✅ IMPLEMENTED"* to
-    // `src/formats/safetensors.rs`, deleted on 2026-09-06 (spec :479, 0 callers,
-    // verified with a control). ⚠️ A deletion is the one edit that cannot make a
-    // document notice it: the file goes, the sentence stays, and the sentence is
-    // the part a reader trusts.
-    let root = common::workspace_root();
-    let docs = root_documents(&root);
-    let mut examined = 0usize;
-    let mut missing = Vec::new();
-
-    for doc in &docs {
-        let text =
-            fs::read_to_string(doc).unwrap_or_else(|e| panic!("{} readable: {e}", doc.display()));
-        let name = doc
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned();
-        for (line, rel) in cited_paths(&text) {
-            examined += 1;
-            if !root.join(&rel).is_file() {
-                missing.push(format!("{name}:{line}  `{rel}` does not exist"));
-            }
-        }
-    }
-
-    assert!(
-        examined >= MIN_PATHS_EXAMINED,
-        "only {examined} cited paths found across {} root documents — the \
-         extractor is broken, and a scan that finds nothing passes having \
-         examined nothing",
-        docs.len()
-    );
-    assert!(
-        missing.is_empty(),
-        "A ROOT DOCUMENT CITES A SOURCE FILE THAT DOES NOT EXIST:\n\n  {}\n\n\
-         ({examined} cited paths checked across {} root documents.)\n\n\
-         Name the file that does the work now, or say the work moved. A citation \
-         to a deleted file reads as evidence and is the opposite.",
-        missing.join("\n  "),
         docs.len()
     );
 }
@@ -548,32 +458,6 @@ fn a_quoted_example_is_not_a_claim() {
         imports_in(live).len(),
         2,
         "the exclusion swallowed a live import as well as a quoted one"
-    );
-
-    // The same exclusion has to hold for cited paths, or a DISCHARGED note that
-    // records a deleted file re-fires the check that asked for the note.
-    assert!(cited_paths("> gone: `src/formats/safetensors.rs`").is_empty());
-    assert_eq!(
-        cited_paths("see `src/loader.rs` and `src/formats/gguf.rs`"),
-        vec![
-            (1, "src/loader.rs".to_string()),
-            (1, "src/formats/gguf.rs".into())
-        ]
-    );
-    assert!(
-        cited_paths("a bare `loader.rs` names no location").is_empty(),
-        "a citation with no directory was treated as a checkable location"
-    );
-    assert!(
-        cited_paths("prose about `some file.rs` with a space").is_empty(),
-        "a backticked phrase was read as a path"
-    );
-    // ⚠️ REGRESSION. A glob names a family, not a location. Nine of these are
-    // legitimate shorthand in the compliance table, and the shell census that
-    // sized this check could not see them at all.
-    assert!(
-        cited_paths("`src/multimodal*.rs` and `src/formats/onnx_*.rs`").is_empty(),
-        "a glob citation was treated as a checkable file location"
     );
 }
 
