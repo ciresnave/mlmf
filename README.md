@@ -13,7 +13,7 @@
 - 🏗️ **Architecture Detection**: Automatically detects model architecture (LLaMA, GPT-2, GPT-NeoX) from tensor names
 - 📦 **Multiple Formats**: SafeTensors, GGUF, ONNX and AWQ. PyTorch pickle reading is **not implemented** — detection, options and progress exist around two functions that always return an error.
 - 🗺️ **Name Mapping**: Intelligent tensor name mapping between HuggingFace and custom formats
-- 💾 **Memory Efficient**: Memory-mapped loading for large models (30GB+)
+- 💾 **Memory-mapped GGUF**: GGUF reading is memory-mapped (`memmap2`). ⚠️ **SafeTensors loading is NOT memory-mapped** — `use_mmap` selects a branch that currently forwards to regular file loading (`loader.rs`, "memory mapping API is different in this Candle version").
 - ⚡ **Quantization**: Advanced post-training quantization with multiple schemes (INT8, INT4, Mixed)
 - 🔧 **Device Management**: Automatic CUDA detection with CPU fallback
 - 📊 **Progress Reporting**: Optional progress callbacks for long-running operations
@@ -144,9 +144,11 @@ See the [`examples/`](examples/) directory for complete working examples:
 
 ## Performance
 
-MLMF is optimized for performance:
+⚠️ **The figures below are UNSOURCED.** They predate this README's audit, no
+benchmark in this repository produces them, and they are kept only because
+removing an unmeasured claim and removing a *false* one are different acts —
+the false one is gone, these are merely unverified. **Do not cite them.**
 
-- **Memory-mapped loading**: Loads 70B models (130GB) in ~10 seconds
 - **Architecture detection**: Typically completes in <100ms
 - **Zero-copy**: Direct tensor access without unnecessary copying
 - **Incremental builds**: Changes compile in <10 seconds
