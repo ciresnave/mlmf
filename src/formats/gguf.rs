@@ -314,4 +314,39 @@ mod tests {
         let gguf_files = find_gguf_files(temp_dir.path()).unwrap();
         assert_eq!(gguf_files.len(), 0);
     }
+
+    /// ⚠️ THE EDGE, PROVEN RATHER THAN DECLARED.
+    ///
+    /// This module hands every caller a hardcoded LLaMA-7B `ModelConfig`
+    /// above a `// TODO: Read from GGUF metadata`, so a SmolLM2-135M loaded
+    /// through `universal_loader` reports 4096 hidden size and 32 layers
+    /// with no error path. Fixing that needs a reader that actually reads,
+    /// and `mlmf-gguf` is it.
+    ///
+    /// This test exists so the new dependency cannot sit INERT while the fix
+    /// is written: an unused dependency and an absent one are the same thing
+    /// to everyone except `cargo`. It reads a synthetic v3 header through
+    /// `mlmf-gguf` and asserts the version came from the bytes.
+    #[test]
+    fn the_mlmf_gguf_edge_is_reachable_from_the_legacy_crate() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"GGUF");
+        bytes.extend_from_slice(&3u32.to_le_bytes()); // version
+        bytes.extend_from_slice(&0u64.to_le_bytes()); // tensor count
+        bytes.extend_from_slice(&0u64.to_le_bytes()); // kv count
+
+        let (meta, _report) = mlmf_gguf::GgufMetadata::parse(&bytes, "synthetic.gguf")
+            .expect("mlmf-gguf reads a well-formed v3 header");
+        assert_eq!(meta.header().version, 3, "the version came from the bytes");
+
+        // ⚠️ CONTROL. Without it, a parser that accepted anything would pass
+        // the assertion above and this edge would look proven while being
+        // useless. v1 is refused BY VERSION, which is the behaviour the
+        // legacy shim does not have.
+        bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
+        assert!(
+            mlmf_gguf::GgufMetadata::parse(&bytes, "synthetic-v1.gguf").is_err(),
+            "mlmf-gguf refuses v1 rather than misreading it"
+        );
+    }
 }
