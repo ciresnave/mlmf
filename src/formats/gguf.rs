@@ -196,6 +196,20 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
     }
 
     // The config now comes from the FILE. See `config_from_gguf`.
+    //
+    // ⚠️ THE METADATA WAS ALREADY BEING PARSED AND THROWN AWAY.
+    // `GGUFContent::read` above calls `quantized::gguf_file::Content::read`,
+    // which parses the whole file INCLUDING the key-value block -- and this
+    // module used only `tensor_infos.keys()` from it, then hardcoded a config
+    // beneath a `// TODO: Read from GGUF metadata`. The values were in memory
+    // the entire time.
+    //
+    // This reads the bytes a second time through `mlmf-gguf` rather than
+    // reaching into candlelight's already-parsed metadata, DELIBERATELY: §12
+    // moves this crate OFF candlelight, and `mlmf-gguf` reports what it cannot
+    // read where the shim does not. The second read is a known cost taken for
+    // that direction, not an oversight -- and it is a performance cost, where
+    // the thing it replaces was a correctness one.
     let gguf_path: &Path = path.as_ref();
     let config = config_from_gguf(
         &std::fs::read(gguf_path)?,
