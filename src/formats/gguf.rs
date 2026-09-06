@@ -383,9 +383,29 @@ fn config_from_gguf(
         layer_norm_eps: optional_f(&meta, &arch, "attention.layer_norm_rms_epsilon")
             .unwrap_or(1e-6),
 
-        // ⚠️ NOT FILE FACTS. Measured: zero corpus files declare anything of
-        // this shape under any architecture prefix. GGUF has no vocabulary
-        // for them, so these are not "absent" -- they are unrepresentable.
+        // ⚠️ NOT FILE FACTS, AND `activation_function` IS STILL AN ASSERTION
+        // WITHOUT EVIDENCE -- stated plainly because the previous wording
+        // named the CAUSE and not the CONSEQUENCE.
+        //
+        // Measured: zero corpus files declare anything of this shape under
+        // any architecture prefix, so GGUF has no vocabulary for them and
+        // they are unrepresentable rather than absent. That explains why the
+        // value cannot be read. It does NOT make the value true.
+        //
+        // ⚠️ `"silu"` is returned for EVERY architecture. The corpus alone
+        // holds FOURTEEN distinct ones -- bert, gpt2, gptneox, falcon, mpt,
+        // starcoder2, refact, command-r, baichuan, phi3, qwen2, gemma4,
+        // nomic-bert-moe, llama -- and the file names an activation for none
+        // of them. WHICH activation each architecture actually uses is a fact
+        // about MODELS, which spec §10 places with Fuel and outside this
+        // crate; what MLMF can say is that this one is asserted with nothing
+        // behind it.
+        //
+        // Not fixed here because the remedy is not a better constant: it is
+        // that `ModelConfig` demands a field the format cannot supply. That
+        // is the normalized-struct problem already dispositioned on
+        // `config.rs`'s row, and inventing an architecture-to-activation
+        // table would ADD the interpretation §10 removes.
         activation_function: "silu".to_string(),
         tie_word_embeddings: false,
         dropout: 0.0,
