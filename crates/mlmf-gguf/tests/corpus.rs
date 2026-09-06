@@ -315,7 +315,7 @@ fn the_corpus_agrees_or_says_it_was_not_there() {
     if !root.is_dir() {
         assert!(
             !corpus_required(),
-            "MLMF_CORPUS_REQUIRED is set and there is no corpus at {root_s}.              Refusing to pass by skipping."
+            "MLMF_CORPUS_REQUIRED is set and there is no corpus at {root_s}. Refusing to pass by skipping."
         );
         // NOT `eprintln!`. Measured, on the run that wrote this line: the
         // libtest harness captures the `print!`/`eprint!` macros for a test
@@ -332,7 +332,7 @@ fn the_corpus_agrees_or_says_it_was_not_there() {
         use std::io::Write as _;
         let _ = writeln!(
             std::io::stderr(),
-            "{}: SKIPPED: no corpus at {root_s}. The header round-trip above              still ran; the byte-level differential did NOT. Do not read this              run as corpus-verified. Point MLMF_GGUF_CORPUS at one, or set              MLMF_CORPUS_REQUIRED=1 to make this a failure.",
+            "{}: SKIPPED: no corpus at {root_s}. The header round-trip above still ran; the byte-level differential did NOT. Do not read this run as corpus-verified. Point MLMF_GGUF_CORPUS at one, or set MLMF_CORPUS_REQUIRED=1 to make this a failure.",
             mlmf_core::NOTICE_TOKEN
         );
         return;

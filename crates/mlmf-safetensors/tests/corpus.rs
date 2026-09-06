@@ -228,7 +228,7 @@ fn the_corpus_agrees_or_says_it_was_not_there() {
     if !rows.iter().all(|r| root.join(&r.file).is_file()) {
         assert!(
             !corpus_required(),
-            "MLMF_CORPUS_REQUIRED is set and the corpus under {root_s} is              incomplete. Refusing to pass by skipping."
+            "MLMF_CORPUS_REQUIRED is set and the corpus under {root_s} is incomplete. Refusing to pass by skipping."
         );
         // Written to the `Stderr` HANDLE, not through `eprintln!`.
         // libtest captures `eprintln!` for a passing test and this test
@@ -239,7 +239,7 @@ fn the_corpus_agrees_or_says_it_was_not_there() {
         // on a machine with no corpus, reporting ok.
         let _ = writeln!(
             std::io::stderr(),
-            "{}: SKIPPED: no safetensors corpus at {root_s}.              `the_fixture_is_intact` above still ran; the byte-level              differential did NOT. Do not read this run as corpus-verified.              Point MLMF_SAFETENSORS_CORPUS at one, or set              MLMF_CORPUS_REQUIRED=1 to make this a failure.",
+            "{}: SKIPPED: no safetensors corpus at {root_s}. `the_fixture_is_intact` above still ran; the byte-level differential did NOT. Do not read this run as corpus-verified. Point MLMF_SAFETENSORS_CORPUS at one, or set MLMF_CORPUS_REQUIRED=1 to make this a failure.",
             mlmf_core::NOTICE_TOKEN
         );
         return;
