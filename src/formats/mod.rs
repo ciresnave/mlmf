@@ -3,8 +3,6 @@
 //! This module contains specialized loaders for different model file formats.
 //! Each format has its own specific requirements and optimizations.
 
-pub mod safetensors;
-
 #[cfg(feature = "gguf")]
 pub mod gguf;
 
@@ -33,7 +31,6 @@ pub mod pytorch_export;
 pub mod awq_export;
 
 // Re-export commonly used types
-pub use safetensors::*;
 
 #[cfg(feature = "gguf")]
 pub use gguf::*;
