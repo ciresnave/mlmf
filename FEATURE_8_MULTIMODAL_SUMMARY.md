@@ -1,3 +1,5 @@
+> **HISTORICAL — describes code the architecture has since ruled out of scope.** Multi-modal support is dispositioned **Delete** across three files by the design spec's §10, as "not model-file work under any reading of the charter". This document is the record of building it, not a claim that MLMF supports it today. Linked only from `FEATURE_8_COMPILATION_SUCCESS.md`, which is itself unreferenced.
+
 # Feature 8: Multi-Modal Support - Implementation Summary
 
 ## Overview

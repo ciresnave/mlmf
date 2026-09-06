@@ -1,3 +1,5 @@
+> **HISTORICAL — a point-in-time fix log, not current behaviour.** It records issues resolved on the day it was written and is not maintained. Nothing links to it; check the code or `CHANGELOG.md` for what is true now.
+
 # MLMF Fixes Summary
 
 ## Issues Fixed
