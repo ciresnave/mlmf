@@ -1,9 +1,23 @@
 # Feature 6: Distributed Model Loading - Implementation Summary
 
-## 🎉 COMPLETED: Feature 6 - Distributed Model Loading and Management
+## ⚠️ OUT OF CHARTER AND SLATED FOR DELETION — and `distributed_loader.rs` panics today
+
+**Ruled out of scope by spec §10** (`docs/superpowers/specs/2026-08-14-backend-agnostic-mlmf-design.md`), which dispositions all three files as **Delete — *"not model-file work under any reading of the charter"***: `distributed.rs` (923), `distributed_loader.rs` (842), `distributed_core.rs` (609). MLMF reads and writes model files; running a cluster is not that.
+
+**And one of the three does not work.** Measured at `4e688b11`:
+
+| file | lines | live `todo!()` |
+|---|---:|---:|
+| `distributed.rs` | 923 | **0** — configuration types, real |
+| `distributed_core.rs` | 609 | **0** — `SimpleDistributedManager`, real |
+| `distributed_loader.rs` | 842 | **8** |
+
+⚠️ **`DistributedModelLoader::new()` calls `NodeManager::new()`, which is `todo!("Implement NodeManager::new")`. Construction panics.** So do `deploy_model`, `load_distributed_model`, `scale_cluster`, `migrate_shard`, and the `ShardManager`, `LoadBalancer` and `HealthMonitor` constructors — **four of the six components §2 below lists as delivered**. Nothing reddens on any of it: the legacy root crate is outside CI on the record (`ci.yml` tail).
+
+> ⚠️ **DISCHARGED 2026-09-06.** This read *"## 🎉 **COMPLETED**: Feature 6 — Distributed Model Loading and Management"* and *"**Successfully implemented** a comprehensive distributed model loading and management system"*. **Neither survived contact with the source.** The ✅ inventory below is retained as the record of what was *designed*, because the configuration surface in `distributed.rs` is real and the claim was never that nothing was written — it is that a document at the repository root announced a working feature over eight `todo!()`, and that the architecture had already ruled the whole area out of charter. Found by the Claim Auditor, 2026-09-06.
 
 ### Overview
-Successfully implemented a comprehensive distributed model loading and management system for MLMF that provides:
+The design covers a distributed model loading and management system providing:
 - Multi-node cluster management
 - Flexible model sharding strategies  
 - Advanced device placement
@@ -22,13 +36,13 @@ Successfully implemented a comprehensive distributed model loading and managemen
 - **Load Balancing**: Multiple strategies with health monitoring
 - **Fault Tolerance**: Replication, failure handling, and recovery
 
-#### 2. Distributed Loader (`distributed_loader.rs`)
-- **DistributedModelLoader**: Main distributed model management class
-- **NodeManager**: Cluster coordination and node discovery
-- **ShardManager**: Model distribution and shard migration
-- **LoadBalancer**: Request distribution with session affinity
-- **HealthMonitor**: Comprehensive cluster health monitoring
-- **AlertManager**: Configurable alerting system
+#### 2. Distributed Loader (`distributed_loader.rs`) — ⚠️ **`todo!()`, not implemented**
+- **DistributedModelLoader**: main type — **`new()` panics**, because it constructs the four below
+- **NodeManager**: `todo!("Implement NodeManager::new")` (`:810`)
+- **ShardManager**: `todo!("Implement ShardManager::new")` (`:817`); `migrate_shard` `todo!()` (`:822`)
+- **LoadBalancer**: `todo!("Implement LoadBalancer::new")` (`:829`)
+- **HealthMonitor**: `todo!("Implement HealthMonitor::new")` (`:836`)
+- **AlertManager**: `pub struct` at `:395` with **no `impl` block anywhere in the file** (control: `impl NodeManager` at `:807`, `impl ShardManager` at `:814`) — a field type nothing can construct or call
 
 #### 3. Simple Implementation (`distributed_core.rs`)
 - **SimpleDistributedManager**: Practical deployment-ready implementation

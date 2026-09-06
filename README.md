@@ -94,7 +94,8 @@ println!("Conversion completed in {:.2}s", result.duration.as_secs_f64());
 ### Advanced Quantization
 
 ```rust
-use mlmf::quantization::{QuantizationConfig, QuantizationEngine, QuantizationType, CalibrationMethod};
+use mlmf::CalibrationMethod;
+use mlmf::quantization::{QuantizationConfig, QuantizationEngine, QuantizationType};
 
 // Configure quantization
 let config = QuantizationConfig {

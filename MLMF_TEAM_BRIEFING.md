@@ -66,7 +66,8 @@ let model = lora::load_model_with_adapter(
 
 ### **3. Multimodal Models**
 ```rust
-use mlmf::multimodal::{MultiModalLoader, Modality};
+use mlmf::multimodal::Modality;
+use mlmf::multimodal_loader::MultiModalLoader;
 
 // Handle text, image, audio, video modalities
 let loader = MultiModalLoader::new(config, base_options)
@@ -74,16 +75,20 @@ let loader = MultiModalLoader::new(config, base_options)
     .with_modality_path(Modality::Image, "./vision-model");
 ```
 
-### **4. Distributed Loading**
-```rust
-use mlmf::distributed::{DistributedLoader, ShardingStrategy};
+### **4. Distributed Loading** — ⚠️ **DO NOT INTEGRATE: out of charter, and the loader panics**
 
-// Multi-node model sharding and inference
-let distributed_loader = DistributedLoader::new(
-    DistributedConfig::new()
-        .sharding_strategy(ShardingStrategy::LayerWise)
-)?;
-```
+**Spec §10 dispositions `distributed.rs`, `distributed_loader.rs` and `distributed_core.rs` as Delete — *"not model-file work under any reading of the charter"*.** Do not build against them.
+
+⚠️ **And `distributed_loader` does not run.** Measured at `4e688b11`: **8 live `todo!()`**, including all four manager constructors, so **`DistributedModelLoader::new()` panics on the first call** — `deploy_model`, `load_distributed_model`, `scale_cluster` and `migrate_shard` likewise. `distributed.rs` (configuration types) and `distributed_core.rs` (`SimpleDistributedManager`) contain **zero** `todo!()` and are real, but they are dispositioned for deletion too.
+
+> ⚠️ **DISCHARGED 2026-09-06.** This section carried a worked example:
+> ```rust
+> use mlmf::distributed::{DistributedLoader, ShardingStrategy};
+> let distributed_loader = DistributedLoader::new(
+>     DistributedConfig::new().sharding_strategy(ShardingStrategy::LayerWise)
+> )?;
+> ```
+> **Every load-bearing name in it was wrong, and the type it constructs panics.** `DistributedLoader` is declared nowhere in `src/` — the type is `DistributedModelLoader`, in `mlmf::distributed_loader`, not `mlmf::distributed`. `ShardingStrategy::LayerWise` does not exist either; the variant is `LayerSharding { layers_per_shard }`, and `LayerWise` occurred exactly once in this repository — in this example. ⚠️ **The `distributed` module DOES exist, which is what made the line survive: a reader checking "is there a `distributed` module?" gets yes.** `crates/mlmf-core/tests/documented_imports.rs` now fails on any `use mlmf::…` in a root-level document that names a path which does not resolve. Found by the Claim Auditor, 2026-09-06.
 
 ### **5-8. Additional Systems**
 - **Dynamic Quantization**: Runtime model compression/decompression
@@ -129,7 +134,7 @@ let mapped = mapper.map_name("model.layers.0.self_attn.q_proj.weight");
 
 ### **Cached Loading (Performance Critical)**
 ```rust
-use mlmf::cached_loader::{CachedModelLoader, CacheConfig};
+use mlmf::{CacheConfig, CachedModelLoader};
 
 let cache_config = CacheConfig::new()
     .max_models(10)
