@@ -1,3 +1,5 @@
+> **HISTORICAL — and its claim is true only of the LEGACY root crate.** GGUF export exists in `src/formats/gguf_export.rs`. It does **not** exist in the `mlmf-*` workspace crates: the design spec records `mlmf-gguf` as landing "as a reader" with "no writer", and every export row as "unsatisfied by the merge". Read "MLMF supports GGUF export" here as scoped to the legacy crate.
+
 # GGUF Export Feature - Implementation Summary
 
 ## Overview

@@ -1,3 +1,5 @@
+> **HISTORICAL — a build report from 2026, not a statement about the present.** It records that a compile succeeded on the day it was written. Its subject, multi-modal support, is dispositioned **Delete** by the design spec's §10 (`multimodal.rs`, `multimodal_loader.rs`, `multimodal_processor.rs`, all "not model-file work"). Nothing links to this file.
+
 # 🎉 Feature 8 Multi-Modal Support - COMPILATION SUCCESS!
 
 ## Achievement Summary

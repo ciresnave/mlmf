@@ -1,3 +1,5 @@
+> **HISTORICAL — release notes for v0.2.0. The crate is at 0.4.0.** Kept as the record of that release; it describes neither the current version nor current behaviour.
+
 # MLMF v0.2.0 Release Notes
 
 ## 🚀 Release Summary

@@ -1,3 +1,5 @@
+> **HISTORICAL — GENERATED SAMPLE OUTPUT, not documentation of a real model.** Produced by `src/model_card.rs` and committed with the initial v0.1.0 release. ⚠️ Its own fields disagree: a *7B* model reporting 5.2B parameters and labelled `Variant: 3B-Instruct`. `model_card.rs` is dispositioned **Delete** by §10.
+
 # LLaMA-7B-Chat
 
 A LLaMA model with 5.2B parameters

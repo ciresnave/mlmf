@@ -1,3 +1,5 @@
+> **CURRENT for the LEGACY root crate only.** ONNX import and export are genuinely implemented in `src/formats/onnx_import.rs` and `onnx_export.rs` (~1,420 lines, no stubs — measured 2026-09-06). ⚠️ There is **no `mlmf-onnx` crate**: the design spec's §12 lists it as future work in step 6, so none of the eight backend-agnostic `mlmf-*` crates reads or writes ONNX.
+
 # ONNX Support in MLMF
 
 ## Overview
