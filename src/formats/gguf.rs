@@ -331,76 +331,34 @@ fn config_from_gguf(
         .and_then(MetaValue::as_str)
         .ok_or_else(|| {
             Error::invalid_format(format!(
-                "{origin}: `general.architecture` is not declared. The GGUF specification \
-                 marks it required, and every other key is namespaced under its value, so \
-                 nothing else can be located without it."
+                "{origin}: `general.architecture` is not declared. The GGUF specification marks it required, and every other key is namespaced under its value, so nothing else can be located without it."
             ))
         })?
         .clone();
 
-    // A declared unsigned value, or a refusal that NAMES THE KEY.
-    let need = |suffix: &str| -> Result<usize> {
-        let key = format!("{arch}.{suffix}");
-        match meta.get(&key) {
-            None => Err(Error::invalid_format(format!(
-                "{origin}: `{key}` is not declared. Refusing rather than substituting a \
-                 default: a default here would be a fabricated fact about a model that was \
-                 never read, which is what this function replaced."
-            ))),
-            Some(v) if v.as_array().is_some() => Err(Error::invalid_format(format!(
-                "{origin}: `{key}` is declared as an ARRAY, and this config holds one \
-                 number. gemma-4 declares per-layer attention geometry this way. Refusing \
-                 rather than picking an element."
-            ))),
-            Some(v) => v.as_u64().map(|n| n as usize).ok_or_else(|| {
-                Error::invalid_format(format!(
-                    "{origin}: `{key}` is declared but is not an unsigned integer."
-                ))
-            }),
-        }
-    };
-
-    let opt_u = |suffix: &str| -> Option<usize> {
-        meta.get(&format!("{arch}.{suffix}"))
-            .and_then(MetaValue::as_u64)
-            .map(|n| n as usize)
-    };
-    let opt_f = |suffix: &str| -> Option<f64> {
-        meta.get(&format!("{arch}.{suffix}"))
-            .and_then(MetaValue::as_f64)
-    };
-
-    let num_attention_heads = need("attention.head_count")?;
+    let num_attention_heads = required_u(&meta, &arch, "attention.head_count", origin)?;
 
     Ok(ModelConfig {
-        hidden_size: need("embedding_length")?,
-        num_hidden_layers: need("block_count")?,
-        intermediate_size: need("feed_forward_length")?,
-        max_position_embeddings: need("context_length")?,
+        hidden_size: required_u(&meta, &arch, "embedding_length", origin)?,
+        num_hidden_layers: required_u(&meta, &arch, "block_count", origin)?,
+        intermediate_size: required_u(&meta, &arch, "feed_forward_length", origin)?,
+        max_position_embeddings: required_u(&meta, &arch, "context_length", origin)?,
         num_attention_heads,
 
-        // Absent means MULTI-HEAD ATTENTION -- one KV head per query head --
+        // Absent means MULTI-HEAD ATTENTION -- one KV head per query head,
         // which is what the field MEANS when a file declares no separate
         // count, not a guess. gpt-2 and mpt omit it for exactly that reason.
-        num_key_value_heads: opt_u("attention.head_count_kv").unwrap_or(num_attention_heads),
+        num_key_value_heads: optional_u(&meta, &arch, "attention.head_count_kv")
+            .unwrap_or(num_attention_heads),
 
-        // `{arch}.vocab_size` is declared by only some files; the token list
-        // is declared by all of them, and its LENGTH is the vocabulary size.
-        // Reading a declared array's length is reading, not inferring.
-        vocab_size: opt_u("vocab_size")
-            .or_else(|| meta.array_len("tokenizer.ggml.tokens").map(|n| n as usize))
-            .ok_or_else(|| {
-                Error::invalid_format(format!(
-                    "{origin}: neither `{arch}.vocab_size` nor `tokenizer.ggml.tokens` is \
-                     declared, so the vocabulary size cannot be read from this file."
-                ))
-            })?,
+        vocab_size: vocab_size_of(&meta, &arch, origin)?,
 
         // Architecture-specific and legitimately absent for some: falcon and
         // gpt-2 declare no RoPE base, bert-bge no RMS epsilon. Where the file
         // is silent these values do NOT claim to come from it.
-        rope_theta: opt_f("rope.freq_base").unwrap_or(10000.0),
-        layer_norm_eps: opt_f("attention.layer_norm_rms_epsilon").unwrap_or(1e-6),
+        rope_theta: optional_f(&meta, &arch, "rope.freq_base").unwrap_or(10000.0),
+        layer_norm_eps: optional_f(&meta, &arch, "attention.layer_norm_rms_epsilon")
+            .unwrap_or(1e-6),
 
         // ⚠️ NOT FILE FACTS. Measured: zero corpus files declare anything of
         // this shape under any architecture prefix. GGUF has no vocabulary
@@ -413,6 +371,72 @@ fn config_from_gguf(
         architecture,
         raw_config: serde_json::Value::Null,
     })
+}
+
+/// A declared unsigned value, or a refusal that NAMES THE KEY.
+///
+/// ⚠️ The refusal is the point. The code this replaced substituted a
+/// constant here, and a constant is a fabricated fact about a model nobody
+/// read. Measured over the 28-file corpus: every parseable file declares
+/// every key this is called with, so the refusal path costs nothing today.
+fn required_u(
+    meta: &mlmf_gguf::GgufMetadata<'_>,
+    arch: &str,
+    suffix: &str,
+    origin: &str,
+) -> Result<usize> {
+    use mlmf_core::MetadataSource;
+    let key = format!("{arch}.{suffix}");
+    let Some(v) = meta.get(&key) else {
+        return Err(Error::invalid_format(format!(
+            "{origin}: `{key}` is not declared. Refusing rather than substituting a default: a default here would be a fabricated fact about a model that was never read, which is what this function replaced."
+        )));
+    };
+    if v.as_array().is_some() {
+        return Err(Error::invalid_format(format!(
+            "{origin}: `{key}` is declared as an ARRAY, and this config holds one number. gemma-4 declares per-layer attention geometry this way. Refusing rather than picking an element."
+        )));
+    }
+    v.as_u64().map(|n| n as usize).ok_or_else(|| {
+        Error::invalid_format(format!(
+            "{origin}: `{key}` is declared but is not an unsigned integer."
+        ))
+    })
+}
+
+/// A declared unsigned value, or `None`. For keys whose absence is MEANINGFUL
+/// rather than missing.
+fn optional_u(meta: &mlmf_gguf::GgufMetadata<'_>, arch: &str, suffix: &str) -> Option<usize> {
+    use mlmf_core::{MetaValue, MetadataSource};
+    meta.get(&format!("{arch}.{suffix}"))
+        .and_then(MetaValue::as_u64)
+        .map(|n| n as usize)
+}
+
+/// A declared float, or `None`.
+fn optional_f(meta: &mlmf_gguf::GgufMetadata<'_>, arch: &str, suffix: &str) -> Option<f64> {
+    use mlmf_core::{MetaValue, MetadataSource};
+    meta.get(&format!("{arch}.{suffix}"))
+        .and_then(MetaValue::as_f64)
+}
+
+/// The vocabulary size, from whichever key declares it.
+///
+/// `{arch}.vocab_size` is declared by only some files; the token list is
+/// declared by all 28 of the corpus, and its LENGTH is the vocabulary size.
+/// ⚠️ Reading a declared array's length is READING, not inferring.
+fn vocab_size_of(meta: &mlmf_gguf::GgufMetadata<'_>, arch: &str, origin: &str) -> Result<usize> {
+    use mlmf_core::MetadataSource;
+    optional_u(meta, arch, "vocab_size")
+        .or_else(|| {
+            meta.array_len("tokenizer.ggml.tokens")
+                .map(|n| n as usize)
+        })
+        .ok_or_else(|| {
+            Error::invalid_format(format!(
+                "{origin}: neither `{arch}.vocab_size` nor `tokenizer.ggml.tokens` is declared, so the vocabulary size cannot be read from this file."
+            ))
+        })
 }
 
 #[cfg(test)]
