@@ -17,6 +17,17 @@
 //! The rows below come from the specification. The corpus was then measured
 //! against them, and agreed.
 //!
+//! ⚠️ **Every census figure in this file is RE-DERIVED, not stored.**
+//! `tests/key_census.rs` recomputes the census on every corpus-armed run and
+//! asserts the two facts this argument actually rests on: that
+//! `general.name` is declared by **every** parseable file (which is what
+//! makes "emitted" and "required" provably different), and that singletons
+//! are a **majority** of distinct keys (the shape another lane ranked its
+//! own work from). The exact integers below are a dated measurement and are
+//! deliberately NOT asserted anywhere — they are properties of this corpus's
+//! composition, and pinning them would rebuild the stored-count defect
+//! inside the test.
+//!
 //! # The population every count in this file ranges over
 //!
 //! ⚠️ **`C:/Models/gguf-corpus`: 29 files, 28 of them parseable by this
