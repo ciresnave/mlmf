@@ -216,16 +216,23 @@ fn declares(src: &str, item: &str) -> bool {
         KINDS.iter().any(|k| {
             rest.strip_prefix(k)
                 .and_then(|r| r.strip_prefix(' '))
-                .is_some_and(|r| r.trim_start().starts_with(item) && boundary_after(r, item))
+                .is_some_and(|r| declared_name(r) == item)
         })
     })
 }
 
-fn boundary_after(rest: &str, item: &str) -> bool {
-    rest.trim_start()[item.len()..]
-        .chars()
+/// The identifier a `pub <kind> …` declaration names, or `""`.
+///
+/// Replaces a `starts_with(item)` test paired with a separate boundary check.
+/// That pair had to agree about where the name ended, and it read the slice
+/// `r.trim_start()[item.len()..]`, which is in-bounds only because the caller
+/// had already checked the prefix — a panic held off by a precondition stated
+/// nowhere. Taking the token and comparing it whole cannot disagree with itself.
+fn declared_name(rest: &str) -> &str {
+    rest.trim_start()
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
         .next()
-        .is_none_or(|c| !c.is_alphanumeric() && c != '_')
+        .unwrap_or("")
 }
 
 /// `None` when the import resolves; otherwise why it does not.
@@ -441,6 +448,21 @@ fn the_check_can_fail_rather_than_returning_a_false_clean_result() {
         "a real type named under the WRONG module was accepted — that is the \
          whole class this gate exists for"
     );
+
+    // The declaration-name reader, which replaced a `starts_with` test paired
+    // with a separate boundary check. ⚠️ A prefix test alone accepts a LONGER
+    // name, which is the defect the boundary check existed to stop — and the two
+    // had to agree about where the name ended. Comparing the whole token cannot
+    // disagree with itself.
+    assert_eq!(declared_name("ShardIndex {"), "ShardIndex");
+    assert_eq!(declared_name("  LoadOptions<T> {"), "LoadOptions");
+    assert_eq!(declared_name("load_model(path: &Path)"), "load_model");
+    assert_ne!(
+        declared_name("MultiModalLoaderExtra {"),
+        "MultiModalLoader",
+        "a longer identifier was accepted as the name it merely starts with"
+    );
+    assert_eq!(declared_name(""), "");
 
     // …and it must accept the true ones, or it is not discriminating.
     let ok_root = Import {
