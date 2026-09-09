@@ -280,14 +280,7 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
     // that direction, not an oversight -- and it is a performance cost, where
     // the thing it replaces was a correctness one.
     let gguf_path: &Path = path.as_ref();
-    let config = config_from_gguf(
-        &std::fs::read(gguf_path)?,
-        &gguf_path.display().to_string(),
-        name_mapper
-            .architecture()
-            .cloned()
-            .unwrap_or(crate::name_mapping::Architecture::LLaMA),
-    )?;
+    let config = config_from_gguf(&std::fs::read(gguf_path)?, &gguf_path.display().to_string())?;
 
     // Create VarBuilder from loaded tensors
     let var_builder = if !raw_tensors.is_empty() {
@@ -396,26 +389,80 @@ pub fn find_gguf_files(model_dir: &Path) -> Result<Vec<PathBuf>> {
 /// anything of that shape under any architecture prefix. They are outside
 /// the format's vocabulary, so they cannot be read and their values here do
 /// not claim to come from the file. That `ModelConfig` demands them at all
-/// is the normalized-struct problem the design spec dispositions separately.
-fn config_from_gguf(
-    bytes: &[u8],
-    origin: &str,
-    architecture: crate::name_mapping::Architecture,
-) -> Result<ModelConfig> {
+//// The architecture string the file declares, or a refusal naming why nothing
+/// else can be read without it.
+///
+/// Separated from [`config_from_gguf`] because it is a different job: this one
+/// answers "what kind of model is this", and every lookup after it is
+/// namespaced by the answer. It is also the only key whose absence stops the
+/// whole read rather than one field.
+fn declared_architecture(meta: &mlmf_gguf::GgufMetadata<'_>, origin: &str) -> Result<String> {
+    use mlmf_core::{MetaValue, MetadataSource};
+    meta.get("general.architecture")
+        .and_then(MetaValue::as_str)
+        .cloned()
+        .ok_or_else(|| {
+            Error::invalid_format(format!(
+                "{origin}: `general.architecture` is not declared. The GGUF specification marks it required, and every other key is namespaced under its value, so nothing else can be located without it."
+            ))
+        })
+}
+
+/// The [`Architecture`](crate::name_mapping::Architecture) a GGUF file
+/// DECLARES, rather than one inferred from its tensor names.
+///
+/// # ⚠️ What this replaces, measured over the corpus
+///
+/// `load_gguf` passed `name_mapper.architecture().unwrap_or(LLaMA)` -- an
+/// inference over tensor NAMES. `TensorNameMapper::detect_architecture` tries
+/// HF LLaMA names, then **GGUF's `blk.N.attn_*` names**, then GPT-2, then
+/// GPT-NeoX. Every GGUF file uses `blk.N.attn_*` whatever its architecture, so
+/// the second arm fires first and short-circuits -- and the GPT-2 and GPT-NeoX
+/// arms match only HUGGINGFACE naming, which no GGUF file has. **They are
+/// unreachable for this format.**
+///
+/// Probed over `C:/Models/gguf-corpus`, declared vs concluded: **agree 11,
+/// disagree 14**. `falcon`, `gpt2`, `gptneox`, `bert`, `mpt`, `phi3`, `qwen2`
+/// (x2), `gemma4`, `starcoder2`, `refact`, `command-r`, `baichuan` and
+/// `nomic-bert-moe` were each reported as **LLaMA**.
+///
+/// ⚠️ `gpt2` and `gptneox` are the tell: the enum has EXACT variants for both
+/// and they were still wrong. This was never "the enum is too coarse for
+/// fourteen architectures" -- it was a detector whose specific arms could not
+/// be reached for the format under test.
+///
+/// ⚠️ And the `unwrap_or(LLaMA)` fallback that this began as an investigation
+/// of was nearly irrelevant: it fires only when detection returns `None`, and
+/// detection returned `Some(LLaMA)` confidently for every file. **The
+/// fallback was the visible guess; the confident wrong answer was the defect.**
+///
+/// # Why unrecognised values become `Unknown` and not an error
+///
+/// `general.architecture` is required and its absence already refuses, one
+/// function up. A value that IS declared but has no enum variant is a fact
+/// MLMF read correctly and cannot represent -- eleven of the corpus's
+/// fourteen are in that position. `Unknown` says exactly that, and is
+/// strictly better than naming a different architecture. Spec §6: MLMF may
+/// supply a format's documented default and may never supply a model's value.
+fn architecture_of(declared: &str) -> crate::name_mapping::Architecture {
+    use crate::name_mapping::Architecture;
+    // Compared case-insensitively: the key is a free-form string in the file.
+    match declared.to_ascii_lowercase().as_str() {
+        "llama" => Architecture::LLaMA,
+        "gpt2" => Architecture::GPT2,
+        "gptneox" | "gpt_neox" | "gpt-neox" => Architecture::GPTNeoX,
+        _ => Architecture::Unknown,
+    }
+}
+
+// is the normalized-struct problem the design spec dispositions separately.
+fn config_from_gguf(bytes: &[u8], origin: &str) -> Result<ModelConfig> {
     use mlmf_core::{MetaValue, MetadataSource};
 
     let (meta, _report) = mlmf_gguf::GgufMetadata::parse(bytes, origin)
         .map_err(|e| Error::invalid_format(format!("{origin}: unreadable as GGUF: {e}")))?;
 
-    let arch = meta
-        .get("general.architecture")
-        .and_then(MetaValue::as_str)
-        .ok_or_else(|| {
-            Error::invalid_format(format!(
-                "{origin}: `general.architecture` is not declared. The GGUF specification marks it required, and every other key is namespaced under its value, so nothing else can be located without it."
-            ))
-        })?
-        .clone();
+    let arch = declared_architecture(&meta, origin)?;
 
     let num_attention_heads = required_u(&meta, &arch, "attention.head_count", origin)?;
 
@@ -469,7 +516,7 @@ fn config_from_gguf(
         dropout: 0.0,
         attention_dropout: 0.0,
 
-        architecture,
+        architecture: architecture_of(&arch),
         raw_config: serde_json::Value::Null,
     })
 }
@@ -733,18 +780,121 @@ mod tests {
         assert_eq!(gguf_files.len(), 0);
     }
 
-    /// ⚠️ THE EDGE, PROVEN RATHER THAN DECLARED.
+    /// A complete, minimal GGUF declaring `arch` and every key
+    /// `config_from_gguf` requires, namespaced under it.
     ///
-    /// This module hands every caller a hardcoded LLaMA-7B `ModelConfig`
-    /// above a `// TODO: Read from GGUF metadata`, so a SmolLM2-135M loaded
-    /// through `universal_loader` reports 4096 hidden size and 32 layers
-    /// with no error path. Fixing that needs a reader that actually reads,
-    /// and `mlmf-gguf` is it.
+    /// Parameterised by architecture on purpose: the defect under test is that
+    /// the architecture a file DECLARES was ignored, so a fixture hardcoded to
+    /// `llama` could not have shown it.
+    fn gguf_declaring(arch: &str) -> Vec<u8> {
+        fn push_str(b: &mut Vec<u8>, s: &str) {
+            b.extend_from_slice(&(s.len() as u64).to_le_bytes());
+            b.extend_from_slice(s.as_bytes());
+        }
+        const STRING_TYPE: u32 = 8;
+        const UINT32_TYPE: u32 = 4;
+
+        let mut b = Vec::new();
+        b.extend_from_slice(b"GGUF");
+        b.extend_from_slice(&3u32.to_le_bytes()); // version
+        b.extend_from_slice(&0u64.to_le_bytes()); // tensor count
+        b.extend_from_slice(&7u64.to_le_bytes()); // kv count
+
+        push_str(&mut b, "general.architecture");
+        b.extend_from_slice(&STRING_TYPE.to_le_bytes());
+        push_str(&mut b, arch);
+
+        for (suffix, value) in [
+            ("attention.head_count", 2u32),
+            ("embedding_length", 4),
+            ("block_count", 1),
+            ("feed_forward_length", 8),
+            ("context_length", 16),
+            ("vocab_size", 32),
+        ] {
+            push_str(&mut b, &format!("{arch}.{suffix}"));
+            b.extend_from_slice(&UINT32_TYPE.to_le_bytes());
+            b.extend_from_slice(&value.to_le_bytes());
+        }
+        b
+    }
+
+    /// ⚠️ THE ARCHITECTURE COMES FROM THE FILE, NOT FROM ITS TENSOR NAMES.
     ///
-    /// This test exists so the new dependency cannot sit INERT while the fix
-    /// is written: an unused dependency and an absent one are the same thing
-    /// to everyone except `cargo`. It reads a synthetic v3 header through
-    /// `mlmf-gguf` and asserts the version came from the bytes.
+    /// Until 2026-09-09 `load_gguf` derived this by inference over tensor
+    /// names, and for GGUF that inference could only ever return `LLaMA`:
+    /// `detect_architecture` checks GGUF's `blk.N.attn_*` naming BEFORE its
+    /// GPT-2 and GPT-NeoX arms, and those arms match only HuggingFace names
+    /// that no GGUF file has.
+    ///
+    /// Probed over the corpus: **agree 11, disagree 14**. Every non-llama file
+    /// — falcon, gpt2, gptneox, bert, mpt, phi3, qwen2 ×2, gemma4,
+    /// starcoder2, refact, command-r, baichuan, nomic-bert-moe — was reported
+    /// as LLaMA, with no error.
+    #[test]
+    fn the_declared_architecture_is_the_one_reported() {
+        // `gpt2` is the sharpest case: the enum has an EXACT variant for it and
+        // the old inference still said LLaMA.
+        let cfg = config_from_gguf(&gguf_declaring("gpt2"), "gpt2.gguf")
+            .expect("a complete gpt2 file yields a config");
+        assert_eq!(
+            cfg.architecture,
+            crate::name_mapping::Architecture::GPT2,
+            "a file declaring gpt2 is reported as GPT2, not LLaMA"
+        );
+
+        let cfg = config_from_gguf(&gguf_declaring("gptneox"), "neox.gguf")
+            .expect("a complete gptneox file yields a config");
+        assert_eq!(cfg.architecture, crate::name_mapping::Architecture::GPTNeoX);
+    }
+
+    /// ⚠️ AN ARCHITECTURE WITH NO VARIANT IS `Unknown`, NEVER A DIFFERENT ONE.
+    ///
+    /// Eleven of the corpus's fourteen architectures have no enum variant.
+    /// `Unknown` says exactly that. Naming a different architecture is the
+    /// §6 line: MLMF may supply a format's documented default and may never
+    /// supply a model's value.
+    #[test]
+    fn an_architecture_with_no_variant_is_unknown_not_llama() {
+        for declared in ["falcon", "phi3", "qwen2", "bert", "command-r"] {
+            let cfg = config_from_gguf(&gguf_declaring(declared), "x.gguf")
+                .unwrap_or_else(|e| panic!("{declared} fixture is well formed: {e}"));
+            assert_eq!(
+                cfg.architecture,
+                crate::name_mapping::Architecture::Unknown,
+                "{declared} has no enum variant, so it must be Unknown -- \
+                 reporting LLaMA is a wrong answer with no error attached"
+            );
+        }
+    }
+
+    /// ⚠️ THE CONTROL. The case that was already right must stay right: this
+    /// fix must not turn "always LLaMA" into "never LLaMA".
+    #[test]
+    fn a_declared_llama_is_still_llama() {
+        let cfg = config_from_gguf(&gguf_declaring("llama"), "llama.gguf")
+            .expect("a complete llama file yields a config");
+        assert_eq!(cfg.architecture, crate::name_mapping::Architecture::LLaMA);
+    }
+
+    /// The spellings GGUF uses for the same architecture.
+    #[test]
+    fn architecture_of_accepts_the_spellings_gguf_uses() {
+        use crate::name_mapping::Architecture;
+        assert_eq!(architecture_of("llama"), Architecture::LLaMA);
+        assert_eq!(
+            architecture_of("LLaMA"),
+            Architecture::LLaMA,
+            "case-insensitive"
+        );
+        assert_eq!(architecture_of("gpt2"), Architecture::GPT2);
+        assert_eq!(architecture_of("gptneox"), Architecture::GPTNeoX);
+        assert_eq!(architecture_of("gpt_neox"), Architecture::GPTNeoX);
+        assert_eq!(architecture_of("gpt-neox"), Architecture::GPTNeoX);
+        assert_eq!(architecture_of("falcon"), Architecture::Unknown);
+        assert_eq!(architecture_of(""), Architecture::Unknown);
+    }
+
     /// A GGUF v3 header plus one string key-value pair.
     ///
     /// Enough to reach `config_from_gguf`'s refusal path without a corpus:
@@ -778,12 +928,8 @@ mod tests {
     #[test]
     fn a_missing_structural_key_is_refused_by_name() {
         let bytes = gguf_with_only_architecture("llama");
-        let err = config_from_gguf(
-            &bytes,
-            "synthetic.gguf",
-            crate::name_mapping::Architecture::LLaMA,
-        )
-        .expect_err("a file declaring only its architecture cannot yield a config");
+        let err = config_from_gguf(&bytes, "synthetic.gguf")
+            .expect_err("a file declaring only its architecture cannot yield a config");
         let msg = err.to_string();
         assert!(
             msg.contains("llama.") && msg.contains("is not declared"),
@@ -800,12 +946,8 @@ mod tests {
     /// MISSING KEY and not about the architecture string being unrecognised.
     #[test]
     fn the_refusal_is_about_the_missing_key_not_the_architecture() {
-        let err = config_from_gguf(
-            &gguf_with_only_architecture("qwen2"),
-            "synthetic.gguf",
-            crate::name_mapping::Architecture::LLaMA,
-        )
-        .expect_err("still no structural keys");
+        let err = config_from_gguf(&gguf_with_only_architecture("qwen2"), "synthetic.gguf")
+            .expect_err("still no structural keys");
         assert!(
             err.to_string().contains("qwen2."),
             "the key is namespaced under the DECLARED architecture: {err}"
@@ -821,12 +963,7 @@ mod tests {
         b.extend_from_slice(&3u32.to_le_bytes());
         b.extend_from_slice(&0u64.to_le_bytes());
         b.extend_from_slice(&0u64.to_le_bytes());
-        let err = config_from_gguf(
-            &b,
-            "synthetic.gguf",
-            crate::name_mapping::Architecture::LLaMA,
-        )
-        .expect_err("no architecture, no config");
+        let err = config_from_gguf(&b, "synthetic.gguf").expect_err("no architecture, no config");
         assert!(
             err.to_string().contains("general.architecture"),
             "names the key the GGUF specification requires: {err}"
@@ -856,12 +993,8 @@ mod tests {
             return;
         };
 
-        let cfg = config_from_gguf(
-            &bytes,
-            "SmolLM2-135M-Instruct-Q4_0.gguf",
-            crate::name_mapping::Architecture::LLaMA,
-        )
-        .expect("a real llama checkpoint declares every structural key");
+        let cfg = config_from_gguf(&bytes, "SmolLM2-135M-Instruct-Q4_0.gguf")
+            .expect("a real llama checkpoint declares every structural key");
 
         assert_eq!(cfg.hidden_size, 576, "llama.embedding_length");
         assert_eq!(cfg.num_hidden_layers, 30, "llama.block_count");
@@ -932,6 +1065,18 @@ mod tests {
         );
     }
 
+    /// ⚠️ THE EDGE, PROVEN RATHER THAN DECLARED.
+    ///
+    /// This module hands every caller a hardcoded LLaMA-7B `ModelConfig`
+    /// above a `// TODO: Read from GGUF metadata`, so a SmolLM2-135M loaded
+    /// through `universal_loader` reports 4096 hidden size and 32 layers
+    /// with no error path. Fixing that needs a reader that actually reads,
+    /// and `mlmf-gguf` is it.
+    ///
+    /// This test exists so the new dependency cannot sit INERT while the fix
+    /// is written: an unused dependency and an absent one are the same thing
+    /// to everyone except `cargo`. It reads a synthetic v3 header through
+    /// `mlmf-gguf` and asserts the version came from the bytes.
     #[test]
     fn the_mlmf_gguf_edge_is_reachable_from_the_legacy_crate() {
         let mut bytes = Vec::new();
