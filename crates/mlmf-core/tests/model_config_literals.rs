@@ -111,11 +111,82 @@ struct Offence {
     value: String,
 }
 
+/// Where the `ModelConfig { .. }` starting on `lines[i]` ends, by brace
+/// balance.
+///
+/// Balance rather than "the next line that is only `}`": a nested struct
+/// literal in a field's value would end the block early, and the field after
+/// it would then be invisible to the scan.
+fn construction_end(lines: &[&str], i: usize) -> usize {
+    let mut depth = 0i32;
+    let mut end = i;
+    for (j, l) in lines.iter().enumerate().skip(i) {
+        end = j;
+        for c in l.chars() {
+            match c {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                _ => continue,
+            }
+            if depth == 0 {
+                return j;
+            }
+        }
+    }
+    end
+}
+
+/// Whether a disclosure marker covers the field on line `j` of the
+/// construction starting at line `i`.
+///
+/// A marker anywhere in the construction so far, or in the twelve lines above
+/// it, discloses the block: disclosure is written once per block in practice,
+/// not once per field.
+fn is_disclosed(lines: &[&str], i: usize, j: usize) -> bool {
+    lines[i.saturating_sub(12)..=j]
+        .iter()
+        .any(|l| l.contains(MARKER))
+}
+
+/// Every literal-valued model field in one construction, with the offending
+/// subset. Returns `(literal_fields_seen, offences)`.
+fn fields_in_construction(
+    lines: &[&str],
+    rel: &str,
+    i: usize,
+    end: usize,
+) -> (usize, Vec<Offence>) {
+    let mut seen = 0;
+    let mut offences = Vec::new();
+    for (j, l) in lines.iter().enumerate().take(end + 1).skip(i) {
+        let trimmed = l.trim();
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        let Some((name, value)) = trimmed.split_once(':') else {
+            continue;
+        };
+        let name = name.trim();
+        if !MODEL_FIELDS.contains(&name) || !is_literal(value) {
+            continue;
+        }
+        seen += 1;
+        if !is_disclosed(lines, i, j) {
+            offences.push(Offence {
+                file: rel.to_string(),
+                line: j + 1,
+                field: name.to_string(),
+                value: value.trim().trim_end_matches(',').to_string(),
+            });
+        }
+    }
+    (seen, offences)
+}
+
 /// Walk one file, returning `(constructions, literal_fields, offences)`.
 ///
 /// A construction is a line containing `ModelConfig {` that is not the struct
-/// DEFINITION. Its extent is found by brace balance, so a nested struct
-/// literal cannot end it early.
+/// DEFINITION.
 fn scan(path: &Path, text: &str) -> (usize, usize, Vec<Offence>) {
     let lines: Vec<&str> = text.lines().collect();
     let display = path.display().to_string().replace('\\', "/");
@@ -131,69 +202,20 @@ fn scan(path: &Path, text: &str) -> (usize, usize, Vec<Offence>) {
         .position(|l| l.trim_start().starts_with("#[cfg(test)]"))
         .unwrap_or(lines.len());
 
-    let mut constructions = 0;
-    let mut literal_fields = 0;
+    let (mut constructions, mut literal_fields) = (0, 0);
     let mut offences = Vec::new();
 
     let mut i = 0;
     while i < test_start {
-        let line = lines[i];
-        if !line.contains("ModelConfig {") || line.contains("struct ModelConfig") {
+        if !lines[i].contains("ModelConfig {") || lines[i].contains("struct ModelConfig") {
             i += 1;
             continue;
         }
         constructions += 1;
-
-        // Extent by brace balance, starting at the `{` on this line.
-        let mut depth = 0i32;
-        let mut end = i;
-        for (j, l) in lines.iter().enumerate().skip(i) {
-            end = j;
-            let mut closed = false;
-            for c in l.chars() {
-                if c == '{' {
-                    depth += 1;
-                } else if c == '}' {
-                    depth -= 1;
-                    if depth == 0 {
-                        closed = true;
-                        break;
-                    }
-                }
-            }
-            if closed {
-                break;
-            }
-        }
-
-        for (j, l) in lines.iter().enumerate().take(end + 1).skip(i) {
-            let trimmed = l.trim();
-            if trimmed.starts_with("//") {
-                continue;
-            }
-            let Some((name, value)) = trimmed.split_once(':') else {
-                continue;
-            };
-            let name = name.trim();
-            if !MODEL_FIELDS.contains(&name) || !is_literal(value) {
-                continue;
-            }
-            literal_fields += 1;
-
-            // A marker anywhere in the construction so far, or in the twelve
-            // lines above it, discloses the block. Disclosure is written once
-            // per block in practice, not once per field.
-            let look_from = i.saturating_sub(12);
-            let disclosed = lines[look_from..=j].iter().any(|l| l.contains(MARKER));
-            if !disclosed {
-                offences.push(Offence {
-                    file: rel.clone(),
-                    line: j + 1,
-                    field: name.to_string(),
-                    value: value.trim().trim_end_matches(',').to_string(),
-                });
-            }
-        }
+        let end = construction_end(&lines, i);
+        let (seen, mut found) = fields_in_construction(&lines, &rel, i, end);
+        literal_fields += seen;
+        offences.append(&mut found);
         i = end + 1;
     }
     (constructions, literal_fields, offences)
