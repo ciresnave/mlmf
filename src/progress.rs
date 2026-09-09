@@ -391,14 +391,32 @@ impl ProgressTimer {
         }
     }
 
-    /// Report completion and return elapsed time
-    pub fn complete(&self) -> f64 {
-        let _elapsed_secs = self.start_time.elapsed().as_secs_f64();
+    /// Report completion and return elapsed time.
+    ///
+    /// ⚠️ **The caller must supply the count and the format, and that is the
+    /// point of the signature.** Until 2026-09-09 this took no arguments and
+    /// reported `tensor_count: 0, format: "Generic"` unconditionally, with a
+    /// comment saying it did not track the count. Its only non-test caller is
+    /// `loader::load_safetensors`, which is a fully implemented loader -- so
+    /// **every successful SafeTensors load told its progress callback that it
+    /// had loaded zero tensors of a generic format**, while `raw_tensors` held
+    /// the real ones and no error was raised.
+    ///
+    /// That is the same class as the AWQ loader fixed in #43, inverted: AWQ
+    /// reported five for zero, this reported zero for however many. A consumer
+    /// driving a progress bar off `tensor_count` cannot tell either from a
+    /// truthful report.
+    ///
+    /// Taking the values as parameters removes the ability to report a wrong
+    /// number rather than checking for one -- there is no longer a call that
+    /// omits them.
+    pub fn complete(&self, tensor_count: usize, format: &str) -> f64 {
+        let elapsed_secs = self.start_time.elapsed().as_secs_f64();
         self.report(ProgressEvent::Complete {
-            tensor_count: 0, // We don't track tensor count in ProgressTimer
-            format: "Generic".to_string(),
+            tensor_count,
+            format: format.to_string(),
         });
-        _elapsed_secs
+        elapsed_secs
     }
 }
 
@@ -466,12 +484,56 @@ mod tests {
 
         let timer = ProgressTimer::new(Some(progress_fn));
         timer.report(ProgressEvent::DetectingArchitecture);
-        let elapsed = timer.complete();
+        let elapsed = timer.complete(291, "SafeTensors");
 
         assert!(elapsed >= 0.0);
 
         let captured_events = events.lock().unwrap();
         assert_eq!(captured_events.len(), 2);
-        assert!(matches!(captured_events[1], ProgressEvent::Complete { .. }));
+
+        // ⚠️ VALUES, NOT `Complete { .. }`. The previous assertion was
+        // `matches!(captured_events[1], ProgressEvent::Complete { .. })`, which
+        // is satisfied by ANY completion event -- including the one this method
+        // used to send unconditionally, `tensor_count: 0, format: "Generic"`,
+        // after a successful load of however many tensors. **A presence
+        // assertion cannot see a wrong value**, and this is the test that was
+        // watching the defect the whole time.
+        match &captured_events[1] {
+            ProgressEvent::Complete {
+                tensor_count,
+                format,
+            } => {
+                assert_eq!(*tensor_count, 291, "the count reported is the count given");
+                assert_eq!(format, "SafeTensors", "and so is the format");
+            }
+            other => panic!("expected a Complete event, got {other:?}"),
+        }
+    }
+
+    /// ⚠️ The completion report must carry the CALLER'S numbers, whatever
+    /// they are -- a second pair, because one pair cannot distinguish "passes
+    /// the values through" from "happens to be hardcoded to 291".
+    #[test]
+    fn the_completion_report_carries_whatever_the_caller_gives_it() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+        let progress_fn = custom_progress(move |event: ProgressEvent| {
+            events_clone.lock().unwrap().push(event);
+        });
+
+        let timer = ProgressTimer::new(Some(progress_fn));
+        timer.complete(7, "GGUF");
+
+        let captured = events.lock().unwrap();
+        match &captured[0] {
+            ProgressEvent::Complete {
+                tensor_count,
+                format,
+            } => {
+                assert_eq!(*tensor_count, 7);
+                assert_eq!(format, "GGUF");
+            }
+            other => panic!("expected a Complete event, got {other:?}"),
+        }
     }
 }
