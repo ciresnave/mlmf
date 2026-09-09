@@ -96,7 +96,8 @@ fn root_crate_sources(root: &Path) -> Vec<PathBuf> {
 /// unrecognised value is treated as an expression and expressions are exactly
 /// what this guard permits. So the recognised set is deliberately wide:
 /// reviewers found that the first version accepted only `"..."` and a leading
-/// ASCII digit, which let `r#"gelu"#` and `-10000.0` through undisclosed.
+/// ASCII digit, which let raw strings and negative numbers through
+/// undisclosed.
 /// **A guard's false negative reports clean, which is worse than reporting
 /// nothing at all.**
 fn is_literal(value: &str) -> bool {
@@ -107,9 +108,16 @@ fn is_literal(value: &str) -> bool {
     if v == "true" || v == "false" {
         return true;
     }
-    // Strings in every Rust spelling: `"x"`, `r"x"`, `r#"x"#`, `b"x"`, `br#"x"#`,
-    // and `c"x"`. All of them start with an optional prefix, optional `#`s, then
-    // a quote.
+    // Strings in every Rust spelling: plain, raw, byte, byte-raw and C.
+    // Each is an optional prefix (r, b, br, rb, c), then any number of
+    // hashes, then a quote.
+    //
+    // The spellings are NOT written out literally here. A raw-string opener
+    // inside a comment is read as a real one by any lexer that does not skip
+    // comments -- which is the exact defect this file's own
+    // `without_strings_and_comments` exists to prevent, and it broke the
+    // repository's static analyser on this very file: it reported
+    // `is_literal` as 77 lines by swallowing the function boundary after it.
     let after_prefix = v
         .strip_prefix("br")
         .or_else(|| v.strip_prefix("rb"))
