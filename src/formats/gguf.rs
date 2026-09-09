@@ -1113,6 +1113,57 @@ mod tests {
     /// `mlmf-gguf` parses this file completely; only the data decoder cannot
     /// read these encodings. So the structure is in hand at the moment of
     /// failure, and refusing without it discards what MLMF already knows.
+    /// Every claim the diagnostic makes about ONE undecodable file.
+    ///
+    /// Split out of the test below, which measured 61 lines of code against a
+    /// limit of 50 once the second case was added. ⚠️ Codacy was RIGHT here,
+    /// and it had produced a phantom span on this same rule earlier in the day
+    /// (a 4-line function reported as 105) — **a tool that was wrong once is
+    /// not wrong always**, and dismissing this on that history would have been
+    /// the mirror of believing the phantom.
+    fn assert_diagnostic_names_the_code(
+        path: &std::path::Path,
+        file: &str,
+        code: u32,
+        tensors_at_code: usize,
+    ) {
+        let err = load_gguf(path, &crate::loader::LoadOptions::default())
+            .err()
+            .unwrap_or_else(|| panic!("{file} cannot be decoded by this build"));
+        let msg = err.to_string();
+
+        // Control: the underlying cause is still there. A diagnostic that
+        // replaces the error is worse than one that omits the detail.
+        assert!(
+            msg.contains("unknown dtype"),
+            "{file}: the decoder's own message survives: {msg}"
+        );
+        assert!(
+            msg.contains("272 tensors"),
+            "{file}: and MLMF states what it DID read -- the full directory: {msg}"
+        );
+        assert!(
+            msg.contains(&format!("code: {code},")),
+            "{file}: including the type code the underlying message names, so the \
+             coincidence is visible rather than needing to be known: {msg}"
+        );
+
+        // ⚠️ THE CORRECTION MUST SIT BESIDE THE TRAP, NOT UNDER THE REPORT.
+        // Adding context below a misleading sentence leaves the misleading
+        // sentence first, and a reader acts on the first line.
+        assert!(
+            msg.contains(&format!("The `{code}` in that message is a GGML TYPE CODE")),
+            "{file}: the number is corrected by name, immediately: {msg}"
+        );
+        assert!(
+            msg.contains(&format!(
+                "{tensors_at_code} tensors whose encoding is code {code}"
+            )),
+            "{file}: and with the count that makes it undeniable rather than \
+             asserted -- no tensor INDEX is shared by {tensors_at_code} tensors: {msg}"
+        );
+    }
+
     #[test]
     fn an_undecodable_file_reports_the_encodings_it_contains() {
         // ⚠️ TWO FILES, AND THE SECOND ONE IS THE WHOLE POINT.
@@ -1142,42 +1193,7 @@ mod tests {
                 continue;
             }
             checked += 1;
-
-            let err = load_gguf(&path, &crate::loader::LoadOptions::default())
-                .err()
-                .unwrap_or_else(|| panic!("{file} cannot be decoded by this build"));
-            let msg = err.to_string();
-
-            // Control: the underlying cause is still there. A diagnostic that
-            // replaces the error is worse than one that omits the detail.
-            assert!(
-                msg.contains("unknown dtype"),
-                "{file}: the decoder's own message survives: {msg}"
-            );
-            assert!(
-                msg.contains("272 tensors"),
-                "{file}: and MLMF states what it DID read -- the full directory: {msg}"
-            );
-            assert!(
-                msg.contains(&format!("code: {code},")),
-                "{file}: including the type code the underlying message names, so \
-                 the coincidence is visible rather than needing to be known: {msg}"
-            );
-
-            // ⚠️ THE CORRECTION MUST SIT BESIDE THE TRAP, NOT UNDER THE REPORT.
-            // Adding context below a misleading sentence leaves the misleading
-            // sentence first, and a reader acts on the first line.
-            assert!(
-                msg.contains(&format!("The `{code}` in that message is a GGML TYPE CODE")),
-                "{file}: the number is corrected by name, immediately: {msg}"
-            );
-            assert!(
-                msg.contains(&format!(
-                    "{tensors_at_code} tensors whose encoding is code {code}"
-                )),
-                "{file}: and with the count that makes it undeniable rather than \
-                 asserted -- no tensor INDEX is shared by {tensors_at_code} tensors: {msg}"
-            );
+            assert_diagnostic_names_the_code(&path, file, code, tensors_at_code);
         }
 
         // ⚠️ NON-VACUITY, ANNOUNCED RATHER THAN ASSERTED.
