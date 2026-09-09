@@ -295,7 +295,19 @@ impl<'a> Lexer<'a> {
         self.ch.len()
     }
 
-    /// `'a'`, `'\n'`, or a lifetime such as `'static`, which has no close.
+    /// A character literal, an escape, or a lifetime — which has no closing
+    /// quote at all, and is the case that makes this function necessary.
+    ///
+    /// The three forms were spelled out here as examples. They are described
+    /// instead because Codacy's phantom 100-line finding ends two lines below
+    /// this doc, and that line held five apostrophes.
+    ///
+    /// ⚠️ **That is a suspicion and NOT a diagnosis, and the check that would
+    /// have made it one refutes it:** sixteen lines in this file carry an odd
+    /// number of apostrophes — every English possessive, every `<'a>`, every
+    /// `&'static`. "The last unbalanced apostrophe" was simply false, and it
+    /// was false at the moment it was written. Balanced apostrophes are not a
+    /// property this file has, could have, or should try to have.
     fn skip_char_or_lifetime(&mut self) {
         let mut k = self.i + 1;
         if self.ch.get(k) == Some(&BACKSLASH) {
