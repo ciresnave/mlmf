@@ -1084,9 +1084,13 @@ impl LoadedModel {
 
 /// Load AWQ quantized model from directory
 ///
-/// Loads an AWQ (Activation-aware Weight Quantization) model from a directory containing
-/// config.json and .safetensors files. AWQ models provide efficient 4-bit quantization
-/// with minimal accuracy loss.
+/// ⚠️ **NOT IMPLEMENTED. This function returns an error.** It reads `config.json`
+/// and discovers `.safetensors` files, then refuses: no AWQ tensor is loaded or
+/// dequantized. Until 2026-09-08 it returned `Ok` with zero tensors while reporting
+/// five, so a caller could not tell it had loaded nothing.
+///
+/// The example below is kept because it is the shape a caller would use once AWQ
+/// loading exists; it is `no_run`, and today the `?` propagates the refusal.
 ///
 /// # Arguments
 /// * `model_dir` - Directory containing AWQ model files
@@ -1397,8 +1401,11 @@ pub fn load_safetensors_auto<P: AsRef<Path>>(model_dir: P) -> Result<LoadedModel
 
 /// Load AWQ quantized model with auto-detected device settings
 ///
-/// This is a convenience function that automatically selects the best device and data type
-/// for loading AWQ models. Uses F16 on CUDA and F32 on CPU.
+/// ⚠️ **NOT IMPLEMENTED. This function returns an error** — it delegates to
+/// [`load_awq`], which is a stub that loads no tensors.
+///
+/// It selects the best device and data type for loading AWQ models: F16 on CUDA,
+/// F32 on CPU. That selection happens; the loading does not.
 ///
 /// # Arguments
 /// * `model_dir` - Directory containing config.json and .safetensors files

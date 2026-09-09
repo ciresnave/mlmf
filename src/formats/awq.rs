@@ -1,25 +1,28 @@
-//! AWQ (Activation-aware Weight Quantization) format support
+//! AWQ (Activation-aware Weight Quantization) format support -- **detection only**.
 //!
-//! This module provides loading support for AWQ quantized models, which are optimized
-//! for efficient inference with minimal accuracy loss. Key features:
+//! ⚠️ **AWQ LOADING IS NOT IMPLEMENTED.** No AWQ tensor is read or
+//! dequantized anywhere in MLMF, and [`load_awq`] returns an error. AWQ *export*
+//! (`awq_export::save_as_awq`) returns an error too, and always said so.
 //!
-//! - **4-bit quantized weights**: Reduced memory usage and faster inference
-//! - **Activation-aware quantization**: Preserves important weights based on activation patterns  
-//! - **JSON configuration**: Model metadata and quantization parameters
-//! - **Compatible with Candle**: Uses Candle's quantized tensor support
-
+//! What this module actually does:
+//!
+//! - **`is_awq_model`**: detects an AWQ directory from `config.json`
+//! - **`load_awq_config`**: parses the AWQ `config.json` into [`AWQConfig`]
+//! - **`find_awq_safetensors_files`**: enumerates the `.safetensors` files
+//! - **`load_awq`**: does the three above, then **refuses**
+//!
+//! Until 2026-09-08 `load_awq` returned `Ok` with an empty tensor map while
+//! reporting five tensors to the progress callback, so a caller received a
+//! model with zero weights and no error. The header here read *"provides
+//! loading support"* and *"Uses Candle's quantized tensor support"* throughout.
 use crate::{
-    ModelConfig,
     error::{Error, Result},
     loader::{LoadOptions, LoadedModel},
     progress::ProgressEvent,
-    smart_mapping::SmartTensorNameMapper,
 };
 // Removed unused Device import
-use candlelight::VarBuilder;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -76,7 +79,7 @@ pub struct AWQQuantizationConfig {
 }
 
 /// Load AWQ model from directory containing config.json and .safetensors files
-pub fn load_awq<P: AsRef<Path>>(model_dir: P, mut options: LoadOptions) -> Result<LoadedModel> {
+pub fn load_awq<P: AsRef<Path>>(model_dir: P, options: LoadOptions) -> Result<LoadedModel> {
     let model_dir = model_dir.as_ref();
 
     // Validate inputs
@@ -95,7 +98,12 @@ pub fn load_awq<P: AsRef<Path>>(model_dir: P, mut options: LoadOptions) -> Resul
 
     // Load AWQ configuration
     let config_path = model_dir.join("config.json");
-    let awq_config = load_awq_config(&config_path)?;
+    // Bound to `_`: the parse still runs, because an unparseable config is a
+    // real refusal a caller should see before the stub's. Nothing reads it --
+    // the function that consumed it built a `ModelConfig` out of LLaMA-7B
+    // constants (`hidden_size.unwrap_or(4096)`, `vocab_size.unwrap_or(32000)`)
+    // and was removed with this commit; see `git log -S awq_config_to_model_config`.
+    let _awq_config = load_awq_config(&config_path)?;
 
     // Find safetensors files
     if let Some(callback) = &options.progress {
@@ -110,65 +118,37 @@ pub fn load_awq<P: AsRef<Path>>(model_dir: P, mut options: LoadOptions) -> Resul
         });
     }
 
-    // For now, create placeholder implementation
-    // In a full implementation, this would load and dequantize AWQ tensors
-    let tensor_names = vec![
-        "model.embed_tokens.weight".to_string(),
-        "model.layers.0.self_attn.q_proj.weight".to_string(),
-        "model.layers.0.self_attn.k_proj.weight".to_string(),
-        "model.layers.0.self_attn.v_proj.weight".to_string(),
-        "lm_head.weight".to_string(),
-    ];
-
-    // Create smart tensor name mapper
-    if let Some(callback) = &options.progress {
-        callback(ProgressEvent::DetectingArchitecture);
-    }
-
-    let mut smart_mapper = SmartTensorNameMapper::from_tensor_names(&tensor_names)?;
-
-    // Integrate ML oracle if provided
-    if let Some(oracle) = options.smart_mapping_oracle.take() {
-        smart_mapper = smart_mapper.with_oracle(oracle);
-    }
-
-    let architecture = smart_mapper.architecture().ok_or_else(|| {
-        Error::model_loading("Could not detect model architecture from AWQ tensor names")
-    })?;
-
-    // Convert AWQ config to ModelConfig
-    let config = awq_config_to_model_config(&awq_config, architecture)?;
-
-    // Create empty tensors for placeholder (would load actual quantized tensors in full implementation)
-    let raw_tensors = HashMap::new();
-
-    // Create VarBuilder - placeholder implementation
-    if let Some(callback) = &options.progress {
-        callback(ProgressEvent::BuildingModel);
-    }
-
-    use candlelight::prelude::VarMap;
-    let var_map = VarMap::new();
-    let var_builder = VarBuilder::from_varmap(&var_map, options.dtype, &options.device);
-
-    if let Some(callback) = &options.progress {
-        callback(ProgressEvent::Complete {
-            tensor_count: tensor_names.len(),
-            format: "AWQ".to_string(),
-        });
-    }
-
-    Ok(LoadedModel {
-        var_builder,
-        config,
-        name_mapper: smart_mapper,
-        raw_tensors,
-        quantized_tensors: None,
-        metadata: crate::metadata::ModelMetadata::new(),
-        tensor_info: HashMap::new(),
-        quantization_info: None,
-        provenance: crate::metadata::ModelProvenance::new(),
-    })
+    // ⚠️ NOT IMPLEMENTED. This function has never loaded an AWQ tensor.
+    //
+    // What it did instead, until this commit: invented five hardcoded tensor
+    // names regardless of what the directory contained, set `raw_tensors` to
+    // an EMPTY HashMap, built a `VarBuilder` from an EMPTY VarMap, fired
+    // `ProgressEvent::Complete { tensor_count: 5 }`, and returned `Ok`.
+    // That code is deleted, not merely bypassed, so it cannot be revived by
+    // removing one `return`: `git log -S "model.embed_tokens.weight"` has it.
+    //
+    // A caller received a model with ZERO WEIGHTS, a progress callback
+    // reporting five, and no error. That is the same class as the two GGUF
+    // defects fixed in #37 and #40 -- a wrong answer with no error path --
+    // except this one reported a count it had not loaded.
+    //
+    // It refuses now. An empty `VarBuilder` cannot run inference, so no
+    // working caller can depend on the old return; refusing breaks nothing
+    // that worked and stops a silent one.
+    Err(Error::model_loading(format!(
+        concat!(
+            "AWQ loading is NOT IMPLEMENTED in MLMF. ",
+            "This is a stub: no AWQ tensor is read or dequantized.\n\n",
+            "Directory: {}\n\n",
+            "What exists: AWQ detection (`is_awq_model`), config parsing, ",
+            ".safetensors file discovery, and progress reporting. ",
+            "What does not exist: loading or dequantizing the quantized tensors.\n\n",
+            "Until this commit this function returned Ok with ZERO tensors ",
+            "while reporting five, so a caller could not tell it had loaded ",
+            "nothing.",
+        ),
+        model_dir.display()
+    )))
 }
 
 /// Load AWQ configuration from config.json
@@ -218,30 +198,6 @@ fn find_awq_safetensors_files(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-/// Convert AWQConfig to standard ModelConfig
-fn awq_config_to_model_config(
-    awq_config: &AWQConfig,
-    architecture: &crate::name_mapping::Architecture,
-) -> Result<ModelConfig> {
-    Ok(ModelConfig {
-        vocab_size: awq_config.vocab_size.unwrap_or(32000) as usize,
-        hidden_size: awq_config.hidden_size.unwrap_or(4096) as usize,
-        num_attention_heads: awq_config.num_attention_heads.unwrap_or(32) as usize,
-        num_key_value_heads: awq_config.num_attention_heads.unwrap_or(32) as usize, // AWQ typically doesn't specify GQA
-        num_hidden_layers: awq_config.num_hidden_layers.unwrap_or(32) as usize,
-        intermediate_size: awq_config.intermediate_size.unwrap_or(11008) as usize,
-        max_position_embeddings: awq_config.max_position_embeddings.unwrap_or(4096) as usize,
-        layer_norm_eps: awq_config.layer_norm_eps.unwrap_or(1e-6),
-        dropout: 0.0, // AWQ models typically don't specify dropout for inference
-        attention_dropout: 0.0,
-        activation_function: "silu".to_string(), // Common default for LLaMA-style models
-        rope_theta: awq_config.rope_theta.unwrap_or(10000.0),
-        tie_word_embeddings: awq_config.tie_word_embeddings.unwrap_or(false),
-        architecture: architecture.clone(),
-        raw_config: serde_json::Value::Null,
-    })
-}
-
 /// Check if directory contains AWQ model files
 pub fn is_awq_model<P: AsRef<Path>>(model_dir: P) -> bool {
     let model_dir = model_dir.as_ref();
@@ -261,4 +217,84 @@ pub fn is_awq_model<P: AsRef<Path>>(model_dir: P) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// The smallest directory `load_awq` will accept far enough to reach the
+    /// stub: every `AWQConfig` field is optional, and the file scan refuses an
+    /// empty directory, so `{}` plus one dummy `.safetensors` is enough.
+    fn minimal_awq_dir() -> TempDir {
+        let dir = TempDir::new().expect("temp dir");
+        std::fs::write(dir.path().join("config.json"), "{}").expect("config");
+        std::fs::write(dir.path().join("model.safetensors"), b"").expect("weights");
+        dir
+    }
+
+    /// ⚠️ IT REFUSES RATHER THAN RETURNING AN EMPTY MODEL.
+    ///
+    /// Until this was fixed, `load_awq` invented five tensor names, set
+    /// `raw_tensors` to an empty map, built a `VarBuilder` from an empty
+    /// `VarMap`, fired `ProgressEvent::Complete { tensor_count: 5 }`, and
+    /// returned `Ok`. A caller got a model with zero weights, a progress
+    /// callback reporting five, and no error.
+    #[test]
+    fn awq_loading_refuses_instead_of_returning_an_empty_model() {
+        let dir = minimal_awq_dir();
+        let err = load_awq(dir.path(), LoadOptions::default())
+            .err()
+            .expect("AWQ loading is a stub and must refuse");
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("NOT IMPLEMENTED"),
+            "the refusal says plainly that nothing is loaded: {msg}"
+        );
+        assert!(
+            msg.contains("no AWQ tensor is read or dequantized"),
+            "and names what does not happen: {msg}"
+        );
+    }
+
+    /// ⚠️ THE CONTROL: the refusal above must be the STUB'S, not an earlier
+    /// one. `load_awq` refuses a missing directory, an unparseable config and
+    /// a directory with no `.safetensors` -- three earlier exits that would
+    /// make the test above pass for the wrong reason. Each is reached here
+    /// and each says something DIFFERENT.
+    #[test]
+    fn the_earlier_refusals_are_distinguishable_from_the_stub_refusal() {
+        let missing = load_awq(
+            std::path::Path::new("no/such/awq/dir"),
+            LoadOptions::default(),
+        )
+        .err()
+        .expect("a missing directory refuses");
+        assert!(
+            missing.to_string().contains("directory not found"),
+            "missing dir has its own message: {missing}"
+        );
+
+        let dir = TempDir::new().expect("temp dir");
+        std::fs::write(dir.path().join("config.json"), "{}").expect("config");
+        let no_weights = load_awq(dir.path(), LoadOptions::default())
+            .err()
+            .expect("a directory with no safetensors refuses");
+        assert!(
+            no_weights
+                .to_string()
+                .contains("No .safetensors files found"),
+            "empty dir has its own message: {no_weights}"
+        );
+
+        // Neither of the two above mentions the stub, so the stub test is
+        // reaching the stub.
+        assert!(
+            !missing.to_string().contains("NOT IMPLEMENTED")
+                && !no_weights.to_string().contains("NOT IMPLEMENTED"),
+            "an earlier refusal must not carry the stub's wording"
+        );
+    }
 }
