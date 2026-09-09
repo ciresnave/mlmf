@@ -282,6 +282,33 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
     let gguf_path: &Path = path.as_ref();
     let config = config_from_gguf(&std::fs::read(gguf_path)?, &gguf_path.display().to_string())?;
 
+    // ⚠️ THE MAPPER'S ARCHITECTURE COMES FROM THE FILE TOO.
+    //
+    // `SmartTensorNameMapper::from_tensor_names` seeds its context by inference
+    // over tensor names, and `LoadedModel.name_mapper` is a PUBLIC field. For
+    // GGUF that inference can only ever answer `LLaMA`: `detect_architecture`
+    // checks GGUF's `blk.N.attn_*` naming before its GPT-2 and GPT-NeoX arms,
+    // and those arms match only HuggingFace names that no GGUF file has.
+    //
+    // #56 fixed `config.architecture` and left this one, so a model declaring
+    // `gpt2` carried BOTH of these:
+    //
+    //     config.architecture              GPT2          read from the file
+    //     name_mapper.architecture()       Some(LLaMA)   inferred from names
+    //
+    // ⚠️ That is worse than the state #56 replaced. Before it, the crate was
+    // consistently wrong; after it, it was inconsistently right, and a consumer
+    // reading the wrong one of two public fields got no signal that another
+    // field disagreed.
+    //
+    // Seeding from `config.architecture` makes them agree BY CONSTRUCTION
+    // rather than by both happening to be correct. `from_tensor_names` puts
+    // nothing else in the context (verified: `format`, `estimated_params` and
+    // `metadata` are left at their defaults), so replacing it loses nothing.
+    let name_mapper = name_mapper.with_context(
+        crate::smart_mapping::MappingContext::new().with_architecture(config.architecture),
+    );
+
     // Create VarBuilder from loaded tensors
     let var_builder = if !raw_tensors.is_empty() {
         VarBuilder::from_tensors(raw_tensors.clone(), options.dtype, &options.device)
@@ -468,10 +495,45 @@ fn declared_architecture(meta: &mlmf_gguf::GgufMetadata<'_>, origin: &str) -> Re
 /// fourteen architectures" -- it was a detector whose specific arms could not
 /// be reached for the format under test.
 ///
-/// ⚠️ And the `unwrap_or(LLaMA)` fallback that this began as an investigation
-/// of was nearly irrelevant: it fires only when detection returns `None`, and
-/// detection returned `Some(LLaMA)` confidently for every file. **The
-/// fallback was the visible guess; the confident wrong answer was the defect.**
+/// ⚠️ **CORRECTED 2026-09-09. The paragraph here previously said the
+/// `unwrap_or(LLaMA)` fallback "was nearly irrelevant: it fires only when
+/// detection returns `None`, and detection returned `Some(LLaMA)` confidently
+/// for every file." THAT IS BACKWARDS FOR THE POPULATION IT CITES.**
+///
+/// Measured over the corpus, 29 files:
+///
+/// ```text
+///  9 files carry tensors (272 each) -- ALL declare llama
+/// 19 vocab files carry ZERO tensors -- they hold 13 of the 14 architectures
+///  1 file is GGUF v1 and does not parse
+/// ```
+///
+/// And measured directly:
+///
+/// ```text
+/// SmartTensorNameMapper::from_tensor_names([])        -> Ok(None)
+/// SmartTensorNameMapper::from_tensor_names([blk.*])   -> Ok(Some(LLaMA))
+/// ```
+///
+/// **The 14 files that disagreed have no tensors at all**, so detection
+/// returned `None` and the `unwrap_or(LLaMA)` fallback is precisely what
+/// produced LLaMA for every one of them. The fallback was not "nearly
+/// irrelevant" — for the entire disagreeing population it was the only
+/// mechanism in play.
+///
+/// Both defects are real and they act on disjoint populations:
+///
+/// | population | mechanism | in the corpus |
+/// |---|---|---|
+/// | no tensors | detection `None` → `unwrap_or(LLaMA)` | **14 files** |
+/// | tensors + non-llama arch | `blk.*` arm short-circuits before GPT-2/NeoX | **none** |
+///
+/// ⚠️ **The corpus cannot exhibit the second one**, because every file it holds
+/// with tensors declares `llama`. The `blk.*` short-circuit is established by
+/// the direct measurement above and by reading the arm order — not by any file
+/// here. Saying which population the evidence covers is the whole point: the
+/// original paragraph attributed the observed 14 to the mechanism the corpus
+/// **cannot** demonstrate, and dismissed the one that actually fired.
 ///
 /// # Why unrecognised values become `Unknown` and not an error
 ///
@@ -900,6 +962,53 @@ mod tests {
         let cfg = config_from_gguf(&gguf_declaring("gptneox"), "neox.gguf")
             .expect("a complete gptneox file yields a config");
         assert_eq!(cfg.architecture, crate::name_mapping::Architecture::GPTNeoX);
+    }
+
+    /// ⚠️ BOTH PUBLIC ARCHITECTURE FIELDS AGREE, AND FOR THE SAME REASON.
+    ///
+    /// `LoadedModel` exposes the architecture twice: `config.architecture` and
+    /// `name_mapper.architecture()`. #56 fixed the first to read the file and
+    /// left the second inferring from tensor names, so the crate went from
+    /// consistently wrong to **inconsistently right** — and a consumer reading
+    /// the wrong one of two public fields gets no signal that another field
+    /// disagrees.
+    ///
+    /// Measured on this fixture before the seeding was added:
+    ///
+    /// ```text
+    /// config.architecture         GPT2      read from the file
+    /// name_mapper.architecture()  None      inferred from zero tensor names
+    /// ```
+    ///
+    /// ⚠️ **`None`, not `Some(LLaMA)` — and the difference matters.** This
+    /// fixture declares no tensors, so it exercises the path where detection
+    /// returns nothing. The *other* path — `blk.*` names short-circuiting to
+    /// LLaMA before the GPT-2 arm — needs a file with tensors AND a non-llama
+    /// architecture, and **the corpus contains no such file**: all 9 of its
+    /// tensor-bearing files declare `llama`. That path is established by direct
+    /// measurement of the detector, not by any fixture here, and this test does
+    /// not cover it. Said rather than left for someone to assume from a pass.
+    #[test]
+    fn the_mapper_reports_the_declared_architecture_too() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let path = dir.path().join("gpt2.gguf");
+        std::fs::write(&path, gguf_declaring("gpt2")).expect("write the fixture");
+
+        let model = load_gguf(&path, &crate::loader::LoadOptions::default())
+            .expect("the gpt2 fixture loads");
+
+        // Control: the field this test is NOT about is still right, so a
+        // failure below is about the mapper and not about the config reader.
+        assert_eq!(
+            model.config.architecture,
+            crate::name_mapping::Architecture::GPT2,
+            "the config reads the declared architecture"
+        );
+        assert_eq!(
+            model.name_mapper.architecture(),
+            Some(&crate::name_mapping::Architecture::GPT2),
+            "and so does the mapper, rather than inferring from tensor names"
+        );
     }
 
     /// ⚠️ AN ARCHITECTURE WITH NO VARIANT IS `Unknown`, NEVER A DIFFERENT ONE.
