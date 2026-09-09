@@ -221,15 +221,12 @@ fn scan(path: &Path, text: &str) -> (usize, usize, Vec<Offence>) {
     (constructions, literal_fields, offences)
 }
 
-#[test]
-fn a_literal_model_field_must_be_disclosed() {
-    let root = common::workspace_root();
-    let files = root_crate_sources(&root);
-
+/// Scan every file, accumulating `(constructions, literal_fields, offences)`.
+fn survey(files: &[PathBuf]) -> (usize, usize, Vec<Offence>) {
     let mut constructions = 0;
     let mut literal_fields = 0;
     let mut offences: Vec<Offence> = Vec::new();
-    for path in &files {
+    for path in files {
         let text = fs::read_to_string(path)
             .unwrap_or_else(|e| panic!("{} is readable: {e}", path.display()));
         let (c, lf, o) = scan(path, &text);
@@ -237,33 +234,38 @@ fn a_literal_model_field_must_be_disclosed() {
         literal_fields += lf;
         offences.extend(o);
     }
+    (constructions, literal_fields, offences)
+}
 
-    // ⚠️ NON-VACUITY, BEFORE ANY CLAIM. "No offences" and "the scanner matched
-    // nothing" are byte-identical, and this scanner has three separate ways to
-    // match nothing: walking no files, finding no constructions, and finding
-    // constructions whose fields it fails to parse.
+/// ⚠️ NON-VACUITY, ASSERTED BEFORE ANY CLAIM ABOUT THE CODE.
+///
+/// "No offences" and "the scanner matched nothing" are byte-identical, and
+/// this scanner has three separate ways to match nothing: walking no files,
+/// recognising no constructions, and failing to parse the fields inside them.
+/// Each gets its own assertion, because a single combined one would not say
+/// which of the three had happened.
+fn assert_the_scanner_is_alive(files: usize, constructions: usize, literal_fields: usize) {
     assert!(
-        files.len() > 20,
-        "walked {} files under src/; the root crate has far more, so the walk \
-         is broken and nothing below is a claim about the code",
-        files.len()
+        files > 20,
+        "walked {files} files under src/; the root crate has far more, so the          walk is broken and nothing else here is a claim about the code"
     );
     assert!(
         constructions > 0,
-        "found no `ModelConfig` construction in {} files. Either the root crate \
-         stopped building configs -- in which case delete this guard rather \
-         than leave it green -- or the scanner no longer recognises one",
-        files.len()
+        "found no `ModelConfig` construction in {files} files. Either the root          crate stopped building configs -- in which case delete this guard          rather than leave it green -- or the scanner no longer recognises one"
     );
     assert!(
         literal_fields > 0,
-        "found {constructions} `ModelConfig` constructions and not one \
-         literal-valued model field in any of them. That is the outcome this \
-         guard wants, but it is ALSO what a broken field parser looks like. \
-         Confirm by hand that no literal remains; if so, this guard has no \
-         population left and should be deleted rather than kept as a green line \
-         nobody can distinguish from a no-op"
+        "found {constructions} `ModelConfig` constructions and not one          literal-valued model field in any of them. That is the outcome this          guard wants, but it is ALSO what a broken field parser looks like.          Confirm by hand that no literal remains; if so, this guard has no          population left and should be deleted rather than kept as a green          line nobody can distinguish from a no-op"
     );
+}
+
+#[test]
+fn a_literal_model_field_must_be_disclosed() {
+    let root = common::workspace_root();
+    let files = root_crate_sources(&root);
+
+    let (constructions, literal_fields, offences) = survey(&files);
+    assert_the_scanner_is_alive(files.len(), constructions, literal_fields);
 
     let report: Vec<String> = offences
         .iter()
