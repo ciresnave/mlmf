@@ -586,12 +586,65 @@ pub mod lora {
             }
         }
 
-        // Create LoRAWeights for each complete module
+        // Create LoRAWeights for each COMPLETE module, and count the rest.
+        //
+        // ⚠️ Both loops above skip silently: a tensor whose name does not
+        // parse as a LoRA name is dropped, and a module carrying only
+        // `lora_A` or only `lora_B` is dropped. An adapter file using a
+        // different naming convention therefore produced an adapter with ZERO
+        // modules and an `Ok` — the caller learned nothing until `merge()`
+        // refused, which is one API call and possibly one process later.
+        let mut incomplete: Vec<String> = Vec::new();
         for (module_name, (lora_a_opt, lora_b_opt)) in lora_modules {
-            if let (Some(lora_a), Some(lora_b)) = (lora_a_opt, lora_b_opt) {
-                let weights = LoRAWeights::new(lora_a, lora_b, config.scaling_factor());
-                adapter.add_module(module_name, weights)?;
+            match (lora_a_opt, lora_b_opt) {
+                (Some(lora_a), Some(lora_b)) => {
+                    let weights = LoRAWeights::new(lora_a, lora_b, config.scaling_factor());
+                    adapter.add_module(module_name, weights)?;
+                }
+                (a, _) => {
+                    let missing = if a.is_none() { "lora_A" } else { "lora_B" };
+                    incomplete.push(format!("{module_name} (no {missing})"));
+                }
             }
+        }
+
+        // ⚠️ THE SPECIFIC DIAGNOSIS FIRST, AND THE ORDER IS LOAD-BEARING.
+        //
+        // A module with only `lora_A` yields ZERO complete modules, so the
+        // "nothing recognised" check below also fires for it — and it is the
+        // wrong answer: the names DID parse, one half is simply absent. Tested
+        // in the other order first, and the general refusal masked the precise
+        // one, which is the same shape as an earlier refusal standing in for
+        // the one under test.
+        if !incomplete.is_empty() {
+            return Err(Error::model_loading(format!(
+                "{} LoRA module(s) in {} are missing half of their pair, so \
+                 they were not loaded: {}.\n\n\
+                 A LoRA update is `lora_B x lora_A`; one matrix alone cannot \
+                 produce one. These used to be dropped silently.",
+                incomplete.len(),
+                model_file.display(),
+                incomplete.join(", ")
+            )));
+        }
+
+        // ⚠️ A FILE WITH TENSORS AND NO RECOGNISED MODULES IS A REFUSAL.
+        //
+        // Not "an empty adapter": the file carried weights and none of them
+        // were understood, which is a naming mismatch the caller can act on.
+        // Returning `Ok` here hands back something that looks loaded and
+        // merges into nothing.
+        if adapter.num_modules() == 0 && !all_tensors.is_empty() {
+            return Err(Error::model_loading(format!(
+                "no LoRA modules recognised in {}: it declares {} tensors and \
+                 none of their names parsed as a LoRA pair. Expected names \
+                 like `base_model.model.layers.0.self_attn.q_proj.lora_A.weight`.\n\n\
+                 Until this check existed the load returned Ok with an empty \
+                 adapter, and the first sign of trouble was `merge` refusing \
+                 later.",
+                model_file.display(),
+                all_tensors.len()
+            )));
         }
 
         if let Some(ref progress) = progress_callback {
@@ -1240,6 +1293,99 @@ mod tests {
         assert!(
             model.is_merged,
             "and the model is still marked merged -- the flag is not cleared              by an operation that did nothing"
+        );
+    }
+
+    /// An adapter directory whose `.safetensors` holds the tensor names given.
+    ///
+    /// The names are the whole variable: this function's subject is what
+    /// happens when they do NOT match the expected LoRA pattern.
+    fn adapter_dir_with(names: &[&str]) -> tempfile::TempDir {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        std::fs::write(
+            dir.path().join("adapter_config.json"),
+            r#"{"r": 2, "lora_alpha": 4.0, "target_modules": ["q_proj"]}"#,
+        )
+        .expect("adapter_config.json");
+
+        let dev = Device::Cpu;
+        let mut t = HashMap::new();
+        for n in names {
+            t.insert(
+                (*n).to_string(),
+                candlelight::Tensor::zeros((2, 2), candlelight::DType::F32, &dev).expect("tensor"),
+            );
+        }
+        candlelight::safetensors::save(&t, dir.path().join("adapter_model.safetensors"))
+            .expect("adapter weights");
+        dir
+    }
+
+    /// ⚠️ A FILE FULL OF TENSORS AND NO RECOGNISED MODULES IS A REFUSAL.
+    ///
+    /// `load_adapter` skips any tensor whose name does not parse as a LoRA
+    /// name. An adapter using a different convention therefore produced an
+    /// adapter with ZERO modules and an `Ok`, and the caller learned nothing
+    /// until `merge()` refused — one API call, possibly one process, later.
+    #[test]
+    fn an_adapter_whose_names_do_not_parse_is_an_error() {
+        let dir = adapter_dir_with(&["encoder.weight", "decoder.bias"]);
+        let err = lora::load_adapter(dir.path(), &Device::Cpu, None)
+            .expect_err("no name parses as a LoRA pair, so this is not a load");
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("no LoRA modules recognised"),
+            "the refusal names the condition: {msg}"
+        );
+        assert!(
+            msg.contains("declares 2 tensors"),
+            "and states how many tensors were present, so the reader can tell \
+             this from an empty file: {msg}"
+        );
+    }
+
+    /// ⚠️ HALF A PAIR IS NOT A MODULE.
+    ///
+    /// A LoRA update is `lora_B x lora_A`; one matrix alone cannot produce
+    /// one. Modules missing either half were dropped silently.
+    #[test]
+    fn a_module_missing_half_its_pair_is_an_error() {
+        let dir = adapter_dir_with(&[
+            "base_model.model.layers.0.self_attn.q_proj.lora_A.weight",
+            // no matching lora_B
+        ]);
+        let err = lora::load_adapter(dir.path(), &Device::Cpu, None)
+            .expect_err("an unpaired matrix is not a module");
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("missing half of their pair"),
+            "the refusal names the condition: {msg}"
+        );
+        assert!(
+            msg.contains("no lora_B"),
+            "and names WHICH half is absent: {msg}"
+        );
+    }
+
+    /// ⚠️ THE CONTROL. Both refusals above must come from the names, not from
+    /// the fixture being unloadable — and a complete adapter must still load.
+    ///
+    /// Without this, tightening `load_adapter` could have made every adapter
+    /// fail and both tests above would still pass.
+    #[test]
+    fn a_complete_adapter_still_loads() {
+        let dir = adapter_dir_with(&[
+            "base_model.model.layers.0.self_attn.q_proj.lora_A.weight",
+            "base_model.model.layers.0.self_attn.q_proj.lora_B.weight",
+        ]);
+        let adapter =
+            lora::load_adapter(dir.path(), &Device::Cpu, None).expect("a complete pair loads");
+        assert_eq!(
+            adapter.num_modules(),
+            1,
+            "the pair became exactly one module"
         );
     }
 
