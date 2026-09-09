@@ -34,25 +34,9 @@
 //! mode that is invisible in every other way.
 
 use std::fs;
-use std::path::{Path, PathBuf};
 
 #[path = "common/mod.rs"]
 mod common;
-
-/// Every `.rs` file under `dir`, recursively.
-fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for e in entries.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            sources(&p, out);
-        } else if p.extension().is_some_and(|x| x == "rs") {
-            out.push(p);
-        }
-    }
-}
 
 #[test]
 fn every_source_file_is_named_by_a_mod_declaration() {
@@ -76,11 +60,16 @@ fn every_source_file_is_named_by_a_mod_declaration() {
     // compiled if anything had named it.
     let mut roots = common::gated_members();
     roots.push(common::workspace_root());
+    let crates_walked = roots.len();
+    let mut walked = 0usize;
 
     for crate_dir in roots {
         let src = crate_dir.join("src");
-        let mut files = Vec::new();
-        sources(&src, &mut files);
+        // One crate's `src/`. The walker used to return silently if that
+        // directory could not be read, so a crate could contribute zero files
+        // and zero orphans -- a clean result and a scan that never happened.
+        let files = common::rust_sources(&src);
+        walked += files.len();
 
         // One haystack: every source in the crate. A `mod` may be declared
         // from `lib.rs` or from any parent module, so the question is only
@@ -122,6 +111,27 @@ fn every_source_file_is_named_by_a_mod_declaration() {
             }
         }
     }
+
+    // ⚠️ NON-VACUITY, AND THIS GUARD HAD NONE.
+    //
+    // Its only assertion was `orphans.is_empty()`, and an empty population
+    // satisfies that perfectly. Until this commit the walker returned SILENTLY
+    // on a directory it could not read, so a crate contributing zero files
+    // contributed zero orphans — and if that happened for every crate, the
+    // guard passed having scanned nothing at all. **A clean result and a scan
+    // that never happened produce the same output**, which is the failure this
+    // whole file exists to prevent one level down.
+    //
+    // The walker now panics on an unreadable directory, which closes the case
+    // that was reachable through I/O. This closes the rest: a `gated_members()`
+    // that returns fewer crates, a `src/` that stops holding Rust, a future
+    // selector change. Measured when written: 73 files across 9 roots.
+    assert!(
+        walked > 50,
+        "walked {walked} .rs files across {crates_walked} crate roots; there \
+         were 73 across 9 when this floor was set, so the population collapsed \
+         and `orphans.is_empty()` below is a claim about nothing"
+    );
 
     assert!(
         orphans.is_empty(),
