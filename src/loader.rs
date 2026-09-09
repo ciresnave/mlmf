@@ -1552,20 +1552,18 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    #[allow(dead_code)]
-    fn create_dummy_config(temp_dir: &Path) -> std::io::Result<()> {
-        let config_json = r#"{")
-            "vocab_size": 32000,
-            "hidden_size": 4096,
-            "num_attention_heads": 32,
-            "num_hidden_layers": 32,
-            "intermediate_size": 11008,
-            "max_position_embeddings": 4096,
-            "rms_norm_eps": 1e-6
-        }"#;
-
-        fs::write(temp_dir.join("config.json"), config_json)
-    }
+    // `create_dummy_config` was deleted here.
+    //
+    // ⚠️ It was `#[allow(dead_code)]` with no caller, and the JSON it wrote
+    // was MALFORMED -- the literal opened `r#"{")`, a stray quote and paren
+    // immediately after the brace, so `serde_json` would have rejected it.
+    //
+    // Nothing noticed because nothing called it. A dead helper is not merely
+    // unused weight: it is UNTESTED CODE THAT LOOKS AVAILABLE, and the next
+    // person to want a config fixture would have reached for it and spent the
+    // time working out why their test could not parse a file they had just
+    // written. `minimal_safetensors_model` below writes a config that is
+    // known-good because a test loads it.
 
     #[test]
     fn test_load_options_builder() {

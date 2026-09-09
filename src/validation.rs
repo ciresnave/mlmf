@@ -507,11 +507,21 @@ mod tests {
         assert!(validate_dtype_for_device(DType::F16, &cpu_device).is_ok());
     }
 
+    /// ⚠️ The comment here used to state the property and the code checked
+    /// none of it: "Should return either CPU or CUDA, never panic", followed
+    /// by a `println!`. A `println!` is not an assertion, and a property
+    /// written in prose beside code that does not test it is the shape this
+    /// repository keeps finding.
     #[test]
-    fn test_best_device_selection() {
+    fn best_device_is_cpu_or_cuda_and_never_anything_else() {
         let device = get_best_device();
-        // Should return either CPU or CUDA, never panic
-        println!("Best device: {:?}", device);
+        assert!(
+            matches!(device, Device::Cpu | Device::Cuda(_)),
+            "get_best_device returned {device:?}, which is neither CPU nor \
+             CUDA. The function is `cuda_if_available(0).unwrap_or(Cpu)`, so a \
+             third variant means candlelight's Device gained one and this \
+             selection has not been reviewed for it"
+        );
     }
 
     #[test]

@@ -460,11 +460,23 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    #[test]
-    fn test_lazy_loader_creation() {
-        // This test would require a valid SafeTensors file
-        // In practice, you'd test with a small model file
-    }
+    // `test_lazy_loader_creation` was deleted here, not moved.
+    //
+    // ⚠️ Its entire body was two comments -- "This test would require a valid
+    // SafeTensors file" -- so it asserted nothing and could not fail, while
+    // carrying the name a reader checks when asking whether lazy loader
+    // creation is covered.
+    //
+    // A TEST'S NAME IS A CLAIM ABOUT WHAT IT COVERS. This is the second one
+    // found in this repository: `test_save_as_safetensors` was deleted in #49
+    // for the same reason, and it sat beside a function that silently
+    // discarded every tensor it was given.
+    //
+    // Its stated blocker -- needing a real SafeTensors file -- stopped being
+    // true: `formats/safetensors_export.rs` builds one in a temp directory
+    // with `candlelight::safetensors::save` in three tests. A real test for
+    // `LazyTensorLoader` is worth writing and is NOT written here, because a
+    // named absence is honest and a green empty test is not.
 
     #[test]
     fn test_mmap_options() {
