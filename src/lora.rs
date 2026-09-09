@@ -1292,7 +1292,7 @@ mod tests {
         );
         assert!(
             model.is_merged,
-            "and the model is still marked merged -- the flag is not cleared              by an operation that did nothing"
+            "and the model is still marked merged -- the flag is not cleared by an operation that did nothing"
         );
     }
 
@@ -1456,7 +1456,7 @@ mod tests {
 
         assert!(
             !err.to_string().contains("adapter"),
-            "the failure is the BASE model, not the adapter -- the adapter              loaded cleanly one line above: {err}"
+            "the failure is the BASE model, not the adapter -- the adapter loaded cleanly one line above: {err}"
         );
     }
 

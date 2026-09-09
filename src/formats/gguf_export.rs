@@ -473,9 +473,7 @@ impl GGUFWriter {
     /// them fired.
     fn unimplemented_quant(name: &str) -> Error {
         Error::model_loading(format!(
-            "GGUF {name} export is NOT IMPLEMENTED. Until 2026-09-09 it              returned a correctly sized buffer of ZEROS and reported success,              producing a file that loads with the right shapes and no              weights.
-
-Use GGUFQuantType::F32, which writes the tensor's              actual bytes."
+            "GGUF {name} export is NOT IMPLEMENTED. Until 2026-09-09 it returned a correctly sized buffer of ZEROS and reported success, producing a file that loads with the right shapes and no weights.\n\nUse GGUFQuantType::F32, which writes the tensor's actual bytes."
         ))
     }
 
