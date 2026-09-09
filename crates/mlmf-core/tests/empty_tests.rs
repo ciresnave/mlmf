@@ -79,67 +79,84 @@ fn without_comment(line: &str) -> &str {
     }
 }
 
+/// The line index of the `fn` belonging to the `#[test]` at `attr`, if any.
+///
+/// Not `attr + 1`: a test can carry more attributes, and `#[should_panic]`
+/// between them is exactly the case that must not be skipped over.
+fn fn_line(lines: &[&str], attr: usize) -> Option<usize> {
+    (attr + 1..lines.len()).find(|&j| lines[j].contains("fn "))
+}
+
+/// The body of the function starting at `fn_line`, comments removed, together
+/// with the index of its closing line.
+///
+/// Comments are stripped BEFORE the braces are counted, for two reasons: a
+/// brace inside a comment would move the boundary, and a body made only of
+/// comments must come back EMPTY -- which is the case this guard exists for.
+fn body_of(lines: &[&str], fn_line: usize) -> (String, usize) {
+    let (mut depth, mut started) = (0i32, false);
+    let mut body = String::new();
+    let mut k = fn_line;
+    while k < lines.len() {
+        let code = without_comment(lines[k]);
+        depth += code.matches('{').count() as i32;
+        depth -= code.matches('}').count() as i32;
+        if started {
+            body.push_str(code);
+        } else if let Some(p) = code.find('{') {
+            started = true;
+            body.push_str(&code[p + 1..]);
+        }
+        if started && depth == 0 {
+            break;
+        }
+        k += 1;
+    }
+    (body, k)
+}
+
+/// `(tests seen, empty ones)` for one file.
+fn scan_file(path: &Path, root: &Path) -> (usize, Vec<(String, usize, String)>) {
+    let Ok(text) = fs::read_to_string(path) else {
+        return (0, Vec::new());
+    };
+    let lines: Vec<&str> = text.lines().collect();
+    let mut total = 0;
+    let mut empty = Vec::new();
+    let mut i = 0;
+
+    while i < lines.len() {
+        if lines[i].trim() != "#[test]" {
+            i += 1;
+            continue;
+        }
+        let Some(j) = fn_line(&lines, i) else { break };
+        total += 1;
+        let (body, end) = body_of(&lines, j);
+
+        // Drop the closing brace, then see if anything is left.
+        if body.trim().trim_end_matches('}').trim().is_empty() {
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(path)
+                .display()
+                .to_string()
+                .replace('\\', "/");
+            empty.push((rel, j + 1, lines[j].trim().to_string()));
+        }
+        i = end + 1;
+    }
+    (total, empty)
+}
+
 /// `(file, line, name)` for every `#[test]` whose body holds no statement.
 fn empty_tests(files: &[PathBuf], root: &Path) -> (usize, Vec<(String, usize, String)>) {
     let mut total = 0;
     let mut empty = Vec::new();
-
     for path in files {
-        let Ok(text) = fs::read_to_string(path) else {
-            continue;
-        };
-        let lines: Vec<&str> = text.lines().collect();
-        let mut i = 0;
-        while i < lines.len() {
-            if lines[i].trim() != "#[test]" {
-                i += 1;
-                continue;
-            }
-            // The fn line may be several attributes down.
-            let mut j = i + 1;
-            while j < lines.len() && !lines[j].contains("fn ") {
-                j += 1;
-            }
-            if j >= lines.len() {
-                break;
-            }
-            total += 1;
-
-            // Body by brace balance, comments stripped before counting.
-            let (mut depth, mut k, mut started) = (0i32, j, false);
-            let mut body = String::new();
-            while k < lines.len() {
-                let code = without_comment(lines[k]);
-                depth += code.matches('{').count() as i32;
-                depth -= code.matches('}').count() as i32;
-                if started {
-                    body.push_str(code);
-                }
-                if !started && code.contains('{') {
-                    started = true;
-                    if let Some(p) = code.find('{') {
-                        body.push_str(&code[p + 1..]);
-                    }
-                }
-                if started && depth == 0 {
-                    break;
-                }
-                k += 1;
-            }
-
-            // Drop the closing brace, then see if anything is left.
-            let inner = body.trim().trim_end_matches('}').trim();
-            if inner.is_empty() {
-                let rel = path
-                    .strip_prefix(root)
-                    .unwrap_or(path)
-                    .display()
-                    .to_string()
-                    .replace('\\', "/");
-                empty.push((rel, j + 1, lines[j].trim().to_string()));
-            }
-            i = k + 1;
-        }
+        let (n, mut found) = scan_file(path, root);
+        total += n;
+        empty.append(&mut found);
     }
     (total, empty)
 }
