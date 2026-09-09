@@ -37,7 +37,7 @@
 //! feeds it forms that must not be.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Crates that *are* I/O or networking. Naming one anywhere in a gated crate
 /// is a violation regardless of how it is spelled.
@@ -506,17 +506,6 @@ fn scan_text(label: &str, src: &str, allowed: &[String], axis: Axis) -> Vec<Stri
     v
 }
 
-fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(dir).expect("src directory must exist") {
-        let path = entry.expect("readable entry").path();
-        if path.is_dir() {
-            collect_rs(&path, out);
-        } else if path.extension().is_some_and(|e| e == "rs") {
-            out.push(path);
-        }
-    }
-}
-
 #[test]
 fn every_gated_crate_performs_no_io() {
     let mut violations = Vec::new();
@@ -531,8 +520,9 @@ fn every_gated_crate_performs_no_io() {
             .to_string_lossy()
             .to_string();
 
-        let mut files = Vec::new();
-        collect_rs(&dir.join("src"), &mut files);
+        // The FIFTH walker, found only by re-querying by PROPERTY: the census
+        // grep was `is_some_and(|x| x == "rs")` and this file writes `|e|`.
+        let files = common::rust_sources(&dir.join("src"));
         assert!(!files.is_empty(), "{name}: found no source files to check");
 
         for file in &files {

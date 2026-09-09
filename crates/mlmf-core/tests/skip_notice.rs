@@ -51,6 +51,18 @@ const STDERR_HANDLE: &str = "std::io::stderr()";
 /// the constant is unambiguous and cannot be satisfied by coincidence.
 const TOKEN_REF: &str = "NOTICE_TOKEN";
 
+/// ⚠️ NOT `common::rust_sources`, and the reason is the return type.
+///
+/// This is the sixth `.rs` walker in this directory and the one that stays. It
+/// yields `(label, contents)` where the label is a path RELATIVE to the crate's
+/// `tests/`, built as it descends — `rust_sources` returns absolute paths and
+/// has thrown that structure away by the time it returns. Reconstructing the
+/// relative name from an absolute path would be a second way to compute
+/// something this already has correct.
+///
+/// Its failure handling is already what the shared walker enforces: `expect` on
+/// the directory AND on each entry, so it cannot report on a subset. That is
+/// what makes leaving it a choice rather than an omission.
 fn collect(dir: &Path, crate_name: &str, rel: &str, out: &mut Vec<(String, String)>) {
     for entry in fs::read_dir(dir).expect("tests dir is readable") {
         let path = entry.expect("readable entry").path();
