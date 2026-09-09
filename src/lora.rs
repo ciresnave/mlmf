@@ -341,10 +341,26 @@ impl LoRAModel {
         add: bool,
         op: &str,
     ) -> Result<()> {
-        // 1. Resolve. Nothing is mutated, and the unmatched set is exact
-        //    rather than a count.
-        let mut unmatched: Vec<&str> = Vec::new();
-        let mut resolved: Vec<(&String, &LoRAWeights)> = Vec::new();
+        let (resolved, unmatched) = Self::resolve(adapter, base_tensors);
+        Self::require_every_module_applies(&unmatched, adapter.weights.len(), op)?;
+        let committed = Self::computed(&resolved, base_tensors, add)?;
+
+        // The only phase that writes, and the only one that cannot fail.
+        for (module_name, tensor) in committed {
+            base_tensors.insert(module_name, tensor);
+        }
+        Ok(())
+    }
+
+    /// Split the adapter's modules into those with a matching base tensor and
+    /// those without. Nothing is mutated, and the unmatched set is exact
+    /// rather than a count -- the error names the modules.
+    fn resolve<'a>(
+        adapter: &'a LoRAAdapter,
+        base_tensors: &HashMap<String, Tensor>,
+    ) -> (Vec<(&'a String, &'a LoRAWeights)>, Vec<&'a str>) {
+        let mut resolved = Vec::new();
+        let mut unmatched = Vec::new();
         for (module_name, lora_weights) in &adapter.weights {
             if base_tensors.contains_key(module_name) {
                 resolved.push((module_name, lora_weights));
@@ -352,32 +368,35 @@ impl LoRAModel {
                 unmatched.push(module_name.as_str());
             }
         }
+        (resolved, unmatched)
+    }
 
-        // 2. Validate BEFORE anything is written.
-        Self::require_every_module_applies(&unmatched, adapter.weights.len(), op)?;
-
-        // 3. Compute. Still no mutation: `compute_update` and the tensor
-        //    arithmetic can both fail, and a failure here must leave the model
-        //    exactly as it was.
-        let mut committed: Vec<(String, Tensor)> = Vec::with_capacity(resolved.len());
+    /// Every new base tensor, computed but NOT written.
+    ///
+    /// ⚠️ This phase is separate from the commit for the reason `apply`'s doc
+    /// gives: `compute_update` and the tensor arithmetic can both fail, and a
+    /// failure must leave the model exactly as it was. Validating first and
+    /// then applying is not enough -- a shape error halfway through the
+    /// arithmetic would still land partial writes.
+    fn computed(
+        resolved: &[(&String, &LoRAWeights)],
+        base_tensors: &HashMap<String, Tensor>,
+        add: bool,
+    ) -> Result<Vec<(String, Tensor)>> {
+        let mut out = Vec::with_capacity(resolved.len());
         for (module_name, lora_weights) in resolved {
             let update = lora_weights.compute_update()?;
             let base = base_tensors
-                .get(module_name)
+                .get(*module_name)
                 .expect("resolved above, and nothing has been removed since");
             let next = if add {
                 (base.clone() + update)?
             } else {
                 (base.clone() - update)?
             };
-            committed.push((module_name.clone(), next));
+            out.push(((*module_name).clone(), next));
         }
-
-        // 4. Commit. Infallible.
-        for (module_name, tensor) in committed {
-            base_tensors.insert(module_name, tensor);
-        }
-        Ok(())
+        Ok(out)
     }
 
     /// ⚠️ A merge that applied nothing is not a merge.
