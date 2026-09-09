@@ -1228,7 +1228,7 @@ pub fn load_safetensors<P: AsRef<Path>>(
     timer.report(ProgressEvent::BuildingModel);
     let var_builder = VarBuilder::from_tensors(remapped_tensors, options.dtype, &options.device);
 
-    timer.complete();
+    timer.complete(tensors.len(), "SafeTensors");
 
     let mut loaded_model = LoadedModel {
         var_builder,
@@ -1433,6 +1433,110 @@ pub fn load_awq_auto<P: AsRef<Path>>(model_dir: P) -> Result<LoadedModel> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ⚠️ A SUCCESSFUL LOAD MUST REPORT THE TENSORS IT ACTUALLY LOADED.
+    ///
+    /// Until 2026-09-09 `load_safetensors` finished by calling
+    /// `ProgressTimer::complete()`, which took no arguments and unconditionally
+    /// sent `Complete { tensor_count: 0, format: "Generic" }`. **Every
+    /// successful SafeTensors load — the crate's most-used and fully working
+    /// path — told its progress callback it had loaded zero tensors of a
+    /// generic format**, while `raw_tensors` held the real ones and no error
+    /// was raised.
+    ///
+    /// That is the AWQ defect of #43 inverted: AWQ reported five for zero, this
+    /// reported zero for however many. A consumer driving a progress bar off
+    /// `tensor_count` cannot tell either from a truthful report.
+    ///
+    /// This test loads a real SafeTensors file and asserts the reported count
+    /// equals the number of tensors written — the end-to-end claim, not the
+    /// unit-level pass-through one in `progress.rs`.
+    #[test]
+    fn a_successful_load_reports_the_tensors_it_loaded() {
+        let dir = TempDir::new().expect("temp dir");
+        fs::write(
+            dir.path().join("config.json"),
+            r#"{
+                "vocab_size": 32,
+                "hidden_size": 8,
+                "num_attention_heads": 2,
+                "num_hidden_layers": 1,
+                "intermediate_size": 16,
+                "max_position_embeddings": 16
+            }"#,
+        )
+        .expect("config.json");
+
+        // LLaMA-style names, so `SmartTensorNameMapper` can name an
+        // architecture — the load refuses without one, and this test is about
+        // what a SUCCESSFUL load reports.
+        let names = [
+            "model.embed_tokens.weight",
+            "model.layers.0.self_attn.q_proj.weight",
+            "model.layers.0.self_attn.k_proj.weight",
+            "model.layers.0.mlp.gate_proj.weight",
+            "lm_head.weight",
+        ];
+        let mut written = HashMap::new();
+        for n in names {
+            written.insert(
+                n.to_string(),
+                candlelight::Tensor::zeros((2, 2), DType::F32, &Device::Cpu).expect("tensor"),
+            );
+        }
+        candlelight::safetensors::save(&written, dir.path().join("model.safetensors"))
+            .expect("write safetensors");
+
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = events.clone();
+        let options =
+            LoadOptions::default().with_custom_progress(crate::progress::custom_progress(
+                move |e: ProgressEvent| sink.lock().expect("lock").push(e),
+            ));
+
+        let loaded = load_safetensors(dir.path(), options).expect("the fixture loads");
+
+        // The count the loader actually holds, measured rather than assumed.
+        assert_eq!(
+            loaded.raw_tensors.len(),
+            names.len(),
+            "the fixture round-trips all its tensors"
+        );
+
+        let captured = events.lock().expect("lock");
+        let complete: Vec<&ProgressEvent> = captured
+            .iter()
+            .filter(|e| matches!(e, ProgressEvent::Complete { .. }))
+            .collect();
+
+        // ⚠️ NON-VACUITY: no Complete event at all would make every assertion
+        // below trivially true.
+        assert_eq!(
+            complete.len(),
+            1,
+            "exactly one completion event; got {}",
+            complete.len()
+        );
+
+        match complete[0] {
+            ProgressEvent::Complete {
+                tensor_count,
+                format,
+            } => {
+                assert_eq!(
+                    *tensor_count,
+                    names.len(),
+                    "the completion event reports the tensors that were loaded, \
+                     not a placeholder"
+                );
+                assert_eq!(
+                    format, "SafeTensors",
+                    "and names the format it actually read, not \"Generic\""
+                );
+            }
+            other => panic!("expected Complete, got {other:?}"),
+        }
+    }
 
     use std::fs;
     use tempfile::TempDir;
