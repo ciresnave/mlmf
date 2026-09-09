@@ -22,6 +22,11 @@
 //! having never executed. Reading the counts catches it when someone
 //! remembers to. This catches it always.
 //!
+//! **Population**: every `.rs` file under `src/` of each gated crate AND of
+//! the root package. The root is exempt from C2/C3 because those are
+//! dependency policies; it is NOT exempt from reachability, and reusing the
+//! C2/C3 selector here quietly excluded it.
+//!
 //! **What this does NOT check**, said plainly so nobody reads more into a
 //! pass than it earns: that a declared module's tests are correct, that a
 //! `#[cfg(test)]` block exists, or that a `#[test]` attribute was not
@@ -53,7 +58,26 @@ fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
 fn every_source_file_is_named_by_a_mod_declaration() {
     let mut orphans = Vec::new();
 
-    for crate_dir in common::gated_members() {
+    // ⚠️ THE ROOT PACKAGE, ADDED TO A LIST BUILT FOR A DIFFERENT QUESTION.
+    //
+    // This walked `gated_members()` alone, which is `crates/*` — the root
+    // package is deliberately exempt there because C2/C3 are DEPENDENCY
+    // policies and the root is not on either spec §3.1 axis.
+    //
+    // **Reachability has no such exemption.** An unregistered file in the root
+    // crate is exactly as invisible as one in a gated crate: not compiled, its
+    // tests never run, nothing goes red. Borrowing a selector built for
+    // dependency policy silently narrowed the population this guard reports on.
+    //
+    // Measured when the root was added: 36 files under `src/`, ONE orphan —
+    // `src/quantization_simple.rs`, 1111 lines, importing `candle_core` which
+    // is not a dependency of this workspace, and re-declaring six public type
+    // names that `src/quantization.rs` already defines. It could not have
+    // compiled if anything had named it.
+    let mut roots = common::gated_members();
+    roots.push(common::workspace_root());
+
+    for crate_dir in roots {
         let src = crate_dir.join("src");
         let mut files = Vec::new();
         sources(&src, &mut files);
