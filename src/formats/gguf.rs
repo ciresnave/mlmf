@@ -869,7 +869,7 @@ mod tests {
         );
         assert_eq!(
             cfg.num_key_value_heads, cfg.num_attention_heads,
-            "an omitted head_count_kv resolves to the query head count, which              is what the absence MEANS -- not a constant that happens to work"
+            "an omitted head_count_kv resolves to the query head count, which is what the absence MEANS -- not a constant that happens to work"
         );
     }
 
@@ -1088,7 +1088,7 @@ mod tests {
             std::path::Path::new("C:/Models/gguf-corpus/quants/SmolLM2-135M-Instruct-Q4_0.gguf");
         let Ok(bytes) = std::fs::read(path) else {
             println!(
-                "SKIPPED: no corpus checkpoint at {}. The truncation fix was NOT verified                  against a real file on this run.",
+                "SKIPPED: no corpus checkpoint at {}. The truncation fix was NOT verified against a real file on this run.",
                 path.display()
             );
             return;
@@ -1105,7 +1105,7 @@ mod tests {
         // truncated loader from a correct one.
         assert!(
             declared > 10,
-            "the control checkpoint declares {declared} tensors; a file with 10 or fewer              cannot distinguish `take(10)` from loading everything"
+            "the control checkpoint declares {declared} tensors; a file with 10 or fewer cannot distinguish `take(10)` from loading everything"
         );
 
         let opts = crate::loader::LoadOptions::default();

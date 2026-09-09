@@ -423,11 +423,11 @@ mod tests {
 
         assert!(
             msg.contains("no pickle is parsed"),
-            "the refusal must come from the pickle STUB, not from format              detection one stage earlier -- otherwise this test cannot see              `mlmf-pickle` land. Got: {msg}"
+            "the refusal must come from the pickle STUB, not from format detection one stage earlier -- otherwise this test cannot see `mlmf-pickle` land. Got: {msg}"
         );
         assert!(
             !msg.contains("cannot build a model config from tensors alone"),
-            "the config seam is still unreachable; if it is reached, the              refusal there is a LIVE defect rather than a latent one, and              `create_loaded_model_from_tensors` must be implemented: {msg}"
+            "the config seam is still unreachable; if it is reached, the refusal there is a LIVE defect rather than a latent one, and `create_loaded_model_from_tensors` must be implemented: {msg}"
         );
     }
 }
