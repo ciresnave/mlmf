@@ -66,6 +66,23 @@ const MODEL_FIELDS: &[&str] = &[
 /// rather than a new vocabulary to learn.
 const MARKER: char = '⚠';
 
+/// A double quote, written as an escape.
+///
+/// ⚠️ Not style. A char literal holding a bare quote is read by any lexer
+/// that does not model char literals as the START OF A STRING, and it then
+/// swallows source until the next quote -- across function boundaries. The
+/// repository's static analyser did exactly that on this file, reporting
+/// `is_literal` as 77 lines by merging it with the function below it.
+///
+/// That is the same class of defect as the one `without_strings_and_comments`
+/// exists to prevent: a quote that is not a delimiter, read as one. This file
+/// is about that hazard and should not contain instances of it.
+///
+/// ⚠️ A first attempt blamed raw-string openers in the comments. Removing
+/// every one of them did not move the measurement at all, which is what
+/// pointed here -- the hypothesis was wrong and the symptom said so.
+const QUOTE: char = '\u{22}';
+
 /// Every `.rs` file under the root crate's `src/`, sorted.
 fn root_crate_sources(root: &Path) -> Vec<PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -125,7 +142,7 @@ fn is_literal(value: &str) -> bool {
         .or_else(|| v.strip_prefix('b'))
         .or_else(|| v.strip_prefix('c'))
         .unwrap_or(v);
-    if after_prefix.trim_start_matches('#').starts_with('"') {
+    if after_prefix.trim_start_matches('#').starts_with(QUOTE) {
         return true;
     }
     // Numbers, including a sign. `-10000.0` is as much a fabricated model value
@@ -161,14 +178,14 @@ fn without_strings_and_comments(line: &str) -> String {
                 escaped = false;
             } else if c == '\\' {
                 escaped = true;
-            } else if c == '"' {
+            } else if c == QUOTE {
                 in_string = false;
             }
             continue;
         }
         match c {
             '/' if chars.peek() == Some(&'/') => break, // line comment: nothing after matters
-            '"' => in_string = true,
+            QUOTE => in_string = true,
             _ => out.push(c),
         }
     }
