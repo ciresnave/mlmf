@@ -126,17 +126,13 @@ mod tests {
             .unwrap_or(serde_json::Value::Null)
     }
 
-    /// ⚠️ THE CONVERSION PATH, END TO END: load a real model, save it, load the
-    /// result.
+    /// A directory the public `load_safetensors` will load: a `config.json`
+    /// and one real SafeTensors file.
     ///
-    /// `save_as_safetensors` is what `conversion.rs` calls for
-    /// `ConversionFormat::SafeTensors`. The three tests above cover the shared
-    /// writer; this one covers **this function's own job** — passing
-    /// `model.raw_tensors` rather than, say, an empty map it happens to have in
-    /// scope. Until 2026-09-09 it ignored `model` entirely, so a conversion
-    /// produced a valid file with none of the model in it.
-    #[test]
-    fn a_converted_model_still_has_its_tensors() {
+    /// The tensor names are LLaMA-style because `SmartTensorNameMapper` must
+    /// name an architecture or the load refuses, and the test using this is
+    /// about a SUCCESSFUL conversion.
+    fn loadable_model_dir() -> (TempDir, [&'static str; 3]) {
         let dir = TempDir::new().expect("temp dir");
         std::fs::write(
             dir.path().join("config.json"),
@@ -172,6 +168,21 @@ mod tests {
         }
         candlelight::safetensors::save(&source, dir.path().join("model.safetensors"))
             .expect("fixture");
+        (dir, names)
+    }
+
+    /// ⚠️ THE CONVERSION PATH, END TO END: load a real model, save it, load the
+    /// result.
+    ///
+    /// `save_as_safetensors` is what `conversion.rs` calls for
+    /// `ConversionFormat::SafeTensors`. The three tests above cover the shared
+    /// writer; this one covers **this function's own job** — passing
+    /// `model.raw_tensors` rather than, say, an empty map it happens to have in
+    /// scope. Until 2026-09-09 it ignored `model` entirely, so a conversion
+    /// produced a valid file with none of the model in it.
+    #[test]
+    fn a_converted_model_still_has_its_tensors() {
+        let (dir, names) = loadable_model_dir();
 
         let model =
             crate::loader::load_safetensors(dir.path(), crate::loader::LoadOptions::default())
