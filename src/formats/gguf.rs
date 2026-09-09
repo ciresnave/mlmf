@@ -96,6 +96,26 @@ fn unreadable_tensor_data(path: &Path, underlying: &str) -> String {
         *counts.entry(format!("{:?}", t.encoding)).or_default() += 1;
     }
 
+    // ⚠️ THE CORRECTION GOES BESIDE THE TRAP, NOT UNDER THE REPORT.
+    //
+    // Adding context below a misleading sentence still leaves the misleading
+    // sentence first, and a reader acts on the first line. If the underlying
+    // message ends in a number that matches a code this file actually declares,
+    // say so immediately -- with the tensor count for that code, which is the
+    // fact that makes "not an index" undeniable rather than merely asserted.
+    if let Some(code) = trailing_number(underlying) {
+        if let Some((_, n)) = counts
+            .iter()
+            .find(|(enc, _)| enc.contains(&format!("code: {code},")))
+        {
+            let _ = write!(
+                msg,
+                "\n\n>> The `{code}` in that message is a GGML TYPE CODE, not a tensor \
+                 index. This file declares {n} tensors whose encoding is code {code}."
+            );
+        }
+    }
+
     let _ = write!(
         msg,
         "\n\nMLMF read this file's structure: {} tensors in {} distinct encodings.",
@@ -112,6 +132,17 @@ fn unreadable_tensor_data(path: &Path, underlying: &str) -> String {
          before looking for a tensor by that number."
     );
     msg
+}
+
+/// The last whitespace-separated token of `s`, if it parses as a type code.
+///
+/// Deliberately not a regex over the wording. The underlying message is a third
+/// party's and its phrasing is not ours to depend on; what we rely on is only
+/// that it ends in the number it is complaining about. If it ever stops doing
+/// that, this returns `None` and the report below still prints — a degraded
+/// message, not a wrong one.
+fn trailing_number(s: &str) -> Option<u32> {
+    s.split_whitespace().last()?.trim_matches('.').parse().ok()
 }
 
 impl GGUFContent {
@@ -1117,10 +1148,36 @@ mod tests {
             "including the type code the underlying message names, so the \
              coincidence is visible rather than needing to be known: {msg}"
         );
+
+        // ⚠️ THE CORRECTION MUST SIT BESIDE THE TRAP, NOT UNDER THE REPORT.
+        // Adding context below a misleading sentence leaves the misleading
+        // sentence first, and a reader acts on the first line.
         assert!(
-            msg.contains("TYPE CODE"),
-            "and says the bare number is a type code, not a tensor index: {msg}"
+            msg.contains("The `23` in that message is a GGML TYPE CODE"),
+            "the number is corrected by name, immediately: {msg}"
         );
+        assert!(
+            msg.contains("30 tensors whose encoding is code 23"),
+            "and with the count that makes it undeniable rather than asserted: {msg}"
+        );
+    }
+
+    /// ⚠️ THE NUMBER IS TAKEN FROM THE END OF THE MESSAGE, NOT FROM ITS WORDING.
+    ///
+    /// The underlying text belongs to a third party. Depending on its phrasing
+    /// would make this break silently when they reword it; depending only on
+    /// "it ends in the number it is complaining about" degrades to no inline
+    /// correction, and the structure report still prints.
+    #[test]
+    fn the_trailing_number_is_read_without_depending_on_the_wording() {
+        assert_eq!(trailing_number("unknown dtype for tensor 23"), Some(23));
+        assert_eq!(trailing_number("some other phrasing entirely 20"), Some(20));
+        assert_eq!(trailing_number("ends with a full stop 11."), Some(11));
+
+        // No trailing number: the caller must fall back, not guess.
+        assert_eq!(trailing_number("unknown dtype"), None);
+        assert_eq!(trailing_number(""), None);
+        assert_eq!(trailing_number("tensor blk.0.attn_q.weight"), None);
     }
 
     /// ⚠️ BOTH PUBLIC ARCHITECTURE FIELDS AGREE, AND FOR THE SAME REASON.
