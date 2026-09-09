@@ -1,8 +1,10 @@
 //! ⚠️ **A string literal must carry the text that was written into it.**
 //!
-//! Measured 2026-09-09 across 114 files: **24 runs of folded indentation in 12
-//! literals**, one of them a user-facing error. `GGUFWriter::unimplemented_quant`
-//! returned this to callers, verbatim:
+//! Measured 2026-09-09: **24 runs of folded indentation in 12 literals**, one
+//! of them a user-facing error. (That count was taken over `src/` and
+//! `crates/` — 115 files. The guard below walks all **142**; the extra 27 are
+//! `build.rs` and `examples/`, and they are where the exemption below comes
+//! from.) `GGUFWriter::unimplemented_quant` returned this to callers, verbatim:
 //!
 //! ```text
 //! GGUF Q8_0 export is NOT IMPLEMENTED. Until 2026-09-09 it              returned
@@ -70,6 +72,24 @@ mod common;
 /// The narrowest run treated as folded indentation. See the module doc.
 const MIN_RUN: usize = 4;
 
+/// `"` and `#`, spelled by codepoint.
+///
+/// ⚠️ Written by codepoint deliberately, and not as a quoted character.
+/// Codacy's Rust parser reported `raw_string_start` — **21 lines**, measured
+/// 192..212 — as having **199 lines of code**, a region nine times the
+/// function. The most likely cause is a char literal holding a double quote: a
+/// lexer that does not special-case it reads the quote as OPENING a string and
+/// runs on until the next one, folding everything between into whichever
+/// function it was in. This file therefore spells both characters by codepoint
+/// everywhere, comments included.
+///
+/// That is the same defect this whole file exists to catch, one level out: a
+/// tool mis-lexing a literal and reporting a confident, plausible number about
+/// it. Spelling the codepoint costs nothing and removes the ambiguity for every
+/// reader, this crate's own lexer included.
+const QUOTE: char = '\u{22}';
+const HASH: char = '\u{23}';
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Kind {
     /// `"…"` or `b"…"` — escapes are live, so `\n` is two characters here.
@@ -130,36 +150,71 @@ impl<'a> Lexer<'a> {
     fn collect(mut self) -> Vec<Literal> {
         let mut out = Vec::new();
         while self.i < self.ch.len() {
-            if self.starts_with("//") {
-                let j = self.find_from(self.i, '\n').unwrap_or(self.ch.len());
-                self.advance_to(j);
-            } else if self.starts_with("/*") {
-                self.skip_block_comment();
-            } else if let Some((hashes, open_len)) = self.raw_string_start() {
-                let start = self.i + open_len;
-                let end = self.find_raw_close(start, hashes);
-                out.push(Literal {
-                    line: self.line,
-                    kind: Kind::Raw,
-                    body: self.ch[start..end].iter().collect(),
-                });
-                self.advance_to(end + 1 + hashes);
-            } else if self.ch[self.i] == '"' || self.starts_with("b\"") {
-                let start = self.i + if self.ch[self.i] == '"' { 1 } else { 2 };
-                let end = self.find_string_close(start);
-                out.push(Literal {
-                    line: self.line,
-                    kind: Kind::Normal,
-                    body: self.ch[start..end].iter().collect(),
-                });
-                self.advance_to((end + 1).min(self.ch.len()));
-            } else if self.ch[self.i] == '\'' {
-                self.skip_char_or_lifetime();
-            } else {
-                self.advance_to(self.i + 1);
+            if let Some(lit) = self.step() {
+                out.push(lit);
             }
         }
         out
+    }
+
+    /// Consume exactly one token. `Some` when that token was a string literal.
+    ///
+    /// Split out of `collect` so each arm is one call: the combined form
+    /// measured a cyclomatic complexity of 9 against a limit of 8, and the
+    /// arms had nothing to do with each other.
+    fn step(&mut self) -> Option<Literal> {
+        if self.starts_with("//") {
+            let j = self.find_from(self.i, '\n').unwrap_or(self.ch.len());
+            self.advance_to(j);
+            return None;
+        }
+        if self.starts_with("/*") {
+            self.skip_block_comment();
+            return None;
+        }
+        if let Some((hashes, open_len)) = self.raw_string_start() {
+            return Some(self.take_raw(hashes, open_len));
+        }
+        if self.at_string_open() {
+            return Some(self.take_normal());
+        }
+        if self.ch[self.i] == '\'' {
+            self.skip_char_or_lifetime();
+            return None;
+        }
+        self.advance_to(self.i + 1);
+        None
+    }
+
+    fn at_string_open(&self) -> bool {
+        self.ch[self.i] == QUOTE
+            || (self.ch[self.i] == 'b' && self.ch.get(self.i + 1) == Some(&QUOTE))
+    }
+
+    fn take_raw(&mut self, hashes: usize, open_len: usize) -> Literal {
+        let line = self.line;
+        let start = self.i + open_len;
+        let end = self.find_raw_close(start, hashes);
+        let body = self.ch[start..end].iter().collect();
+        self.advance_to((end + 1 + hashes).min(self.ch.len()));
+        Literal {
+            line,
+            kind: Kind::Raw,
+            body,
+        }
+    }
+
+    fn take_normal(&mut self) -> Literal {
+        let line = self.line;
+        let start = self.i + if self.ch[self.i] == QUOTE { 1 } else { 2 };
+        let end = self.find_string_close(start);
+        let body = self.ch[start..end].iter().collect();
+        self.advance_to((end + 1).min(self.ch.len()));
+        Literal {
+            line,
+            kind: Kind::Normal,
+            body,
+        }
     }
 
     fn find_from(&self, from: usize, target: char) -> Option<usize> {
@@ -199,11 +254,11 @@ impl<'a> Lexer<'a> {
         }
         k += 1;
         let mut hashes = 0;
-        while self.ch.get(k) == Some(&'#') {
+        while self.ch.get(k) == Some(&HASH) {
             hashes += 1;
             k += 1;
         }
-        if self.ch.get(k) == Some(&'"') {
+        if self.ch.get(k) == Some(&QUOTE) {
             Some((hashes, k + 1 - self.i))
         } else {
             None
@@ -213,7 +268,7 @@ impl<'a> Lexer<'a> {
     fn find_raw_close(&self, start: usize, hashes: usize) -> usize {
         let mut k = start;
         while k < self.ch.len() {
-            if self.ch[k] == '"' && (1..=hashes).all(|h| self.ch.get(k + h) == Some(&'#')) {
+            if self.ch[k] == QUOTE && (1..=hashes).all(|h| self.ch.get(k + h) == Some(&HASH)) {
                 return k;
             }
             k += 1;
@@ -226,7 +281,7 @@ impl<'a> Lexer<'a> {
         while k < self.ch.len() {
             match self.ch[k] {
                 '\\' => k += 2,
-                '"' => return k,
+                c if c == QUOTE => return k,
                 _ => k += 1,
             }
         }
