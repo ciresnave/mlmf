@@ -18,7 +18,7 @@ use candlelight::{DType, Tensor};
 use std::{
     collections::HashMap,
     fs::File,
-    io::{BufWriter, Write},
+    io::{BufWriter, Seek, Write},
     path::Path,
 };
 
@@ -191,6 +191,13 @@ impl MetadataValue {
 /// GGUF file writer
 pub struct GGUFWriter {
     writer: BufWriter<File>,
+    /// Bytes written into the tensor DATA SECTION so far.
+    ///
+    /// ⚠️ GGUF tensor offsets are relative to the start of that section, not
+    /// to the file. `get_current_position` used to return `Ok(0)` under a
+    /// `// Placeholder`, so the alignment padding computed from it was always
+    /// zero and none was ever written.
+    data_written: usize,
     options: GGUFExportOptions,
     tensor_count: usize,
 }
@@ -208,6 +215,7 @@ impl GGUFWriter {
 
         Ok(Self {
             writer: BufWriter::new(file),
+            data_written: 0,
             options,
             tensor_count: 0,
         })
@@ -457,9 +465,50 @@ impl GGUFWriter {
         Ok(())
     }
 
+    /// The single refusal for a quantization this writer cannot produce.
+    ///
+    /// One source, because it is reached from two places -- the size query
+    /// during the info pass and the encoder during the data pass -- and two
+    /// wordings for one condition is how a caller ends up unsure which of
+    /// them fired.
+    fn unimplemented_quant(name: &str) -> Error {
+        Error::model_loading(format!(
+            "GGUF {name} export is NOT IMPLEMENTED. Until 2026-09-09 it              returned a correctly sized buffer of ZEROS and reported success,              producing a file that loads with the right shapes and no              weights.
+
+Use GGUFQuantType::F32, which writes the tensor's              actual bytes."
+        ))
+    }
+
+    /// The tensors in a fixed order.
+    ///
+    /// ⚠️ The info pass and the data pass MUST agree on order, or every
+    /// declared offset points at a different tensor's bytes. Sorting by name
+    /// makes that agreement explicit rather than resting on two iterations of
+    /// a `HashMap` happening to match.
+    fn ordered(tensors: &HashMap<String, Tensor>) -> Vec<(&String, &Tensor)> {
+        let mut v: Vec<(&String, &Tensor)> = tensors.iter().collect();
+        v.sort_by(|a, b| a.0.cmp(b.0));
+        v
+    }
+
+    /// Bytes one tensor occupies in the data section, for the selected type.
+    fn data_size(&self, tensor: &Tensor) -> Result<usize> {
+        match self.options.quantization {
+            GGUFQuantType::F32 => Ok(tensor.elem_count() * 4),
+            other => Err(Self::unimplemented_quant(other.name())),
+        }
+    }
+
+    /// `n` rounded up to the GGUF 32-byte alignment.
+    fn aligned(n: usize) -> usize {
+        const ALIGNMENT: usize = 32;
+        n.div_ceil(ALIGNMENT) * ALIGNMENT
+    }
+
     /// Write tensor info section
     pub fn write_tensor_infos(&mut self, tensors: &HashMap<String, Tensor>) -> Result<()> {
-        for (name, tensor) in tensors {
+        let mut offset: u64 = 0;
+        for (name, tensor) in Self::ordered(tensors) {
             // Write tensor name
             self.writer
                 .write_all(&(name.len() as u64).to_le_bytes())
@@ -494,10 +543,21 @@ impl GGUFWriter {
                     Error::model_loading(&format!("Failed to write tensor type: {}", e))
                 })?;
 
-            // Write tensor offset (placeholder - will be updated later)
-            self.writer.write_all(&0u64.to_le_bytes()).map_err(|e| {
-                Error::model_loading(&format!("Failed to write tensor offset placeholder: {}", e))
+            // ⚠️ THE TENSOR'S REAL OFFSET.
+            //
+            // Every tensor used to declare `0u64` under a comment saying it
+            // "will be updated later". Nothing updated it, so every tensor
+            // pointed at the start of the data section and a reader handed
+            // back the FIRST tensor's bytes for all of them.
+            //
+            // That was invisible while `quantize_f32` returned zeros: when
+            // every byte is zero, reading from the wrong offset returns the
+            // right answer. Writing real data is what exposed it — the
+            // round-trip test read denormal garbage, not the values written.
+            self.writer.write_all(&offset.to_le_bytes()).map_err(|e| {
+                Error::model_loading(&format!("Failed to write tensor offset: {}", e))
             })?;
+            offset += Self::aligned(self.data_size(tensor)?) as u64;
         }
 
         Ok(())
@@ -505,7 +565,24 @@ impl GGUFWriter {
 
     /// Write tensor data section
     pub fn write_tensors(&mut self, tensors: &HashMap<String, Tensor>) -> Result<()> {
-        for (name, tensor) in tensors {
+        // ⚠️ The data section must START where the reader computes it to.
+        // GGUF offsets are relative to that start, and a reader derives it by
+        // aligning the position after the tensor infos. Without this pad the
+        // whole section sits a few bytes early and every offset is off by the
+        // same amount -- which reads back as plausible garbage rather than as
+        // an error.
+        let pos =
+            self.writer.stream_position().map_err(|e| {
+                Error::model_loading(&format!("Failed to read write position: {}", e))
+            })? as usize;
+        let lead = Self::aligned(pos) - pos;
+        if lead > 0 {
+            self.writer.write_all(&vec![0u8; lead]).map_err(|e| {
+                Error::model_loading(&format!("Failed to align the data section: {}", e))
+            })?;
+        }
+
+        for (name, tensor) in Self::ordered(tensors) {
             self.write_tensor_data(name, tensor)?;
         }
         Ok(())
@@ -515,108 +592,64 @@ impl GGUFWriter {
     fn write_tensor_data(&mut self, _name: &str, tensor: &Tensor) -> Result<()> {
         let quantized_data = self.quantize_tensor(tensor)?;
 
-        // Align to 32-byte boundary (GGUF requirement)
-        let current_pos = self.get_current_position()?;
-        let alignment = 32;
-        let padding = (alignment - (current_pos % alignment)) % alignment;
-
+        // Pad the PREVIOUS tensor out to the alignment the infos declared, so
+        // this one starts exactly where its offset says it does.
+        let padding = Self::aligned(self.data_written) - self.data_written;
         if padding > 0 {
-            let padding_bytes = vec![0u8; padding];
-            self.writer.write_all(&padding_bytes).map_err(|e| {
+            self.writer.write_all(&vec![0u8; padding]).map_err(|e| {
                 Error::model_loading(&format!("Failed to write alignment padding: {}", e))
             })?;
+            self.data_written += padding;
         }
 
-        // Write quantized tensor data
         self.writer
             .write_all(&quantized_data)
             .map_err(|e| Error::model_loading(&format!("Failed to write tensor data: {}", e)))?;
+        self.data_written += quantized_data.len();
 
         Ok(())
-    }
-
-    /// Get current write position (approximate)
-    fn get_current_position(&mut self) -> Result<usize> {
-        // This is a simplified implementation - in practice, you'd need to track
-        // the exact position through the writing process
-        Ok(0) // Placeholder
     }
 
     /// Quantize tensor according to selected quantization type
     fn quantize_tensor(&self, tensor: &Tensor) -> Result<Vec<u8>> {
         match self.options.quantization {
             GGUFQuantType::F32 => self.quantize_f32(tensor),
-            GGUFQuantType::F16 => self.quantize_f16(tensor),
-            GGUFQuantType::Q8_0 => self.quantize_q8_0(tensor),
-            GGUFQuantType::Q4_0 => self.quantize_q4_0(tensor),
-            _ => Err(Error::model_loading(&format!(
-                "Quantization type {} not yet implemented",
-                self.options.quantization.name()
-            ))),
+            other => Err(Self::unimplemented_quant(other.name())),
         }
     }
 
-    /// Quantize to F32 format (no quantization)
+    /// Serialize a tensor as F32 — the identity "quantization".
+    ///
+    /// # ⚠️ What this did until 2026-09-09
+    ///
+    /// It converted the tensor, flattened it into `_flat_data`, **discarded
+    /// that**, computed the correct byte length, and returned
+    /// `vec![0u8; byte_size]` under a `// Placeholder` comment.
+    ///
+    /// Measured by round-trip: two tensors of ONES in, `Ok` out, a 470-byte
+    /// file that **loads successfully, declares both tensors with the right
+    /// shapes, and reads back 0 of 16 values non-zero in each.** A
+    /// structurally perfect GGUF whose every weight is zero, with no error
+    /// anywhere.
+    ///
+    /// ⚠️ That is worse than an empty file: an empty one is detectably empty.
+    /// This one satisfies every structural check a reader can make, so the
+    /// first thing that notices is inference producing nothing useful, long
+    /// after the producer is gone.
     fn quantize_f32(&self, tensor: &Tensor) -> Result<Vec<u8>> {
-        let data = tensor.to_dtype(DType::F32).map_err(|e| {
-            Error::model_loading(&format!("Failed to convert tensor to F32: {}", e))
-        })?;
+        let values = tensor
+            .to_dtype(DType::F32)
+            .and_then(|t| t.flatten_all())
+            .and_then(|t| t.to_vec1::<f32>())
+            .map_err(|e| {
+                Error::model_loading(&format!("Failed to read tensor data as F32: {}", e))
+            })?;
 
-        // Extract raw F32 data
-        let _flat_data = data
-            .flatten_all()
-            .map_err(|e| Error::model_loading(&format!("Failed to flatten tensor: {}", e)))?;
-
-        // Convert to bytes (this is a simplified implementation)
-        // In practice, you'd need proper tensor data extraction from Candle
-        let element_count = tensor.elem_count();
-        let byte_size = element_count * 4; // F32 = 4 bytes per element
-        Ok(vec![0u8; byte_size]) // Placeholder - needs actual tensor data extraction
-    }
-
-    /// Quantize to F16 format
-    fn quantize_f16(&self, tensor: &Tensor) -> Result<Vec<u8>> {
-        let _data = tensor.to_dtype(DType::F16).map_err(|e| {
-            Error::model_loading(&format!("Failed to convert tensor to F16: {}", e))
-        })?;
-
-        let element_count = tensor.elem_count();
-        let byte_size = element_count * 2; // F16 = 2 bytes per element
-        Ok(vec![0u8; byte_size]) // Placeholder - needs actual tensor data extraction
-    }
-
-    /// Quantize to Q8_0 format (8-bit quantization)
-    fn quantize_q8_0(&self, tensor: &Tensor) -> Result<Vec<u8>> {
-        // Q8_0 quantization: group tensor into blocks, quantize each block
-        let element_count = tensor.elem_count();
-        let block_size = 32; // Standard Q8_0 block size
-        let num_blocks = (element_count + block_size - 1) / block_size;
-
-        // Q8_0 format: each block has 1 float (scale) + 32 int8 values = 36 bytes per block
-        let total_size = num_blocks * 36;
-
-        // This is a placeholder implementation
-        // Real quantization would:
-        // 1. Extract tensor data as F32
-        // 2. Group into blocks of 32 elements
-        // 3. Compute scale factor for each block
-        // 4. Quantize elements to int8 using scale
-        // 5. Pack as [scale: f32, values: [i8; 32]]
-
-        Ok(vec![0u8; total_size])
-    }
-
-    /// Quantize to Q4_0 format (4-bit quantization)  
-    fn quantize_q4_0(&self, tensor: &Tensor) -> Result<Vec<u8>> {
-        // Q4_0 quantization: similar to Q8_0 but 4 bits per element
-        let element_count = tensor.elem_count();
-        let block_size = 32; // Standard Q4_0 block size
-        let num_blocks = (element_count + block_size - 1) / block_size;
-
-        // Q4_0 format: each block has 1 float (scale) + 16 bytes (32 4-bit values) = 20 bytes per block
-        let total_size = num_blocks * 20;
-
-        Ok(vec![0u8; total_size])
+        let mut bytes = Vec::with_capacity(values.len() * 4);
+        for v in values {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        Ok(bytes)
     }
 
     /// Finalize and close the file
@@ -815,4 +848,155 @@ pub struct GgufExportOptions {
     pub quantization: Option<String>,
     /// Whether to use memory mapping
     pub use_mmap: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// Two tensors with DISTINCT, non-zero, non-uniform values.
+    ///
+    /// ⚠️ Not zeros and not all-ones: the defect this guards against wrote a
+    /// correctly sized buffer of zeros, so a fixture of zeros could not have
+    /// shown it, and a fixture of a single repeated value could not show a
+    /// transposition or a truncation either.
+    fn distinct_tensors() -> HashMap<String, Tensor> {
+        let dev = candlelight::Device::Cpu;
+        let mut t = HashMap::new();
+        t.insert(
+            "token_embd.weight".to_string(),
+            Tensor::from_vec(vec![1.0f32, 2.0, 3.0, 4.0], (2, 2), &dev).expect("a"),
+        );
+        t.insert(
+            "output.weight".to_string(),
+            Tensor::from_vec(vec![-1.5f32, 0.25, 7.0, -0.75], (2, 2), &dev).expect("b"),
+        );
+        t
+    }
+
+    /// ⚠️ THE WEIGHTS MUST REACH THE FILE.
+    ///
+    /// Until 2026-09-09 `quantize_f32` flattened the tensor, DISCARDED the
+    /// result, and returned `vec![0u8; byte_size]`. Measured by round-trip:
+    /// two tensors of ones in, `Ok` out, a 470-byte file that loaded
+    /// successfully, declared both tensors with the right shapes, and read
+    /// back 0 of 16 values non-zero.
+    ///
+    /// ⚠️ A structurally perfect GGUF whose every weight is zero is worse than
+    /// an empty file: an empty one is detectably empty, while this satisfies
+    /// every structural check a reader can make. The first thing to notice is
+    /// inference producing nothing useful, long after the producer is gone.
+    #[test]
+    fn f32_export_round_trips_the_actual_values() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let path = dir.path().join("out.gguf");
+        let written = distinct_tensors();
+
+        crate::saver::save_gguf(
+            &written,
+            &path,
+            "llama",
+            Some(GGUFQuantType::F32),
+            &crate::saver::SaveOptions::default(),
+        )
+        .expect("save");
+
+        let raw = std::fs::read(&path).expect("read back");
+        let mut fh = std::io::Cursor::new(&raw);
+        let content = candlelight::quantized::gguf_file::Content::read(&mut fh)
+            .expect("the file we just wrote parses as GGUF");
+
+        assert_eq!(
+            content.tensor_infos.len(),
+            written.len(),
+            "every tensor is declared"
+        );
+
+        for (name, original) in &written {
+            let mut cur = std::io::Cursor::new(&raw);
+            let got = content
+                .tensor(&mut cur, name, &candlelight::Device::Cpu)
+                .unwrap_or_else(|e| panic!("{name} reads back: {e}"))
+                .dequantize(&candlelight::Device::Cpu)
+                .unwrap_or_else(|e| panic!("{name} dequantizes: {e}"));
+
+            let expected = original
+                .flatten_all()
+                .and_then(|t| t.to_vec1::<f32>())
+                .expect("original values");
+            let actual = got
+                .flatten_all()
+                .and_then(|t| t.to_vec1::<f32>())
+                .expect("round-tripped values");
+
+            assert_eq!(
+                actual, expected,
+                "{name} round-trips its VALUES, not just its shape. Under the \
+                 old writer this read back all zeros while every structural \
+                 check passed"
+            );
+        }
+    }
+
+    /// ⚠️ NON-VACUITY, STATED NUMERICALLY. The old writer emitted a correctly
+    /// sized buffer, so a size check alone could never have caught it — but a
+    /// file with no data section at all would fail the test above for the
+    /// wrong reason. Sixteen f32 values are 64 bytes of data on their own.
+    #[test]
+    fn the_file_carries_a_real_data_section() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let path = dir.path().join("out.gguf");
+        crate::saver::save_gguf(
+            &distinct_tensors(),
+            &path,
+            "llama",
+            Some(GGUFQuantType::F32),
+            &crate::saver::SaveOptions::default(),
+        )
+        .expect("save");
+
+        let raw = std::fs::read(&path).expect("read");
+        let nonzero = raw.iter().filter(|b| **b != 0).count();
+        assert!(
+            nonzero > 16,
+            "only {nonzero} non-zero bytes in the whole file; the old writer \
+             produced a file whose entire data section was zeros"
+        );
+    }
+
+    /// ⚠️ THE QUANTIZERS THAT ARE NOT IMPLEMENTED REFUSE RATHER THAN WRITING
+    /// ZEROS.
+    ///
+    /// Each computed the correct block count and returned a buffer of that
+    /// size containing nothing. F16's comment described the conversion it did
+    /// not do; Q8_0's listed the five steps real quantization would take.
+    #[test]
+    fn unimplemented_quantizations_refuse() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        for (quant, label) in [
+            (GGUFQuantType::F16, "F16"),
+            (GGUFQuantType::Q8_0, "Q8_0"),
+            (GGUFQuantType::Q4_0, "Q4_0"),
+        ] {
+            let path = dir.path().join(format!("{label}.gguf"));
+            let err = crate::saver::save_gguf(
+                &distinct_tensors(),
+                &path,
+                "llama",
+                Some(quant),
+                &crate::saver::SaveOptions::default(),
+            )
+            .expect_err("an unimplemented quantization must refuse");
+            let msg = err.to_string();
+            assert!(
+                msg.contains("NOT IMPLEMENTED"),
+                "{label} says plainly that it is not implemented: {msg}"
+            );
+            assert!(
+                msg.contains("buffer of ZEROS"),
+                "{label} names what it used to do instead: {msg}"
+            );
+        }
+    }
 }
