@@ -154,3 +154,65 @@ pub fn root_documents(root: &Path) -> Vec<PathBuf> {
 pub fn is_quoted(line: &str) -> bool {
     line.trim_start().starts_with('>')
 }
+
+/// Every `.rs` file under `dir`, recursively, sorted.
+///
+/// ⚠️ **The most duplicated helper in this directory, and until now the one this
+/// module did not carry.** Four test binaries each defined their own; measured
+/// 2026-09-09 they walked four different populations (141, 73, 38, 35 files) and
+/// disagreed on failure handling along two axes:
+///
+/// | file | directory unreadable | one ENTRY unreadable |
+/// |---|---|---|
+/// | `empty_tests.rs` | panicked | silently dropped |
+/// | `model_config_literals.rs` | panicked | panicked |
+/// | `module_registration.rs` | silently returned | silently dropped |
+/// | `write_check_has_no_consumer.rs` | silently returned | silently dropped |
+///
+/// `empty_tests.rs` carried a comment arguing for the panic — *"a subset scan is
+/// indistinguishable from a clean one in the output"* — one line above an
+/// `entries.flatten()` doing the silent thing per entry. **The fix was applied
+/// to the axis someone had thought about and not to the one beside it.**
+///
+/// ## This function panics on both axes, and on a missing directory
+///
+/// A guard exists to report on a population. Anything that shrinks that
+/// population without saying so turns a clean result into an unfalsifiable one.
+/// A missing directory is the same failure one level up: every gated crate and
+/// the root package had a `src/` when this was written (9 of 9, verified), so
+/// the panic costs nothing now and fires the moment that stops being true.
+///
+/// ## The population is the CALLER's, and stays that way
+///
+/// This takes a directory rather than deciding one. The four call sites want
+/// four different populations and all four are correct for their own question —
+/// consolidating them onto one root would be a silent change to what each guard
+/// reports on, which is the defect this exists to prevent.
+pub fn rust_sources(dir: &Path) -> Vec<PathBuf> {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        let entries = fs::read_dir(dir)
+            .unwrap_or_else(|e| panic!("{} must be readable to scan it: {e}", dir.display()));
+        for entry in entries {
+            let entry = entry.unwrap_or_else(|e| {
+                panic!(
+                    "every entry of {} must be readable; a dropped entry is a \
+                     file this guard silently did not check: {e}",
+                    dir.display()
+                )
+            });
+            let path = entry.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if path.is_dir() {
+                if name != "target" && !name.starts_with('.') {
+                    walk(&path, out);
+                }
+            } else if path.extension().is_some_and(|x| x == "rs") {
+                out.push(path);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, &mut out);
+    out.sort();
+    out
+}

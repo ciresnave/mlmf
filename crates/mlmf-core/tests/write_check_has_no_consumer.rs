@@ -55,30 +55,13 @@ const DOC_SECTION: &str = "`crates/mlmf-core/src/write_check.rs`, the module-doc
 /// nothing finds no consumers, which is **byte-identical** to the absence
 /// being asserted.
 fn crate_sources() -> (Vec<(PathBuf, String)>, usize) {
-    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = fs::read_dir(dir) else {
-            return;
-        };
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                walk(&p, out);
-            } else if p.extension().is_some_and(|x| x == "rs") {
-                out.push(p);
-            }
-        }
-    }
-
-    let crates = common::workspace_root().join("crates");
+    // `crates/*/src` -- the gated crates only. This reader's own walker used to
+    // return silently on an unreadable directory, which is the one failure this
+    // function's doc says it cannot survive: a reader that walks nothing finds
+    // no consumers, and that is the absence being asserted.
     let mut files = Vec::new();
-    for entry in fs::read_dir(&crates)
-        .unwrap_or_else(|e| panic!("{} is readable: {e}", crates.display()))
-        .flatten()
-    {
-        let src = entry.path().join("src");
-        if src.is_dir() {
-            walk(&src, &mut files);
-        }
+    for crate_dir in common::gated_members() {
+        files.extend(common::rust_sources(&crate_dir.join("src")));
     }
     files.sort();
     let n = files.len();

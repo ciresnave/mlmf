@@ -83,26 +83,6 @@ const MARKER: char = '⚠';
 /// pointed here -- the hypothesis was wrong and the symptom said so.
 const QUOTE: char = '\u{22}';
 
-/// Every `.rs` file under the root crate's `src/`, sorted.
-fn root_crate_sources(root: &Path) -> Vec<PathBuf> {
-    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        let entries =
-            fs::read_dir(dir).unwrap_or_else(|e| panic!("{} is readable: {e}", dir.display()));
-        for entry in entries {
-            let path = entry.expect("readable entry").path();
-            if path.is_dir() {
-                walk(&path, out);
-            } else if path.extension().is_some_and(|x| x == "rs") {
-                out.push(path);
-            }
-        }
-    }
-    let mut out = Vec::new();
-    walk(&root.join("src"), &mut out);
-    out.sort();
-    out
-}
-
 /// Is this value text a literal -- a number, a string of any Rust form, or a
 /// bare bool?
 ///
@@ -377,7 +357,9 @@ fn assert_the_scanner_is_alive(files: usize, constructions: usize, literal_field
 #[test]
 fn a_literal_model_field_must_be_disclosed() {
     let root = common::workspace_root();
-    let files = root_crate_sources(&root);
+    // The ROOT crate's `src/` only: `ModelConfig` is constructed by the
+    // format loaders, which all live there.
+    let files = common::rust_sources(&root.join("src"));
 
     let (constructions, literal_fields, offences) = survey(&files);
     assert_the_scanner_is_alive(files.len(), constructions, literal_fields);

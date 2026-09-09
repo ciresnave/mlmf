@@ -41,33 +41,6 @@ use std::path::{Path, PathBuf};
 #[path = "common/mod.rs"]
 mod common;
 
-/// Every `.rs` file in the workspace, excluding build output.
-fn sources(root: &Path) -> Vec<PathBuf> {
-    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        // ⚠️ A panic, not a `return`. An unreadable directory used to be
-        // skipped silently, so the guard could pass having scanned a SUBSET of
-        // the workspace -- and a subset scan is indistinguishable from a clean
-        // one in the output.
-        let entries = fs::read_dir(dir)
-            .unwrap_or_else(|e| panic!("{} must be readable to scan it: {e}", dir.display()));
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if path.is_dir() {
-                if name != "target" && !name.starts_with('.') {
-                    walk(&path, out);
-                }
-            } else if path.extension().is_some_and(|x| x == "rs") {
-                out.push(path);
-            }
-        }
-    }
-    let mut out = Vec::new();
-    walk(root, &mut out);
-    out.sort();
-    out
-}
-
 /// What a line looks like with comments and string contents removed.
 ///
 /// ⚠️ **The previous version stripped comments only, and its doc claimed that
@@ -345,7 +318,8 @@ fn empty_tests(files: &[PathBuf], root: &Path) -> (usize, usize, Vec<(String, us
 #[test]
 fn no_test_has_an_empty_body() {
     let root = common::workspace_root();
-    let files = sources(&root);
+    // The whole workspace: an empty test body is not confined to one crate.
+    let files = common::rust_sources(&root);
     let (declared, total, empty) = empty_tests(&files, &root);
 
     // ⚠️ NON-VACUITY, BEFORE ANY CLAIM. "No empty tests" and "the walker found
