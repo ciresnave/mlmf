@@ -389,7 +389,44 @@ pub fn find_gguf_files(model_dir: &Path) -> Result<Vec<PathBuf>> {
 /// anything of that shape under any architecture prefix. They are outside
 /// the format's vocabulary, so they cannot be read and their values here do
 /// not claim to come from the file. That `ModelConfig` demands them at all
-//// The architecture string the file declares, or a refusal naming why nothing
+//// The three fields a GGUF file may legitimately omit, each resolved to its
+/// documented default.
+///
+/// Grouped because they share one property, and it is the §6 property: **MLMF
+/// may supply a FORMAT's documented default, and may never supply a MODEL's
+/// value.** Each of these is the former, and the reason differs per field --
+/// which is why they carry their reasons here rather than in a table.
+struct DocumentedDefaults {
+    num_key_value_heads: usize,
+    rope_theta: f64,
+    layer_norm_eps: f64,
+}
+
+/// Resolve the optional structural fields.
+///
+/// ⚠️ None of these is a guess standing in for a value that was there. Each
+/// is what the FORMAT says an absent key means.
+fn documented_defaults(
+    meta: &mlmf_gguf::GgufMetadata<'_>,
+    arch: &str,
+    num_attention_heads: usize,
+) -> DocumentedDefaults {
+    DocumentedDefaults {
+        // Absent means MULTI-HEAD ATTENTION -- one KV head per query head,
+        // which is what the field MEANS when a file declares no separate
+        // count, not a guess. gpt-2 and mpt omit it for exactly that reason.
+        num_key_value_heads: optional_u(meta, arch, "attention.head_count_kv")
+            .unwrap_or(num_attention_heads),
+
+        // Architecture-specific and legitimately absent for some: falcon and
+        // gpt-2 declare no RoPE base, bert-bge no RMS epsilon. Where the file
+        // is silent these values do NOT claim to come from it.
+        rope_theta: optional_f(meta, arch, "rope.freq_base").unwrap_or(10000.0),
+        layer_norm_eps: optional_f(meta, arch, "attention.layer_norm_rms_epsilon").unwrap_or(1e-6),
+    }
+}
+
+/// The architecture string the file declares, or a refusal naming why nothing
 /// else can be read without it.
 ///
 /// Separated from [`config_from_gguf`] because it is a different job: this one
@@ -465,6 +502,7 @@ fn config_from_gguf(bytes: &[u8], origin: &str) -> Result<ModelConfig> {
     let arch = declared_architecture(&meta, origin)?;
 
     let num_attention_heads = required_u(&meta, &arch, "attention.head_count", origin)?;
+    let supplied = documented_defaults(&meta, &arch, num_attention_heads);
 
     Ok(ModelConfig {
         hidden_size: required_u(&meta, &arch, "embedding_length", origin)?,
@@ -473,20 +511,10 @@ fn config_from_gguf(bytes: &[u8], origin: &str) -> Result<ModelConfig> {
         max_position_embeddings: required_u(&meta, &arch, "context_length", origin)?,
         num_attention_heads,
 
-        // Absent means MULTI-HEAD ATTENTION -- one KV head per query head,
-        // which is what the field MEANS when a file declares no separate
-        // count, not a guess. gpt-2 and mpt omit it for exactly that reason.
-        num_key_value_heads: optional_u(&meta, &arch, "attention.head_count_kv")
-            .unwrap_or(num_attention_heads),
-
+        num_key_value_heads: supplied.num_key_value_heads,
         vocab_size: vocab_size_of(&meta, &arch, origin)?,
-
-        // Architecture-specific and legitimately absent for some: falcon and
-        // gpt-2 declare no RoPE base, bert-bge no RMS epsilon. Where the file
-        // is silent these values do NOT claim to come from it.
-        rope_theta: optional_f(&meta, &arch, "rope.freq_base").unwrap_or(10000.0),
-        layer_norm_eps: optional_f(&meta, &arch, "attention.layer_norm_rms_epsilon")
-            .unwrap_or(1e-6),
+        rope_theta: supplied.rope_theta,
+        layer_norm_eps: supplied.layer_norm_eps,
 
         // ⚠️ NOT FILE FACTS, AND `activation_function` IS STILL AN ASSERTION
         // WITHOUT EVIDENCE -- stated plainly because the previous wording
@@ -817,6 +845,32 @@ mod tests {
             b.extend_from_slice(&value.to_le_bytes());
         }
         b
+    }
+
+    /// ⚠️ AN ABSENT `head_count_kv` MEANS MULTI-HEAD ATTENTION, NOT A GUESS.
+    ///
+    /// The field's documented meaning when a file omits it is "one KV head per
+    /// query head" — gpt-2 and mpt omit it for exactly that reason. This is
+    /// §6's permitted case: a FORMAT's documented default, not a MODEL's value.
+    ///
+    /// Found by a sabotage, not by design: changing the fallback from
+    /// `num_attention_heads` to a constant left every test green, so nothing
+    /// covered the default at all. The corpus test that reads
+    /// `num_key_value_heads` uses a file that DECLARES the key, so it exercises
+    /// the read and never the fallback.
+    #[test]
+    fn an_absent_kv_head_count_means_one_per_query_head() {
+        // The fixture declares `attention.head_count` and no `head_count_kv`.
+        let cfg = config_from_gguf(&gguf_declaring("llama"), "no-kv.gguf")
+            .expect("a complete file yields a config");
+        assert_eq!(
+            cfg.num_attention_heads, 2,
+            "the fixture's declared head count"
+        );
+        assert_eq!(
+            cfg.num_key_value_heads, cfg.num_attention_heads,
+            "an omitted head_count_kv resolves to the query head count, which              is what the absence MEANS -- not a constant that happens to work"
+        );
     }
 
     /// ⚠️ THE ARCHITECTURE COMES FROM THE FILE, NOT FROM ITS TENSOR NAMES.
