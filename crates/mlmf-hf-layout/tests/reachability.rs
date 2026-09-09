@@ -103,13 +103,30 @@ fn read_rs(dir: &str) -> (String, usize) {
 /// a control that shares the machinery it checks cannot disagree with
 /// it. This one counts without reading, so a reader that opens fewer
 /// files than exist is visible as a mismatch.
+/// ⚠️ The entry handling matches `read_rs`'s DELIBERATELY, and it did not.
+///
+/// This used `.filter(|e| e.as_ref().is_ok_and(…))`, which **drops an unreadable
+/// entry silently** where `read_rs` panics on one. Two enumerations of the same
+/// directory disagreeing about what to do with a bad entry means the control and
+/// the thing it controls can differ for a reason that is **neither function's
+/// subject**.
+///
+/// **Not a live defect, and saying so is the point.** `count_rs` is called only
+/// from the assertion below, on the two directories `read_rs` has already walked
+/// — and `read_rs` panics on the same entry, first. The divergence needs an entry
+/// that becomes unreadable *between* those calls. It was filed as a live
+/// disagreement (#67) and that overstated it; the reachability was corrected on
+/// the issue before this change was made.
+///
+/// It is still worth closing: a latent trap in a control is the kind that
+/// surfaces when someone reorders the calls, and the doc below explains the
+/// independence — which is true — while saying nothing about entry handling,
+/// so nothing invites the question.
 fn count_rs(dir: &str) -> usize {
     fs::read_dir(dir)
         .unwrap_or_else(|e| panic!("{dir} is readable: {e}"))
-        .filter(|e| {
-            e.as_ref()
-                .is_ok_and(|e| e.path().extension().is_some_and(|x| x == "rs"))
-        })
+        .map(|e| e.unwrap_or_else(|err| panic!("{dir}: every entry must be readable: {err}")))
+        .filter(|e| e.path().extension().is_some_and(|x| x == "rs"))
         .count()
 }
 
