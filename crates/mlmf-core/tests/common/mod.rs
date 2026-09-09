@@ -134,9 +134,19 @@ pub fn axis(crate_dir: &Path) -> Axis {
 /// stated at the top of this file: the same helper in two test binaries is a
 /// helper that can be fixed in one and not the other.
 pub fn root_documents(root: &Path) -> Vec<PathBuf> {
+    // ⚠️ `.filter_map(|e| e.ok())` here USED to drop an unreadable entry
+    // silently -- the same axis this module's `rust_sources` was just fixed on,
+    // in the same file, missed because the fix was aimed at the WALKERS and this
+    // is a flat read. A document that cannot be read is a document this scanner
+    // reports clean.
     let mut out: Vec<PathBuf> = fs::read_dir(root)
         .expect("the workspace root is readable")
-        .filter_map(|e| e.ok().map(|e| e.path()))
+        .map(|e| {
+            e.unwrap_or_else(|err| {
+                panic!("every entry of {} must be readable: {err}", root.display())
+            })
+            .path()
+        })
         .filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "md"))
         .collect();
     out.sort();
