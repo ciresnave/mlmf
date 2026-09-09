@@ -1115,51 +1115,95 @@ mod tests {
     /// failure, and refusing without it discards what MLMF already knows.
     #[test]
     fn an_undecodable_file_reports_the_encodings_it_contains() {
-        let path = std::path::PathBuf::from(
-            "C:/Models/gguf-corpus/quants/SmolLM2-135M-Instruct-IQ4_XS.gguf",
-        );
-        if !path.exists() {
-            println!(
-                "SKIPPED: no IQ4_XS corpus file at {}. The diagnostic's CONTENT was \
-                 NOT checked against a real undecodable file on this run; only its \
-                 re-read fallback was.",
-                path.display()
+        // ⚠️ TWO FILES, AND THE SECOND ONE IS THE WHOLE POINT.
+        //
+        // With IQ4_XS alone this test could not tell the parser from a constant:
+        // sabotaging `trailing_number` to return a hardcoded `23` left it GREEN,
+        // because 23 IS the right answer for that file. A test whose expected
+        // value coincides with an injected default has been shown to run, not to
+        // discriminate.
+        //
+        // Q2_K reports 20 and declares 180 tensors at that code, so no single
+        // constant satisfies both rows.
+        let cases: [(&str, u32, usize); 2] = [
+            ("SmolLM2-135M-Instruct-IQ4_XS.gguf", 23, 30),
+            ("SmolLM2-135M-Instruct-Q2_K.gguf", 20, 180),
+        ];
+
+        let mut checked = 0;
+        for (file, code, tensors_at_code) in cases {
+            let path = std::path::PathBuf::from("C:/Models/gguf-corpus/quants").join(file);
+            if !path.exists() {
+                println!(
+                    "SKIPPED: no corpus file at {}. The diagnostic's CONTENT was NOT \
+                     checked against this file on this run.",
+                    path.display()
+                );
+                continue;
+            }
+            checked += 1;
+
+            let err = load_gguf(&path, &crate::loader::LoadOptions::default())
+                .err()
+                .unwrap_or_else(|| panic!("{file} cannot be decoded by this build"));
+            let msg = err.to_string();
+
+            // Control: the underlying cause is still there. A diagnostic that
+            // replaces the error is worse than one that omits the detail.
+            assert!(
+                msg.contains("unknown dtype"),
+                "{file}: the decoder's own message survives: {msg}"
             );
-            return;
+            assert!(
+                msg.contains("272 tensors"),
+                "{file}: and MLMF states what it DID read -- the full directory: {msg}"
+            );
+            assert!(
+                msg.contains(&format!("code: {code},")),
+                "{file}: including the type code the underlying message names, so \
+                 the coincidence is visible rather than needing to be known: {msg}"
+            );
+
+            // ⚠️ THE CORRECTION MUST SIT BESIDE THE TRAP, NOT UNDER THE REPORT.
+            // Adding context below a misleading sentence leaves the misleading
+            // sentence first, and a reader acts on the first line.
+            assert!(
+                msg.contains(&format!("The `{code}` in that message is a GGML TYPE CODE")),
+                "{file}: the number is corrected by name, immediately: {msg}"
+            );
+            assert!(
+                msg.contains(&format!(
+                    "{tensors_at_code} tensors whose encoding is code {code}"
+                )),
+                "{file}: and with the count that makes it undeniable rather than \
+                 asserted -- no tensor INDEX is shared by {tensors_at_code} tensors: {msg}"
+            );
         }
 
-        let err = load_gguf(&path, &crate::loader::LoadOptions::default())
-            .err()
-            .expect("an IQ4_XS file cannot be decoded by this build");
-        let msg = err.to_string();
-
-        // Control: the underlying cause is still there. A diagnostic that
-        // replaces the error is worse than one that omits the detail.
-        assert!(
-            msg.contains("unknown dtype"),
-            "the decoder's own message survives: {msg}"
-        );
-        assert!(
-            msg.contains("272 tensors"),
-            "and MLMF states what it DID read -- the full directory: {msg}"
-        );
-        assert!(
-            msg.contains("code: 23"),
-            "including the type code the underlying message names, so the \
-             coincidence is visible rather than needing to be known: {msg}"
-        );
-
-        // ⚠️ THE CORRECTION MUST SIT BESIDE THE TRAP, NOT UNDER THE REPORT.
-        // Adding context below a misleading sentence leaves the misleading
-        // sentence first, and a reader acts on the first line.
-        assert!(
-            msg.contains("The `23` in that message is a GGML TYPE CODE"),
-            "the number is corrected by name, immediately: {msg}"
-        );
-        assert!(
-            msg.contains("30 tensors whose encoding is code 23"),
-            "and with the count that makes it undeniable rather than asserted: {msg}"
-        );
+        // ⚠️ NON-VACUITY, ANNOUNCED RATHER THAN ASSERTED.
+        //
+        // Every case skipping is byte-identical to every case passing, and the
+        // `continue` above makes that outcome silent. This cannot be an
+        // `assert!`: the corpus is absent in CI by design, and failing there
+        // would turn "we could not check" into "the code is broken" -- a tool
+        // failure and a subject property sharing one exit arm.
+        //
+        // So it says so on stdout, in the token the gate runner greps for, and
+        // names the count so a partial run is distinguishable from a full one.
+        if checked == 0 {
+            println!(
+                "SKIPPED: no corpus file was present, so this test asserted NOTHING \
+                 about the diagnostic's content. Its re-read fallback is covered by \
+                 `a_diagnostic_that_cannot_re_read_returns_the_underlying_message`, \
+                 which needs no corpus."
+            );
+        } else if checked < cases.len() {
+            println!(
+                "PARTIAL: {checked} of {} corpus cases present. A single case cannot \
+                 tell the parser from a constant -- see this test's header.",
+                cases.len()
+            );
+        }
     }
 
     /// ⚠️ THE NUMBER IS TAKEN FROM THE END OF THE MESSAGE, NOT FROM ITS WORDING.
