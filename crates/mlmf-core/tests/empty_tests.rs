@@ -82,33 +82,45 @@ fn sources(root: &Path) -> Vec<PathBuf> {
 /// a false positive is loud and visible rather than silent. The opposite
 /// mistake is the one that hides a defect.
 fn strip_comments(line: &str, in_block: &mut bool) -> String {
+    let chars: Vec<char> = line.chars().collect();
     let mut out = String::with_capacity(line.len());
-    let bytes: Vec<char> = line.chars().collect();
     let mut i = 0;
-    while i < bytes.len() {
+    while i < chars.len() {
         if *in_block {
-            if bytes[i] == '*' && i + 1 < bytes.len() && bytes[i + 1] == '/' {
-                *in_block = false;
-                i += 2;
-            } else {
-                i += 1;
-            }
+            let (next, still_open) = skip_block(&chars, i);
+            i = next;
+            *in_block = still_open;
             continue;
         }
-        if bytes[i] == '/' && i + 1 < bytes.len() {
-            if bytes[i + 1] == '/' {
-                break; // line comment: nothing after it matters
-            }
-            if bytes[i + 1] == '*' {
+        match (chars[i], chars.get(i + 1)) {
+            // A line comment ends the line as far as code is concerned.
+            ('/', Some('/')) => break,
+            ('/', Some('*')) => {
                 *in_block = true;
                 i += 2;
-                continue;
+            }
+            (c, _) => {
+                out.push(c);
+                i += 1;
             }
         }
-        out.push(bytes[i]);
-        i += 1;
     }
     out
+}
+
+/// Advance past block-comment content from `i`, returning where to resume and
+/// whether the block is still open at end of line.
+///
+/// Separated from [`strip_comments`] so each function has one job: this one
+/// knows only how a block ends, and the caller knows only how one starts.
+fn skip_block(chars: &[char], mut i: usize) -> (usize, bool) {
+    while i < chars.len() {
+        if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
+            return (i + 2, false);
+        }
+        i += 1;
+    }
+    (i, true)
 }
 
 /// The line index of the `fn` belonging to the `#[test]` at `attr`, if any.
