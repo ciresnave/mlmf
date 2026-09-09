@@ -1450,9 +1450,13 @@ mod tests {
     ///
     /// This test loads a real SafeTensors file and asserts the reported count
     /// equals the number of tensors written — the end-to-end claim, not the
-    /// unit-level pass-through one in `progress.rs`.
-    #[test]
-    fn a_successful_load_reports_the_tensors_it_loaded() {
+    /// A directory the public `load_safetensors` will load: a `config.json`
+    /// and one real SafeTensors file.
+    ///
+    /// The tensor names are LLaMA-style because `SmartTensorNameMapper` must
+    /// name an architecture or the load refuses, and the tests using this are
+    /// about what a SUCCESSFUL load does.
+    fn minimal_safetensors_model() -> (TempDir, [&'static str; 5]) {
         let dir = TempDir::new().expect("temp dir");
         fs::write(
             dir.path().join("config.json"),
@@ -1486,6 +1490,13 @@ mod tests {
         }
         candlelight::safetensors::save(&written, dir.path().join("model.safetensors"))
             .expect("write safetensors");
+        (dir, names)
+    }
+
+    /// unit-level pass-through one in `progress.rs`.
+    #[test]
+    fn a_successful_load_reports_the_tensors_it_loaded() {
+        let (dir, names) = minimal_safetensors_model();
 
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = events.clone();
