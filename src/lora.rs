@@ -317,18 +317,145 @@ impl LoRAModel {
         }
     }
 
+    /// Apply every adapter update, or none of them.
+    ///
+    /// # ⚠️ Why this is four phases and not one loop
+    ///
+    /// The first version mutated each matching base tensor as it went and let
+    /// the caller check the aggregate count afterwards. **A partial match
+    /// therefore returned an error AFTER the mutations had landed**, leaving
+    /// the caller holding a half-merged model together with a message saying
+    /// the merge failed.
+    ///
+    /// That is a corruption-on-failure, and it is worse than a wrong return
+    /// value for the reason this crate keeps rediscovering: a bad value fails
+    /// in front of the person who ran it; a corrupted model fails later, in
+    /// front of whoever loads it, with the producer gone.
+    ///
+    /// So: resolve which modules match, compute every update, compute every
+    /// new tensor -- all of which can fail and none of which touches
+    /// `base_tensors` -- and only then commit, which cannot.
+    fn apply(
+        adapter: &LoRAAdapter,
+        base_tensors: &mut HashMap<String, Tensor>,
+        add: bool,
+        op: &str,
+    ) -> Result<()> {
+        let (resolved, unmatched) = Self::resolve(adapter, base_tensors);
+        Self::require_every_module_applies(&unmatched, adapter.weights.len(), op)?;
+        let committed = Self::computed(&resolved, base_tensors, add)?;
+
+        // The only phase that writes, and the only one that cannot fail.
+        for (module_name, tensor) in committed {
+            base_tensors.insert(module_name, tensor);
+        }
+        Ok(())
+    }
+
+    /// Split the adapter's modules into those with a matching base tensor and
+    /// those without. Nothing is mutated, and the unmatched set is exact
+    /// rather than a count -- the error names the modules.
+    fn resolve<'a>(
+        adapter: &'a LoRAAdapter,
+        base_tensors: &HashMap<String, Tensor>,
+    ) -> (Vec<(&'a String, &'a LoRAWeights)>, Vec<&'a str>) {
+        let mut resolved = Vec::new();
+        let mut unmatched = Vec::new();
+        for (module_name, lora_weights) in &adapter.weights {
+            if base_tensors.contains_key(module_name) {
+                resolved.push((module_name, lora_weights));
+            } else {
+                unmatched.push(module_name.as_str());
+            }
+        }
+        (resolved, unmatched)
+    }
+
+    /// Every new base tensor, computed but NOT written.
+    ///
+    /// ⚠️ This phase is separate from the commit for the reason `apply`'s doc
+    /// gives: `compute_update` and the tensor arithmetic can both fail, and a
+    /// failure must leave the model exactly as it was. Validating first and
+    /// then applying is not enough -- a shape error halfway through the
+    /// arithmetic would still land partial writes.
+    fn computed(
+        resolved: &[(&String, &LoRAWeights)],
+        base_tensors: &HashMap<String, Tensor>,
+        add: bool,
+    ) -> Result<Vec<(String, Tensor)>> {
+        let mut out = Vec::with_capacity(resolved.len());
+        for (module_name, lora_weights) in resolved {
+            let update = lora_weights.compute_update()?;
+            let base = base_tensors
+                .get(*module_name)
+                .expect("resolved above, and nothing has been removed since");
+            let next = if add {
+                (base.clone() + update)?
+            } else {
+                (base.clone() - update)?
+            };
+            out.push(((*module_name).clone(), next));
+        }
+        Ok(out)
+    }
+
+    /// ⚠️ A merge that applied nothing is not a merge.
+    ///
+    /// Both operations skip a module with no matching base tensor, which is
+    /// correct per module and silent in aggregate: with an empty base map --
+    /// which `load_model_with_adapter` produced until 2026-09-09 -- `merge()`
+    /// matched ZERO modules, set `is_merged = true`, and returned `Ok(())`.
+    ///
+    /// A name-mapping mismatch produces the same silence with no defect
+    /// upstream, so this is not merely a guard against that one bug.
+    ///
+    /// # ⚠️ Why the empty adapter is checked SEPARATELY
+    ///
+    /// The first version compared counts: `matched == total`. **That is
+    /// vacuous at zero.** An adapter whose modules all failed to parse has
+    /// `total == 0`, so `0 == 0` passed the guard and `merge` went on to mark
+    /// an untouched model merged -- the exact outcome the guard was written to
+    /// refuse, in the guard itself.
+    ///
+    /// An equality between two counts cannot distinguish "everything applied"
+    /// from "there was nothing to apply", and the second is the case this
+    /// exists for.
+    fn require_every_module_applies(unmatched: &[&str], total: usize, op: &str) -> Result<()> {
+        if total == 0 {
+            return Err(Error::tensor_name_mapping(format!(
+                "{op} was asked to apply an adapter that declares NO modules. \
+                 Nothing would be applied, and the model would be marked \
+                 {op}d regardless. An adapter whose tensor names did not parse \
+                 arrives here looking exactly like this."
+            )));
+        }
+        if unmatched.is_empty() {
+            return Ok(());
+        }
+        let shown: Vec<&str> = unmatched.iter().take(5).copied().collect();
+        let more = unmatched.len().saturating_sub(shown.len());
+        Err(Error::tensor_name_mapping(format!(
+            "{op} matched {} of {total} adapter modules against the base model. \
+             The unmatched modules have no base tensor of the same name, so \
+             their weights would not be applied:\n  {}{}\n\n\
+             Nothing was written -- the base model is unchanged.",
+            total - unmatched.len(),
+            shown.join("\n  "),
+            if more > 0 {
+                format!("\n  ... and {more} more")
+            } else {
+                String::new()
+            }
+        )))
+    }
+
     /// Merge LoRA weights into base model (in-place)
     pub fn merge(&mut self) -> Result<()> {
         if self.is_merged {
             return Ok(()); // Already merged
         }
 
-        for (module_name, lora_weights) in &self.adapter.weights {
-            if let Some(base_weight) = self.base_tensors.get_mut(module_name) {
-                let update = lora_weights.compute_update()?;
-                *base_weight = (base_weight.clone() + update)?;
-            }
-        }
+        Self::apply(&self.adapter, &mut self.base_tensors, true, "merge")?;
 
         self.is_merged = true;
         Ok(())
@@ -340,12 +467,7 @@ impl LoRAModel {
             return Ok(()); // Already unmerged
         }
 
-        for (module_name, lora_weights) in &self.adapter.weights {
-            if let Some(base_weight) = self.base_tensors.get_mut(module_name) {
-                let update = lora_weights.compute_update()?;
-                *base_weight = (base_weight.clone() - update)?;
-            }
-        }
+        Self::apply(&self.adapter, &mut self.base_tensors, false, "unmerge")?;
 
         self.is_merged = false;
         Ok(())
@@ -563,27 +685,46 @@ pub mod lora {
         Ok(())
     }
 
-    /// Load base model and LoRA adapter together
+    /// Load base model and LoRA adapter together.
+    ///
+    /// # ⚠️ What this did until 2026-09-09
+    ///
+    /// It took a base model path as `_base_model_path` -- underscored, so the
+    /// compiler would not object -- **ignored it**, and returned a `LoRAModel`
+    /// whose base tensor map was `HashMap::new()`, under a `// Placeholder`
+    /// and a `// TODO: Use main model loader here`.
+    ///
+    /// ⚠️ **The consequence was not an error, it was silence.**
+    /// [`LoRAModel::merge`] merges only where a base tensor exists for a
+    /// module, so an empty base map made `merge()` a no-op that set
+    /// `is_merged = true` and returned `Ok(())`. A caller loaded a model,
+    /// merged an adapter into it, and was told it worked.
+    ///
+    /// It is `pub` with **no caller in this repository**, so no in-repo test
+    /// could have noticed -- the only people who could reach it were outside
+    /// the crate, which is the worst place for a defect and the reason it
+    /// survived.
     pub fn load_model_with_adapter<P1: AsRef<Path>, P2: AsRef<Path>>(
-        _base_model_path: P1,
+        base_model_path: P1,
         adapter_path: P2,
         device: &Device,
         progress_callback: Option<ProgressFn>,
     ) -> Result<LoRAModel> {
-        // Load base model (simplified - in practice would use main loader)
         if let Some(ref progress) = progress_callback {
             progress(ProgressEvent::Status {
                 message: "Loading base model...".to_string(),
             });
         }
 
-        // TODO: Use main model loader here
-        let base_tensors = HashMap::new(); // Placeholder
+        // The main loader, which is what the TODO asked for. It dispatches on
+        // the path's shape, so this accepts every format the crate reads
+        // rather than a subset chosen here.
+        let options = crate::loader::LoadOptions::new(device.clone(), candlelight::DType::F32);
+        let base = crate::universal_loader::load_model(base_model_path.as_ref(), options)?;
 
-        // Load adapter
         let adapter = load_adapter(adapter_path, device, progress_callback)?;
 
-        Ok(LoRAModel::new(base_tensors, adapter))
+        Ok(LoRAModel::new(base.raw_tensors, adapter))
     }
 
     /// Information about a LoRA tensor name
@@ -908,6 +1049,270 @@ pub mod lora {
 mod tests {
     use super::*;
     use candlelight::Device;
+
+    /// An adapter with one module, shaped so `compute_update` produces a
+    /// `hidden x hidden` matrix that can be added to a base weight.
+    ///
+    /// ⚠️ ONES, NOT ZEROS, AND THAT IS THE WHOLE FIXTURE. `compute_update`
+    /// is `lora_b.matmul(lora_a) * scaling`, so zero matrices make the update a
+    /// ZERO matrix -- and adding zero to a base tensor is indistinguishable
+    /// from not adding anything at all.
+    ///
+    /// A test asserting the base is UNCHANGED after a refused merge passed
+    /// against a sabotage that applied the update anyway, because the update
+    /// had no effect. **The fixture has to make the two behaviours diverge, or
+    /// the assertion is measuring where they agree.**
+    fn one_module_adapter(hidden: usize, rank: usize) -> LoRAAdapter {
+        let dev = Device::Cpu;
+        let mut adapter = LoRAAdapter::new(LoRAConfig::new(rank, rank as f64));
+        adapter.weights.insert(
+            "model.layers.0.self_attn.q_proj".to_string(),
+            LoRAWeights {
+                lora_a: candlelight::Tensor::ones((rank, hidden), candlelight::DType::F32, &dev)
+                    .expect("lora_a"),
+                lora_b: candlelight::Tensor::ones((hidden, rank), candlelight::DType::F32, &dev)
+                    .expect("lora_b"),
+                lora_bias: None,
+                scaling: 1.0,
+            },
+        );
+        adapter
+    }
+
+    /// ⚠️ A MERGE THAT MATCHED NOTHING IS NOT A MERGE.
+    ///
+    /// `merge` applies an update only where the base map holds a tensor of the
+    /// same name -- correct per module, and silent in aggregate. With an empty
+    /// base map, which `load_model_with_adapter` produced until 2026-09-09, it
+    /// matched ZERO modules, set `is_merged = true`, and returned `Ok(())`.
+    #[test]
+    fn merging_into_an_empty_base_is_an_error_not_a_success() {
+        let mut model = LoRAModel::new(HashMap::new(), one_module_adapter(4, 2));
+
+        let err = model
+            .merge()
+            .expect_err("nothing matched, so this is not a merge");
+        assert!(
+            err.to_string().contains("matched 0 of 1"),
+            "the error states how many of how many matched: {err}"
+        );
+        assert!(
+            !model.is_merged,
+            "and the model is NOT marked merged -- the old code set this flag \
+             before returning Ok"
+        );
+    }
+
+    /// ⚠️ THE CONTROL. The error above must come from the MISMATCH, not from
+    /// `merge` being broken for every input.
+    #[test]
+    fn merging_into_a_matching_base_succeeds() {
+        let dev = Device::Cpu;
+        let mut base = HashMap::new();
+        base.insert(
+            "model.layers.0.self_attn.q_proj".to_string(),
+            candlelight::Tensor::zeros((4, 4), candlelight::DType::F32, &dev).expect("base"),
+        );
+        let mut model = LoRAModel::new(base, one_module_adapter(4, 2));
+
+        model.merge().expect("every module has a base tensor");
+        assert!(model.is_merged);
+    }
+
+    /// ⚠️ AN ADAPTER WITH NO MODULES IS NOT A NO-OP MERGE, IT IS A REFUSAL.
+    ///
+    /// The first version of the guard compared counts: `matched == total`.
+    /// **That is vacuous at zero.** An adapter whose tensor names all failed to
+    /// parse has `total == 0`, so `0 == 0` passed and `merge` marked an
+    /// untouched model merged -- the exact outcome the guard was written to
+    /// refuse, occurring inside the guard.
+    ///
+    /// An equality between two counts cannot distinguish "everything applied"
+    /// from "there was nothing to apply", and the second is the case that
+    /// matters.
+    #[test]
+    fn merging_an_adapter_with_no_modules_is_an_error() {
+        let dev = Device::Cpu;
+        let mut base = HashMap::new();
+        base.insert(
+            "model.layers.0.self_attn.q_proj".to_string(),
+            candlelight::Tensor::zeros((4, 4), candlelight::DType::F32, &dev).expect("base"),
+        );
+        // A well-formed base, and an adapter that parsed nothing.
+        let empty = LoRAAdapter::new(LoRAConfig::new(2, 4.0));
+        assert_eq!(empty.weights.len(), 0, "the adapter really is empty");
+
+        let mut model = LoRAModel::new(base, empty);
+        let err = model
+            .merge()
+            .expect_err("an adapter with no modules cannot be merged");
+        assert!(
+            err.to_string().contains("declares NO modules"),
+            "the refusal names the empty adapter rather than a count: {err}"
+        );
+        assert!(!model.is_merged, "and the model is not marked merged");
+    }
+
+    /// ⚠️ A FAILED MERGE MUST LEAVE THE BASE MODEL UNTOUCHED.
+    ///
+    /// `apply` used to mutate each matching tensor as it went, and the count
+    /// was validated afterwards -- so a partial match returned an error AFTER
+    /// the mutations landed, leaving the caller a half-merged model and a
+    /// message saying the merge failed.
+    ///
+    /// This is the write-side asymmetry again: a bad return value fails in
+    /// front of the person who ran it; a corrupted model fails later, in front
+    /// of whoever loads it, with the producer gone.
+    #[test]
+    fn a_refused_merge_does_not_modify_the_base_model() {
+        let dev = Device::Cpu;
+        let matched_name = "model.layers.0.self_attn.q_proj";
+
+        // A base holding ONLY the module the adapter's first entry matches.
+        let mut base = HashMap::new();
+        base.insert(
+            matched_name.to_string(),
+            candlelight::Tensor::ones((4, 4), candlelight::DType::F32, &dev).expect("base"),
+        );
+
+        // An adapter with that module AND one the base does not have, so the
+        // merge is refused -- after the first module would have been applied
+        // under the old order.
+        let mut adapter = one_module_adapter(4, 2);
+        let extra = adapter
+            .weights
+            .get(matched_name)
+            .expect("the fixture module")
+            .clone();
+        adapter
+            .weights
+            .insert("model.layers.99.absent_from_base".to_string(), extra);
+
+        let before = base
+            .get(matched_name)
+            .expect("present")
+            .to_vec2::<f32>()
+            .expect("readable");
+
+        let mut model = LoRAModel::new(base, adapter);
+        let err = model
+            .merge()
+            .expect_err("one module has no base tensor, so the merge is refused");
+        assert!(
+            err.to_string().contains("model.layers.99.absent_from_base"),
+            "the refusal names the unmatched module: {err}"
+        );
+
+        let after = model
+            .base_tensors
+            .get(matched_name)
+            .expect("still present")
+            .to_vec2::<f32>()
+            .expect("readable");
+        assert_eq!(
+            before, after,
+            "the MATCHING module's tensor is byte-for-byte what it was. Under \
+             the old apply-then-validate order this tensor had already been \
+             modified when the error was returned"
+        );
+        assert!(!model.is_merged);
+    }
+
+    /// ⚠️ `unmerge` CARRIES THE SAME GUARD AND NEEDED ITS OWN TEST.
+    ///
+    /// It was added because a sabotage said so: removing the guard from
+    /// `unmerge` alone left every test green, while the identical mutation on
+    /// `merge` went red. **One test does not cover two call sites**, and the
+    /// only reason to think it did was that the two functions look alike.
+    #[test]
+    fn unmerging_from_an_empty_base_is_an_error_not_a_success() {
+        let mut model = LoRAModel::new(HashMap::new(), one_module_adapter(4, 2));
+        // Reach the unmerge path without going through a successful merge.
+        model.is_merged = true;
+
+        let err = model
+            .unmerge()
+            .expect_err("nothing matched, so this is not an unmerge");
+        assert!(
+            err.to_string().contains("matched 0 of 1"),
+            "the error states how many of how many matched: {err}"
+        );
+        assert!(
+            model.is_merged,
+            "and the model is still marked merged -- the flag is not cleared              by an operation that did nothing"
+        );
+    }
+
+    /// A directory `load_adapter` accepts: a config and one real adapter file.
+    ///
+    /// Built so the ONLY thing that can fail in the test below is the base
+    /// model path.
+    fn valid_adapter_dir() -> tempfile::TempDir {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        std::fs::write(
+            dir.path().join("adapter_config.json"),
+            r#"{"r": 2, "lora_alpha": 4.0, "target_modules": ["q_proj"]}"#,
+        )
+        .expect("adapter_config.json");
+
+        let dev = Device::Cpu;
+        let mut t = HashMap::new();
+        for (n, r, c) in [
+            (
+                "base_model.model.layers.0.self_attn.q_proj.lora_A.weight",
+                2,
+                4,
+            ),
+            (
+                "base_model.model.layers.0.self_attn.q_proj.lora_B.weight",
+                4,
+                2,
+            ),
+        ] {
+            t.insert(
+                n.to_string(),
+                candlelight::Tensor::zeros((r, c), candlelight::DType::F32, &dev).expect("tensor"),
+            );
+        }
+        candlelight::safetensors::save(&t, dir.path().join("adapter_model.safetensors"))
+            .expect("adapter weights");
+        dir
+    }
+
+    /// ⚠️ THE BASE MODEL PATH IS READ NOW.
+    ///
+    /// It was `_base_model_path` -- underscored so the compiler would not
+    /// object -- and the base map was `HashMap::new()`. Any path at all,
+    /// including one that does not exist, produced a `LoRAModel` and `Ok`.
+    ///
+    /// ⚠️ **THE ADAPTER MUST BE VALID, AND THAT IS THE WHOLE TEST.** The
+    /// first version of this passed a bogus path for BOTH, and a sabotage
+    /// restoring the empty base map left it GREEN: the adapter load failed
+    /// instead, so the assertion could not tell which refusal it had caught.
+    /// A real refusal standing in for the one under test is invisible to any
+    /// check that only asks whether an error occurred.
+    #[test]
+    fn a_base_model_path_that_does_not_exist_is_an_error() {
+        let adapter = valid_adapter_dir();
+
+        // Control: the adapter alone loads, so it cannot be the failure below.
+        lora::load_adapter(adapter.path(), &Device::Cpu, None)
+            .expect("the fixture adapter is valid on its own");
+
+        let err = lora::load_model_with_adapter(
+            std::path::Path::new("no/such/base/model"),
+            adapter.path(),
+            &Device::Cpu,
+            None,
+        )
+        .err()
+        .expect("the base model path is read, so a missing one fails");
+
+        assert!(
+            !err.to_string().contains("adapter"),
+            "the failure is the BASE model, not the adapter -- the adapter              loaded cleanly one line above: {err}"
+        );
+    }
 
     #[test]
     fn test_lora_config_creation() {
