@@ -18,7 +18,7 @@ use crate::{
     saver::{ModelSaver, SaveOptions},
 };
 use candlelight::Tensor;
-use std::{collections::HashMap, fs::File, io::Write, path::Path};
+use std::{collections::HashMap, path::Path};
 
 /// ONNX model architecture types we can export
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -619,8 +619,11 @@ fn extract_layer_index(tensor_name: &str) -> Option<usize> {
     }
 }
 
-/// ONNX model exporter for production use
-/// Provides comprehensive ONNX export functionality with proper protobuf schema
+/// ONNX model exporter.
+///
+/// ⚠️ **Export is NOT IMPLEMENTED** — see [`ONNXSaver::export_graph`].
+/// This said it "provides comprehensive ONNX export functionality with
+/// proper protobuf schema"; it wrote a text file.
 /// integration and full architecture support.
 pub struct ONNXSaver {
     options: ONNXExportOptions,
@@ -632,74 +635,56 @@ impl ONNXSaver {
         Self { options }
     }
 
-    /// Export graph to production ONNX format
+    /// ⚠️ NOT IMPLEMENTED. Refuses rather than writing a text file named
+    /// `.onnx`.
+    ///
+    /// # What this did until 2026-09-09
+    ///
+    /// It wrote a human-readable summary with `writeln!` — `# MLMF ONNX
+    /// Export - Production Format`, then the inputs, outputs, initializers
+    /// and nodes as prose lines — and returned `Ok`.
+    ///
+    /// Measured: `export_to_onnx` with `TransformerDecoder` produced a
+    /// **424-byte text file beginning with `#`**. An ONNX file is a protobuf
+    /// and a protobuf never begins with `#`. Nothing that reads ONNX can open
+    /// it.
+    ///
+    /// ⚠️ Three comments in this file asserted the opposite: *"proper protobuf
+    /// schema"*, *"Uses standard ONNX protobuf format for production
+    /// compatibility"*, and a line written INTO the output saying *"This is a
+    /// production-ready ONNX representation."* All three were false, and the
+    /// last one shipped inside the artifact.
+    ///
+    /// This is less severe than the GGUF writer fixed in #58 for one reason
+    /// worth stating: the output fails at LOAD, loudly, in front of whoever
+    /// opens it. The GGUF one produced a structurally valid file. **A wrong
+    /// artifact that cannot be opened is better than one that can.**
+    ///
+    /// Writing real ONNX means emitting the protobuf schema — `prost` and
+    /// `prost-types` are already dependencies behind the `onnx` feature, and
+    /// `onnx_import` includes generated bindings via `onnx_proto`. That is a
+    /// real piece of work, not a constant swap, and it is not guessed at here.
     fn export_graph(&self, graph: &ONNXGraph, path: &Path) -> Result<()> {
-        let mut file = File::create(path).map_err(|e| {
-            Error::model_loading(&format!(
-                "Failed to create ONNX file {}: {}",
-                path.display(),
-                e
-            ))
-        })?;
-
-        // Write ONNX representation with full metadata
-        // Uses standard ONNX protobuf format for production compatibility
-        writeln!(file, "# MLMF ONNX Export - Production Format")?;
-        writeln!(file, "# Producer: {}", self.options.producer_name)?;
-        writeln!(file, "# Architecture: {:?}", self.options.architecture)?;
-        writeln!(file, "# Opset: {}", self.options.opset_version)?;
-        writeln!(file)?;
-
-        writeln!(file, "## Model Graph")?;
-        writeln!(file, "Graph: {}", graph.name)?;
-        writeln!(file)?;
-
-        writeln!(file, "### Inputs")?;
-        for input in &graph.inputs {
-            writeln!(
-                file,
-                "Input: {} {:?} {:?}",
-                input.name, input.shape, input.dtype
-            )?;
-        }
-        writeln!(file)?;
-
-        writeln!(file, "### Outputs")?;
-        for output in &graph.outputs {
-            writeln!(
-                file,
-                "Output: {} {:?} {:?}",
-                output.name, output.shape, output.dtype
-            )?;
-        }
-        writeln!(file)?;
-
-        writeln!(file, "### Initializers")?;
-        for (name, tensor) in &graph.initializers {
-            writeln!(file, "Weight: {} {:?}", name, tensor.shape())?;
-        }
-        writeln!(file)?;
-
-        writeln!(file, "### Nodes")?;
-        for node in &graph.nodes {
-            writeln!(
-                file,
-                "Node: {} [{}] {:?} -> {:?}",
-                node.name, node.op_type, node.inputs, node.outputs
-            )?;
-        }
-
-        writeln!(file)?;
-        writeln!(
-            file,
-            "# Note: This is a production-ready ONNX representation."
-        )?;
-        writeln!(
-            file,
-            "# Compatible with standard ONNX runtime and inference frameworks."
-        )?;
-
-        Ok(())
+        Err(Error::model_saving(format!(
+            concat!(
+                "ONNX export is NOT IMPLEMENTED. Refusing rather than writing ",
+                "a file that is not ONNX.\n\n",
+                "Requested: {} ({} nodes, {} initializers)\n",
+                "Target: {}\n\n",
+                "Until 2026-09-09 this wrote a human-readable TEXT summary and ",
+                "returned success. The result began with `#`, so no ONNX ",
+                "reader could open it, while three comments in the source and ",
+                "one line inside the output itself called it production-ready ",
+                "protobuf.\n\n",
+                "Real ONNX output needs the protobuf schema. `prost` and the ",
+                "generated `onnx_proto` bindings already exist behind the ",
+                "`onnx` feature; wiring them is the work."
+            ),
+            graph.name,
+            graph.nodes.len(),
+            graph.initializers.len(),
+            path.display()
+        )))
     }
 }
 
@@ -814,10 +799,33 @@ pub fn save_as_onnx(
     path: &Path,
     export_options: OnnxExportOptions,
 ) -> crate::Result<()> {
-    // Convert LoadedModel tensors to HashMap<String, Tensor>
-    // For now, this is a placeholder since we need actual tensor data
-    let tensors = std::collections::HashMap::new();
+    // ⚠️ The model's OWN tensors. This was `HashMap::new()` under "For now,
+    // this is a placeholder since we need actual tensor data" — it discarded
+    // every tensor it was handed, the same shape as the AWQ loader in #43 and
+    // the SafeTensors writer in #49.
+    //
+    // It was LATENT rather than live: `ONNXArchitecture::Custom` below reaches
+    // the `_` arm of the architecture match, which refuses before the tensors
+    // are used. Fixed anyway, because a defect that is unreachable today is
+    // reachable the moment somebody adds a Custom arm — and nothing in that
+    // change would touch this line.
+    let tensors = model.raw_tensors.clone();
 
+    // ⚠️ A SECOND DISCARD, ONE LINE FROM THE FIRST, AND NOT FIXED HERE.
+    //
+    // `export_options` — the caller's opset version, metadata and optimise
+    // flag — is ignored. These options are built fresh and the argument is
+    // never read, which is why clippy reports it unused.
+    //
+    // Left as-is rather than mapped, because honouring it means translating
+    // `OnnxExportOptions` into `ONNXExportOptions` field by field for a path
+    // that refuses before either is used: `Custom` reaches the architecture
+    // match's `_` arm. Writing that mapping now would be untestable code
+    // serving an unreachable call, which is the shape deleted from the AWQ
+    // loader in #43.
+    //
+    // It is named here rather than left to be rediscovered, and it becomes
+    // real work the moment ONNX export is implemented.
     let onnx_options = ONNXExportOptions::new(ONNXArchitecture::Custom)
         .with_metadata("converted_by", "mlmf")
         .with_metadata("source_format", "mlmf_loaded_model");
@@ -843,4 +851,98 @@ pub struct OnnxExportOptions {
     pub opset_version: Option<i64>,
     /// Whether to optimize the exported graph
     pub optimize_graph: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn two_tensors() -> HashMap<String, Tensor> {
+        let dev = candlelight::Device::Cpu;
+        let mut t = HashMap::new();
+        for n in ["w1", "w2"] {
+            t.insert(
+                n.to_string(),
+                Tensor::ones((2, 2), candlelight::DType::F32, &dev).expect("t"),
+            );
+        }
+        t
+    }
+
+    fn save_options() -> crate::saver::SaveOptions {
+        crate::saver::SaveOptions {
+            progress_callback: None,
+            compression: None,
+            metadata: HashMap::new(),
+        }
+    }
+
+    /// ⚠️ IT REFUSES RATHER THAN WRITING A TEXT FILE NAMED `.onnx`.
+    ///
+    /// Measured before this was fixed: `export_to_onnx` with
+    /// `TransformerDecoder` returned `Ok` and produced a **424-byte text file
+    /// beginning with `#`** — `# MLMF ONNX Export - Production Format`. An
+    /// ONNX file is a protobuf and a protobuf never begins with `#`, so
+    /// nothing that reads ONNX could open it.
+    #[test]
+    fn a_transformer_graph_is_not_written_as_text() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let path = dir.path().join("out.onnx");
+
+        let err = export_to_onnx(
+            &two_tensors(),
+            &path,
+            ONNXExportOptions::new(ONNXArchitecture::TransformerDecoder),
+            &save_options(),
+        )
+        .expect_err("ONNX export is not implemented and must refuse");
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("NOT IMPLEMENTED"),
+            "the refusal says plainly that nothing is written: {msg}"
+        );
+        assert!(
+            msg.contains("not ONNX"),
+            "and names what the old output was not: {msg}"
+        );
+
+        // ⚠️ And nothing is left behind. A refusal that still creates the file
+        // leaves a caller with a path that exists and cannot be opened.
+        assert!(
+            !path.exists() || std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) == 0,
+            "a refused export leaves no non-empty file at {}",
+            path.display()
+        );
+    }
+
+    /// ⚠️ THE CONTROL. The refusal above must be the WRITER'S, not the
+    /// pre-existing architecture refusal that fires earlier for other arms.
+    ///
+    /// `Custom` reaches the `_` arm of the architecture match and refuses with
+    /// its own, different message. Without this, the test above would pass for
+    /// an unrelated reason on any architecture.
+    #[test]
+    fn the_architecture_refusal_is_distinguishable_from_the_writer_refusal() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let err = export_to_onnx(
+            &two_tensors(),
+            &dir.path().join("custom.onnx"),
+            ONNXExportOptions::new(ONNXArchitecture::Custom),
+            &save_options(),
+        )
+        .expect_err("an unsupported architecture refuses");
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("not yet implemented"),
+            "the architecture arm has its own wording: {msg}"
+        );
+        assert!(
+            !msg.contains("NOT IMPLEMENTED"),
+            "and it is NOT the writer's refusal, so the test above is reaching \
+             the writer: {msg}"
+        );
+    }
 }
