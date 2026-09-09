@@ -6,6 +6,8 @@
 
 **MLMF** (Machine Learning Model Files) is a Rust crate for working with ML model files. MLMF provides loading, saving, conversion, and dynamic mapping capabilities for transformer models across SafeTensors, GGUF and ONNX. **PyTorch `.bin` / `.pt` reading is not implemented**: `load_zip_pickle` and `load_legacy_pickle` both return an error advising conversion in Python, and a real pickle VM lands with `mlmf-pickle`. **AWQ is not implemented in either direction**: `save_as_awq` returns an error, and `load_awq` now does too -- until it did, it returned `Ok` with zero tensors while reporting five. AWQ detection, config parsing and `.safetensors` discovery exist around it.
 
+⚠️ **ONNX loading reads tensors faithfully; its `ModelConfig` does not.** `vocab_size`, `hidden_size`, `num_hidden_layers` and `intermediate_size` are derived from tensor shapes, but **`num_attention_heads` is GUESSED** (`hidden_size / 64`, falling back to `/ 32`) and is copied into `num_key_value_heads`, so **every ONNX model is reported as non-GQA**. `rope_theta` (`10000.0`), `activation_function` (`"gelu"`), both dropouts and `layer_norm_eps` are constants asserted for every architecture -- an ONNX graph carries no vocabulary for them. Read the tensors; do not trust the config.
+
 > **Note on this README.** MLMF is being rebuilt as a set of backend-agnostic crates under `crates/`, beginning with `mlmf-core`. See `docs/superpowers/specs/2026-08-14-backend-agnostic-mlmf-design.md`. The feature list below describes the legacy root crate, several parts of which that design schedules for deletion (calibration-based quantization, distributed loading, model cards, multimodal, architecture inference from tensor-name patterns).
 
 ## Features

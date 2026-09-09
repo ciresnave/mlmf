@@ -456,7 +456,15 @@ impl ONNXLoader {
             }
         }
 
-        // Estimate attention heads (typically hidden_size / 64 or similar)
+        // ⚠️ GUESSED, NOT READ. An ONNX graph carries tensor shapes, not a
+        // declared head count, so this DIVIDES the hidden size and hopes. It is
+        // right for the common head_dim of 64 or 32 and wrong for every model
+        // that uses another -- and nothing downstream can tell which it got.
+        //
+        // The same value is then used for `num_key_value_heads` below, so
+        // EVERY ONNX model is reported as non-GQA. Measured against a real
+        // checkpoint in #37, a GGUF file with 9 heads and 3 KV heads: a loader
+        // that equates them mis-states the attention shape, not just a number.
         num_heads = if hidden_size % 64 == 0 {
             hidden_size / 64
         } else if hidden_size % 32 == 0 {
@@ -469,10 +477,37 @@ impl ONNXLoader {
             vocab_size,
             hidden_size,
             num_attention_heads: num_heads,
-            num_key_value_heads: num_heads, // ONNX doesn't specify GQA
+            // ⚠️ Not a file fact: ONNX declares no GQA grouping, so this
+            // asserts every model has none. See the note at `num_heads`.
+            num_key_value_heads: num_heads,
             num_hidden_layers: num_layers,
             intermediate_size,
             max_position_embeddings: max_pos_embeddings,
+
+            // ⚠⚠ EVERYTHING BELOW IS ASSERTED WITHOUT EVIDENCE. None of it is
+            // read from the ONNX file, and none of it is a documented ONNX
+            // default -- ONNX has no vocabulary for any of these, so they are
+            // UNREPRESENTABLE rather than absent. That explains why they cannot
+            // be read. It does NOT make them true.
+            //
+            // ⚠️ `rope_theta: 10000.0` is the same field and the same constant
+            // that #37 removed from the GGUF loader, where the checkpoint I
+            // measured declares 100000 -- a factor of ten out. A caller cannot
+            // distinguish "the model uses 10000" from "MLMF had nothing to say".
+            //
+            // ⚠️ `activation_function: "gelu"` is returned for EVERY
+            // architecture, exactly as `"silu"` was in GGUF before #41.
+            //
+            // Spec §6 draws the line these sit astride: MLMF may supply a
+            // FORMAT's documented default and may never supply a MODEL's value.
+            // `rope_theta` and the activation are a model's; the dropouts are
+            // arguably inference-time settings rather than model facts. Not
+            // fixed here because the remedy is not a better constant -- it is
+            // `Resolution::Supplied { value, citation }` from #22, which makes
+            // a supplied value citable and surfaces it in the conversion
+            // report, and that is a §12-sized job in `mlmf-core`, not a
+            // constant swap. Named here so it is disclosed rather than shipped
+            // silently.
             dropout: 0.1,
             layer_norm_eps: 1e-5,
             attention_dropout: 0.1,
