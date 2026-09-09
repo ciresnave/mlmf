@@ -207,58 +207,59 @@ fn load_model_file(path: &Path, options: LoadOptions) -> Result<LoadedModel> {
     }
 }
 
-/// Create a LoadedModel from raw tensors (for formats without config.json)
+/// Build a [`LoadedModel`] from raw tensors, for a format that carries no
+/// `config.json`.
+///
+/// ⚠️ **It refuses.** A bare tensor map does not carry a model's
+/// architecture, and MLMF may not invent one.
+///
+/// # What it did until this commit
+///
+/// It returned `Ok` with a `ModelConfig` assembled from **GPT-2's constants**
+/// -- `vocab_size: 50257`, `hidden_size: 768`, `num_attention_heads: 12`,
+/// `intermediate_size: 3072`, `activation_function: "gelu"` -- regardless of
+/// the tensors handed to it, and a `VarBuilder` built from an **empty**
+/// `VarMap` while `raw_tensors` held the real tensors. A consumer reading the
+/// `var_builder` got nothing; a consumer reading `raw_tensors` got data.
+///
+/// Spec §6: MLMF may supply a format's documented default. **It may never
+/// supply a model's value**, and `hidden_size` is a model's value. This was
+/// the third instance of the defect fixed in #37 (LLaMA-7B constants in the
+/// GGUF loader) and in the AWQ loader (LLaMA-7B constants again).
+///
+/// # ⚠️ Why nobody noticed, and what arms it
+///
+/// Its only caller is the `"pt" | "pth" | "bin"` arm of [`load_model_file`],
+/// which runs `load_pytorch(path)?` first -- and every terminal path through
+/// `PyTorchLoader::load_with_metadata` returns `Err`. **The `?` short-circuits,
+/// so this function has never been reachable.** It arms itself the moment
+/// §12 step 6 lands `mlmf-pickle` and PyTorch loading starts returning `Ok`,
+/// at which point the public `mlmf::load_model("model.pt")` would begin
+/// handing back GPT-2's hidden size. **The change that arms it is in a
+/// different crate from the defect.**
+///
+/// `the_pytorch_arm_cannot_reach_the_config_seam` in this module's tests is
+/// the detector: it measures that short-circuit rather than assuming it.
+#[cfg_attr(not(feature = "pytorch"), allow(dead_code))]
 fn create_loaded_model_from_tensors(
     tensors: HashMap<String, Tensor>,
-    options: LoadOptions,
+    _options: LoadOptions,
 ) -> Result<LoadedModel> {
-    use crate::{config::ModelConfig, smart_mapping::SmartTensorNameMapper};
-    use candlelight::VarBuilder;
+    Err(Error::model_loading(format!(
+        concat!(
+            "cannot build a model config from tensors alone. ",
+            "{} tensors were read, but the format carries no `config.json` and ",
+            "a tensor map does not declare vocab_size, hidden_size, ",
+            "num_attention_heads, num_hidden_layers, intermediate_size or the ",
+            "activation function.
 
-    // Create default config
-    use crate::name_mapping::Architecture;
-    let config = ModelConfig {
-        vocab_size: 50257,
-        hidden_size: 768,
-        num_attention_heads: 12,
-        num_key_value_heads: 12,
-        num_hidden_layers: 12,
-        intermediate_size: 3072,
-        max_position_embeddings: 2048,
-        dropout: 0.1,
-        layer_norm_eps: 1e-5,
-        attention_dropout: 0.1,
-        activation_function: "gelu".to_string(),
-        rope_theta: 10000.0,
-        tie_word_embeddings: false,
-        architecture: Architecture::Unknown,
-        raw_config: serde_json::Value::Null,
-    };
-
-    // Create name mapper - simplified for now
-    let mut name_mapper = SmartTensorNameMapper::new(); // Add smart mapping oracle if provided
-    if let Some(oracle) = options.smart_mapping_oracle {
-        name_mapper = name_mapper.with_oracle(oracle);
-    }
-
-    // Create var builder from tensors
-    // This is a simplified approach - proper VarBuilder creation from raw tensors
-    // requires more complex integration with Candle's VarMap
-    use candlelight::prelude::VarMap;
-    let var_map = VarMap::new();
-    let var_builder = VarBuilder::from_varmap(&var_map, options.dtype, &options.device);
-
-    Ok(LoadedModel {
-        var_builder,
-        config,
-        name_mapper,
-        raw_tensors: tensors,
-        quantized_tensors: None,
-        metadata: crate::metadata::ModelMetadata::new(),
-        tensor_info: HashMap::new(),
-        quantization_info: None,
-        provenance: crate::metadata::ModelProvenance::new(),
-    })
+",
+            "MLMF will not supply them. Until this commit it returned GPT-2's ",
+            "constants (vocab_size 50257, hidden_size 768, 12 heads, \"gelu\") ",
+            "for every model, alongside a VarBuilder built from an empty VarMap.",
+        ),
+        tensors.len()
+    )))
 }
 
 /// Quick format detection without loading
@@ -358,5 +359,75 @@ mod tests {
         std::fs::write(temp_dir.path().join("model.safetensors"), b"dummy").unwrap();
 
         assert_eq!(detect_model_format(temp_dir.path()).unwrap(), "SafeTensors");
+    }
+
+    /// ⚠️ IT REFUSES RATHER THAN INVENTING AN ARCHITECTURE.
+    ///
+    /// Until this was fixed it returned `Ok` with GPT-2's constants for every
+    /// model, whatever tensors it was given.
+    #[test]
+    fn a_bare_tensor_map_cannot_produce_a_model_config() {
+        let err = create_loaded_model_from_tensors(HashMap::new(), LoadOptions::default())
+            .err()
+            .expect("a tensor map does not declare an architecture");
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("cannot build a model config from tensors alone"),
+            "the refusal names what is missing: {msg}"
+        );
+        assert!(
+            msg.contains("hidden_size"),
+            "and names a field it will not invent: {msg}"
+        );
+    }
+
+    /// ⚠️ THE DETECTOR. The refusal above is unreachable today, and this
+    /// MEASURES that rather than assuming it.
+    ///
+    /// `load_model` on a `.pt` file runs `load_pytorch(path)?` before it can
+    /// reach the config seam, and PyTorch loading is a stub that always
+    /// returns `Err`. So the error a caller sees comes from the PyTorch stage.
+    ///
+    /// **When §12 step 6 lands `mlmf-pickle` and PyTorch loading starts
+    /// succeeding, this goes red** -- the call will reach the config seam, or
+    /// succeed. That is the moment `create_loaded_model_from_tensors` needs a
+    /// real implementation rather than a refusal.
+    ///
+    /// ⚠️ **THE FIXTURE IS THE WHOLE TEST, AND THE FIRST ONE WAS WRONG.**
+    /// It wrote `b"not a pickle"`, which `detect_format` classifies as
+    /// `Unknown` -- so the call died in FORMAT DETECTION, one stage before the
+    /// stub, and would still die there after `mlmf-pickle` landed. **The
+    /// detector would have stayed green through the exact event it exists to
+    /// catch.** These bytes start with `PK`, which routes to `ZipPickle` and
+    /// reaches the stub that `mlmf-pickle` will replace.
+    #[cfg(feature = "pytorch")]
+    #[test]
+    fn the_pytorch_arm_cannot_reach_the_config_seam() {
+        let dir = TempDir::new().expect("temp dir");
+        let pt = dir.path().join("model.pt");
+        // A ZIP local file header (0x50 0x4B 0x03 0x04), which is what a
+        // modern `.pt` is. `detect_format` reads 8 bytes, so 8 is the
+        // minimum. Written as a byte ARRAY, not a string escape: an
+        // earlier version used escapes and a tooling layer collapsed them
+        // into raw control bytes in this source file -- and the test still
+        // passed, because only the leading `PK` decides the route.
+        // `.pt` is. `detect_format` reads 8 bytes, so 8 is the minimum.
+        let zip_header: [u8; 8] = [0x50, 0x4B, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00];
+        std::fs::write(&pt, zip_header).expect("write");
+
+        let err = load_model(&pt, LoadOptions::default())
+            .err()
+            .expect("PyTorch loading is a stub and must refuse");
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("no pickle is parsed"),
+            "the refusal must come from the pickle STUB, not from format              detection one stage earlier -- otherwise this test cannot see              `mlmf-pickle` land. Got: {msg}"
+        );
+        assert!(
+            !msg.contains("cannot build a model config from tensors alone"),
+            "the config seam is still unreachable; if it is reached, the              refusal there is a LIVE defect rather than a latent one, and              `create_loaded_model_from_tensors` must be implemented: {msg}"
+        );
     }
 }
