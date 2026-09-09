@@ -389,7 +389,26 @@ pub fn find_gguf_files(model_dir: &Path) -> Result<Vec<PathBuf>> {
 /// anything of that shape under any architecture prefix. They are outside
 /// the format's vocabulary, so they cannot be read and their values here do
 /// not claim to come from the file. That `ModelConfig` demands them at all
-//// The [`Architecture`](crate::name_mapping::Architecture) a GGUF file
+//// The architecture string the file declares, or a refusal naming why nothing
+/// else can be read without it.
+///
+/// Separated from [`config_from_gguf`] because it is a different job: this one
+/// answers "what kind of model is this", and every lookup after it is
+/// namespaced by the answer. It is also the only key whose absence stops the
+/// whole read rather than one field.
+fn declared_architecture(meta: &mlmf_gguf::GgufMetadata<'_>, origin: &str) -> Result<String> {
+    use mlmf_core::{MetaValue, MetadataSource};
+    meta.get("general.architecture")
+        .and_then(MetaValue::as_str)
+        .cloned()
+        .ok_or_else(|| {
+            Error::invalid_format(format!(
+                "{origin}: `general.architecture` is not declared. The GGUF specification marks it required, and every other key is namespaced under its value, so nothing else can be located without it."
+            ))
+        })
+}
+
+/// The [`Architecture`](crate::name_mapping::Architecture) a GGUF file
 /// DECLARES, rather than one inferred from its tensor names.
 ///
 /// # ⚠️ What this replaces, measured over the corpus
@@ -443,15 +462,7 @@ fn config_from_gguf(bytes: &[u8], origin: &str) -> Result<ModelConfig> {
     let (meta, _report) = mlmf_gguf::GgufMetadata::parse(bytes, origin)
         .map_err(|e| Error::invalid_format(format!("{origin}: unreadable as GGUF: {e}")))?;
 
-    let arch = meta
-        .get("general.architecture")
-        .and_then(MetaValue::as_str)
-        .ok_or_else(|| {
-            Error::invalid_format(format!(
-                "{origin}: `general.architecture` is not declared. The GGUF specification marks it required, and every other key is namespaced under its value, so nothing else can be located without it."
-            ))
-        })?
-        .clone();
+    let arch = declared_architecture(&meta, origin)?;
 
     let num_attention_heads = required_u(&meta, &arch, "attention.head_count", origin)?;
 
