@@ -53,7 +53,38 @@ pub fn load_model<P: AsRef<Path>>(path: P, options: LoadOptions) -> Result<Loade
 
 /// Load model from a directory containing model files
 fn load_model_directory(dir: &Path, options: LoadOptions) -> Result<LoadedModel> {
-    // Check for SafeTensors files first (most common)
+    // ⚠️ AWQ BEFORE SAFETENSORS, AND THE ORDER IS THE WHOLE POINT.
+    //
+    // These two tests are not disjoint. AWQ stores its weights in
+    // `.safetensors` and ships a `config.json`, so an AWQ directory satisfies
+    // the SafeTensors shape test exactly. With SafeTensors checked first, the
+    // AWQ arm below was unreachable for its own population.
+    //
+    // Measured on an AWQ-shaped directory — `config.json` declaring
+    // `quantization_config.quant_method = "awq"`, weights in
+    // `model.safetensors`:
+    //
+    //     is_awq_model says: true
+    //     load_model returned Ok with 3 tensors   <- routed to SafeTensors
+    //
+    // So `mlmf::load_model` read packed 4-bit `qweight` tensors as ordinary
+    // weights and returned success. ⚠️ It also meant the AWQ refusal added in
+    // #43 was never reached through the primary public entry point: that fix
+    // was verified by calling `load_awq` directly, and nobody asked whether
+    // the CALL happens.
+    //
+    // The ordering rule is the one that settles it: a SPECIFIC test before a
+    // GENERAL one. `is_awq_model` reads a declared `quant_method`; the
+    // SafeTensors branch only observes that some `.safetensors` file exists.
+    #[cfg(feature = "awq")]
+    {
+        if crate::formats::awq::is_awq_model(dir) {
+            return crate::formats::awq::load_awq(dir, options);
+        }
+    }
+
+    // SafeTensors: the general shape, checked after every specific format that
+    // can also wear it.
     if dir.join("config.json").exists() {
         // Look for .safetensors files
         let safetensors_files: Vec<_> = std::fs::read_dir(dir)
@@ -73,14 +104,6 @@ fn load_model_directory(dir: &Path, options: LoadOptions) -> Result<LoadedModel>
 
         if !safetensors_files.is_empty() {
             return crate::loader::load_safetensors(dir, options);
-        }
-    }
-
-    #[cfg(feature = "awq")]
-    {
-        // Check for AWQ format
-        if crate::formats::awq::is_awq_model(dir) {
-            return crate::formats::awq::load_awq(dir, options);
         }
     }
 
@@ -322,6 +345,92 @@ pub fn is_supported_model<P: AsRef<Path>>(path: P) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A model directory: a `config.json` with the given extra keys, plus
+    /// weights in `model.safetensors`.
+    ///
+    /// ⚠️ Both formats under test share this shape. AWQ stores its weights in
+    /// `.safetensors` and ships a `config.json`, which is exactly why the two
+    /// detection tests are not disjoint and why their ORDER decides the
+    /// outcome.
+    fn model_dir(extra_config: &str) -> TempDir {
+        let dir = TempDir::new().expect("temp dir");
+        std::fs::write(
+            dir.path().join("config.json"),
+            format!(
+                r#"{{
+                    "vocab_size": 32,
+                    "hidden_size": 8,
+                    "num_attention_heads": 2,
+                    "num_hidden_layers": 1,
+                    "intermediate_size": 16,
+                    "max_position_embeddings": 16{extra_config}
+                }}"#
+            ),
+        )
+        .expect("config.json");
+
+        let dev = candlelight::Device::Cpu;
+        let mut t = HashMap::new();
+        for n in [
+            "model.embed_tokens.weight",
+            "model.layers.0.self_attn.q_proj.weight",
+            "lm_head.weight",
+        ] {
+            t.insert(
+                n.to_string(),
+                candlelight::Tensor::zeros((2, 2), candlelight::DType::F32, &dev).expect("t"),
+            );
+        }
+        candlelight::safetensors::save(&t, dir.path().join("model.safetensors")).expect("weights");
+        dir
+    }
+
+    /// ⚠️ AN AWQ DIRECTORY REACHES THE AWQ PATH.
+    ///
+    /// Measured before this was fixed: `is_awq_model` said **true** and
+    /// `load_model` returned **Ok with 3 tensors**, because the SafeTensors
+    /// arm ran first and an AWQ directory satisfies its shape test exactly.
+    /// Packed 4-bit `qweight` tensors were read as ordinary weights.
+    ///
+    /// ⚠️ It also meant the AWQ refusal added in #43 was UNREACHABLE through
+    /// the primary public entry point. That fix was verified by calling
+    /// `load_awq` directly; nobody asked whether the CALL happens.
+    #[test]
+    fn an_awq_directory_is_not_loaded_as_plain_safetensors() {
+        let dir = model_dir(r#", "quantization_config": {"quant_method": "awq", "bits": 4}"#);
+
+        // Control: the detector agrees this is AWQ, so a failure below is
+        // about ROUTING and not about detection.
+        assert!(
+            crate::formats::awq::is_awq_model(dir.path()),
+            "the fixture is an AWQ directory by the crate's own detector"
+        );
+
+        let err = load_model(dir.path(), LoadOptions::default())
+            .err()
+            .expect("AWQ loading is a stub, so an AWQ directory must refuse");
+        assert!(
+            err.to_string().contains("AWQ loading is NOT IMPLEMENTED"),
+            "it reaches the AWQ refusal rather than being read as SafeTensors: {err}"
+        );
+    }
+
+    /// ⚠️ THE CONTROL. Putting AWQ first must not divert ordinary SafeTensors
+    /// directories, which is how a reordering breaks the common case while
+    /// the test above still passes.
+    #[test]
+    fn a_plain_safetensors_directory_still_loads() {
+        let dir = model_dir("");
+        assert!(
+            !crate::formats::awq::is_awq_model(dir.path()),
+            "no quantization_config, so this is not AWQ"
+        );
+
+        let model = load_model(dir.path(), LoadOptions::default())
+            .expect("a plain SafeTensors directory still loads");
+        assert_eq!(model.raw_tensors.len(), 3, "and carries its tensors");
+    }
     use tempfile::TempDir;
 
     #[test]
@@ -423,11 +532,11 @@ mod tests {
 
         assert!(
             msg.contains("no pickle is parsed"),
-            "the refusal must come from the pickle STUB, not from format              detection one stage earlier -- otherwise this test cannot see              `mlmf-pickle` land. Got: {msg}"
+            "the refusal must come from the pickle STUB, not from format detection one stage earlier -- otherwise this test cannot see `mlmf-pickle` land. Got: {msg}"
         );
         assert!(
             !msg.contains("cannot build a model config from tensors alone"),
-            "the config seam is still unreachable; if it is reached, the              refusal there is a LIVE defect rather than a latent one, and              `create_loaded_model_from_tensors` must be implemented: {msg}"
+            "the config seam is still unreachable; if it is reached, the refusal there is a LIVE defect rather than a latent one, and `create_loaded_model_from_tensors` must be implemented: {msg}"
         );
     }
 }

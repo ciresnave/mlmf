@@ -351,7 +351,7 @@ fn no_test_has_an_empty_body() {
     // comparing the two counts can.
     assert_eq!(
         total, declared,
-        "the brace walk reached {total} test bodies but {declared} `#[test]`          attributes are present. The walk is overshooting some test's closing          brace and swallowing the tests after it, so this guard is reporting          on a SUBSET and its clean result means nothing"
+        "the brace walk reached {total} test bodies but {declared} `#[test]` attributes are present. The walk is overshooting some test's closing brace and swallowing the tests after it, so this guard is reporting on a SUBSET and its clean result means nothing"
     );
 
     let report: Vec<String> = empty

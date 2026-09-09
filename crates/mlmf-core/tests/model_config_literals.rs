@@ -342,15 +342,15 @@ fn survey(files: &[PathBuf]) -> (usize, usize, Vec<Offence>) {
 fn assert_the_scanner_is_alive(files: usize, constructions: usize, literal_fields: usize) {
     assert!(
         files > 20,
-        "walked {files} files under src/; the root crate has far more, so the          walk is broken and nothing else here is a claim about the code"
+        "walked {files} files under src/; the root crate has far more, so the walk is broken and nothing else here is a claim about the code"
     );
     assert!(
         constructions > 0,
-        "found no `ModelConfig` construction in {files} files. Either the root          crate stopped building configs -- in which case delete this guard          rather than leave it green -- or the scanner no longer recognises one"
+        "found no `ModelConfig` construction in {files} files. Either the root crate stopped building configs -- in which case delete this guard rather than leave it green -- or the scanner no longer recognises one"
     );
     assert!(
         literal_fields > 0,
-        "found {constructions} `ModelConfig` constructions and not one          literal-valued model field in any of them. That is the outcome this          guard wants, but it is ALSO what a broken field parser looks like.          Confirm by hand that no literal remains; if so, this guard has no          population left and should be deleted rather than kept as a green          line nobody can distinguish from a no-op"
+        "found {constructions} `ModelConfig` constructions and not one literal-valued model field in any of them. That is the outcome this guard wants, but it is ALSO what a broken field parser looks like. Confirm by hand that no literal remains; if so, this guard has no population left and should be deleted rather than kept as a green line nobody can distinguish from a no-op"
     );
 }
 
