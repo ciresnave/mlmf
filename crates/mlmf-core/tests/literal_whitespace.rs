@@ -89,6 +89,13 @@ const MIN_RUN: usize = 4;
 /// reader, this crate's own lexer included.
 const QUOTE: char = '\u{22}';
 const HASH: char = '\u{23}';
+/// The apostrophe and the backslash, spelled the same way and for the same
+/// reason: a char literal whose CONTENT is a quote (`'\''`) or an escape is the
+/// construct a naive lexer mis-tokenises. Codacy moved its 100-line finding
+/// from one function to another as those literals moved, which is what
+/// identified them.
+const APOS: char = '\u{27}';
+const BACKSLASH: char = '\u{5c}';
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Kind {
@@ -178,7 +185,7 @@ impl<'a> Lexer<'a> {
         if self.at_string_open() {
             return Some(self.take_normal());
         }
-        if self.ch[self.i] == '\'' {
+        if self.ch[self.i] == APOS {
             self.skip_char_or_lifetime();
             return None;
         }
@@ -280,7 +287,7 @@ impl<'a> Lexer<'a> {
         let mut k = start;
         while k < self.ch.len() {
             match self.ch[k] {
-                '\\' => k += 2,
+                c if c == BACKSLASH => k += 2,
                 c if c == QUOTE => return k,
                 _ => k += 1,
             }
@@ -291,11 +298,11 @@ impl<'a> Lexer<'a> {
     /// `'a'`, `'\n'`, or a lifetime such as `'static`, which has no close.
     fn skip_char_or_lifetime(&mut self) {
         let mut k = self.i + 1;
-        if self.ch.get(k) == Some(&'\\') {
+        if self.ch.get(k) == Some(&BACKSLASH) {
             k += 1;
         }
         k += 1;
-        while k < self.ch.len() && self.ch[k] != '\'' && self.ch[k] != '\n' {
+        while k < self.ch.len() && self.ch[k] != APOS && self.ch[k] != '\n' {
             k += 1;
         }
         self.advance_to((k + 1).min(self.ch.len()));
@@ -321,41 +328,56 @@ fn as_read(kind: Kind, body: &str) -> String {
 
 /// Every folded-indentation run in one literal, as `(width, excerpt)`.
 fn collapsed_runs(kind: Kind, body: &str) -> Vec<(usize, String)> {
-    let text = as_read(kind, body);
+    as_read(kind, body)
+        .split('\n')
+        // ⚠️ Detection is per line, so the exemption is too. A markdown table
+        // row's padding is alignment, not folding, and it is WIDER than any
+        // collapse observed, so no threshold separates them. The test is the
+        // PROPERTY that makes the spaces meaningful — this line is a table
+        // row — not where the file sits. See the module doc for its cost.
+        .filter(|line| !line.trim_start().starts_with('|'))
+        .flat_map(runs_in_line)
+        .collect()
+}
+
+/// Every folded-indentation run on one already-decoded line.
+///
+/// Split out of `collapsed_runs`, which measured a cyclomatic complexity of 10
+/// against a limit of 8: three nested loops and a three-clause condition doing
+/// two separable jobs — walk the runs, and judge one.
+fn runs_in_line(line: &str) -> Vec<(usize, String)> {
+    let ch: Vec<char> = line.chars().collect();
     let mut out = Vec::new();
-    for line in text.split('\n') {
-        // ⚠️ A markdown table row's padding is alignment, not folding, and it
-        // is WIDER than any collapse observed, so no threshold can separate
-        // them. The test is the property that makes the spaces meaningful —
-        // this line is a table row — rather than where the file sits. See the
-        // module doc for what the exemption costs.
-        if line.trim_start().starts_with('|') {
+    let mut i = 0;
+    while i < ch.len() {
+        if ch[i] != ' ' {
+            i += 1;
             continue;
         }
-        let ch: Vec<char> = line.chars().collect();
-        let mut i = 0;
-        while i < ch.len() {
-            if ch[i] != ' ' {
-                i += 1;
-                continue;
-            }
-            let start = i;
-            while i < ch.len() && ch[i] == ' ' {
-                i += 1;
-            }
-            let width = i - start;
-            // Interrupting a line, not beginning one: something non-blank
-            // before it, and something after it.
-            let has_text_before = ch[..start].iter().any(|c| !c.is_whitespace());
-            let has_text_after = i < ch.len();
-            if width >= MIN_RUN && has_text_before && has_text_after {
-                let from = start.saturating_sub(40);
-                let to = (i + 40).min(ch.len());
-                out.push((width, ch[from..to].iter().collect()));
-            }
+        let start = i;
+        while i < ch.len() && ch[i] == ' ' {
+            i += 1;
+        }
+        if let Some(hit) = interior_run(&ch, start, i) {
+            out.push(hit);
         }
     }
     out
+}
+
+/// The run `ch[start..end]`, if it interrupts a line rather than beginning one.
+///
+/// Interrupting means something non-blank before it on this line and something
+/// after it. Indentation that BEGINS a line is deliberate, not folded.
+fn interior_run(ch: &[char], start: usize, end: usize) -> Option<(usize, String)> {
+    let width = end - start;
+    let has_text_before = ch[..start].iter().any(|c| !c.is_whitespace());
+    if width < MIN_RUN || !has_text_before || end >= ch.len() {
+        return None;
+    }
+    let from = start.saturating_sub(40);
+    let to = (end + 40).min(ch.len());
+    Some((width, ch[from..to].iter().collect()))
 }
 
 fn literals_of(src: &str) -> Vec<Literal> {
