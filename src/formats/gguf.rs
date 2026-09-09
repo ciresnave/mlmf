@@ -155,6 +155,11 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
         });
     }
 
+    // Every declared tensor that could not be read or dequantized, with the
+    // reason. Collected rather than printed: a warning on stderr is not a
+    // return value, and the caller was getting `Ok` regardless of how many
+    // of these there were.
+    let mut unread: Vec<String> = Vec::new();
     let mut raw_tensors = HashMap::new();
     let mut quantized_tensors = if options.preserve_quantization {
         Some(HashMap::new())
@@ -186,10 +191,7 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
                             raw_tensors.insert(tensor_name.to_string(), tensor);
                         }
                         Err(e) => {
-                            eprintln!(
-                                "Warning: Failed to dequantize tensor '{}': {}",
-                                tensor_name, e
-                            );
+                            unread.push(format!("{tensor_name} (dequantize: {e})"));
                         }
                     }
                     // Store the quantized tensor directly
@@ -203,19 +205,63 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
                             raw_tensors.insert(tensor_name.to_string(), tensor);
                         }
                         Err(e) => {
-                            eprintln!(
-                                "Warning: Failed to dequantize tensor '{}': {}",
-                                tensor_name, e
-                            );
+                            unread.push(format!("{tensor_name} (dequantize: {e})"));
                         }
                     }
                 }
             }
             Err(e) => {
-                // Log warning but continue with other tensors
-                eprintln!("Warning: Failed to load tensor '{}': {}", tensor_name, e);
+                unread.push(format!("{tensor_name} (read: {e})"));
             }
         }
+    }
+
+    // ⚠️ REPORTS WHAT IT LOADED, AND REFUSES WHEN THAT IS NOT WHAT THE FILE
+    // DECLARED.
+    //
+    // Each arm above used to `eprintln!` a warning and continue, while the
+    // completion event reported `tensor_names.len()` -- the DECLARED count.
+    // Measured on a truncated copy of SmolLM2-135M-Instruct-Q4_0: `load_gguf`
+    // returned `Ok`, `raw_tensors` held ZERO of 272 tensors, and the progress
+    // callback was told 272. The caller received a model with no weights, a
+    // report of 272, and no error.
+    //
+    // That is the shape #40 fixed in this same loop -- "a caller received 96%
+    // of a model missing, with no error path" -- reached by a different route.
+    // #40 asked whether the loop was TRUNCATED. It never asked whether the
+    // loop was LOSSY, and those are different questions about the same eight
+    // lines.
+    //
+    // ⚠️ It refuses rather than returning a partial model, because a partial
+    // model is indistinguishable from a whole one at the call site: the
+    // `VarBuilder` below is built from whatever survived, and inference on a
+    // model missing an arbitrary subset of its weights produces numbers, not
+    // an error.
+    if !unread.is_empty() {
+        let failed_path: &Path = path.as_ref();
+        let shown: Vec<&str> = unread.iter().take(5).map(String::as_str).collect();
+        let more = unread.len().saturating_sub(shown.len());
+        return Err(Error::model_loading(format!(
+            concat!(
+                "GGUF file declares {} tensors and {} could not be read.\n\n",
+                "File: {}\n\n",
+                "First failures:\n  {}{}\n\n",
+                "This is a refusal rather than a partial model: a model missing ",
+                "an arbitrary subset of its weights still runs, and produces ",
+                "numbers rather than an error. Until this commit the function ",
+                "returned Ok here and reported the DECLARED count to the ",
+                "progress callback, so a caller could not tell."
+            ),
+            tensor_names.len(),
+            unread.len(),
+            failed_path.display(),
+            shown.join("\n  "),
+            if more > 0 {
+                format!("\n  ... and {more} more")
+            } else {
+                String::new()
+            }
+        )));
     }
 
     // The config now comes from the FILE. See `config_from_gguf`.
@@ -255,7 +301,19 @@ pub fn load_gguf(path: &Path, options: &LoadOptions) -> Result<LoadedModel> {
 
     if let Some(callback) = &options.progress {
         callback(ProgressEvent::Complete {
-            tensor_count: tensor_names.len(),
+            // What was LOADED, not what was declared.
+            //
+            // ⚠️ NO TEST CAN TELL THIS FROM `tensor_names.len()`, AND THAT IS
+            // NOT AN OVERSIGHT. The refusal above guarantees the two are equal
+            // on every input that reaches this line, so the expressions are
+            // indistinguishable by construction -- a sabotage swapping one for
+            // the other leaves every test green, and was run to confirm it.
+            //
+            // It is kept because the guarantee lives in a DIFFERENT statement:
+            // relax or move that refusal and this line is the only thing still
+            // reporting the truth. Defence in depth, labelled as such rather
+            // than counted as verified.
+            tensor_count: raw_tensors.len(),
             format: "GGUF".to_string(),
         });
     }
@@ -485,6 +543,166 @@ fn vocab_size_of(meta: &mlmf_gguf::GgufMetadata<'_>, arch: &str, origin: &str) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A GGUF v3 file declaring two F32 tensors, with only the FIRST one's data
+    /// present.
+    ///
+    /// Built byte by byte rather than taken from the corpus so the test runs
+    /// everywhere. The header is fully valid -- `Content::read` parses it and
+    /// reports two tensors -- and the second tensor's data offset points past
+    /// the end of the file, so reading it fails while the first succeeds.
+    ///
+    /// That is the only way to reach the lossy path: candle validates every
+    /// tensor's TYPE while parsing the header, so an unsupported type code
+    /// fails the whole file. A short data section fails per tensor.
+    fn gguf_with_one_tensor_missing(dir: &std::path::Path) -> std::path::PathBuf {
+        fn push_str(out: &mut Vec<u8>, s: &str) {
+            out.extend_from_slice(&(s.len() as u64).to_le_bytes());
+            out.extend_from_slice(s.as_bytes());
+        }
+
+        const F32_TYPE: u32 = 0;
+        const STRING_TYPE: u32 = 8;
+        const UINT32_TYPE: u32 = 4;
+        const ALIGNMENT: usize = 32;
+        // 4x4 f32
+        const TENSOR_BYTES: usize = 4 * 4 * 4;
+
+        let mut head = Vec::new();
+        head.extend_from_slice(b"GGUF");
+        head.extend_from_slice(&3u32.to_le_bytes()); // version
+        head.extend_from_slice(&2u64.to_le_bytes()); // tensor_count
+        head.extend_from_slice(&7u64.to_le_bytes()); // kv_count
+
+        push_str(&mut head, "general.architecture");
+        head.extend_from_slice(&STRING_TYPE.to_le_bytes());
+        push_str(&mut head, "llama");
+
+        // The keys `config_from_gguf` requires. It refuses rather than
+        // substituting a default for any of them (#37), so a fixture without
+        // them cannot reach the tensor loop's outcome -- which is what this
+        // test is about.
+        for (key, value) in [
+            ("llama.attention.head_count", 2u32),
+            ("llama.embedding_length", 4),
+            ("llama.block_count", 1),
+            ("llama.feed_forward_length", 8),
+            ("llama.context_length", 16),
+            ("llama.vocab_size", 32),
+        ] {
+            push_str(&mut head, key);
+            head.extend_from_slice(&UINT32_TYPE.to_le_bytes());
+            head.extend_from_slice(&value.to_le_bytes());
+        }
+
+        for (name, offset) in [
+            ("token_embd.weight", 0usize),
+            ("output.weight", TENSOR_BYTES),
+        ] {
+            push_str(&mut head, name);
+            head.extend_from_slice(&2u32.to_le_bytes()); // n_dims
+            head.extend_from_slice(&4u64.to_le_bytes());
+            head.extend_from_slice(&4u64.to_le_bytes());
+            head.extend_from_slice(&F32_TYPE.to_le_bytes());
+            head.extend_from_slice(&(offset as u64).to_le_bytes());
+        }
+
+        // Data begins at the next alignment boundary.
+        let pad = (ALIGNMENT - head.len() % ALIGNMENT) % ALIGNMENT;
+        head.extend(std::iter::repeat_n(0u8, pad));
+
+        // ⚠️ Only the FIRST tensor's data. The second's offset is now past EOF.
+        head.extend(std::iter::repeat_n(0u8, TENSOR_BYTES));
+
+        let path = dir.join("one_tensor_missing.gguf");
+        std::fs::write(&path, &head).expect("write fixture");
+        path
+    }
+
+    /// ⚠️ A DECLARED TENSOR THAT COULD NOT BE READ IS AN ERROR, NOT A WARNING.
+    ///
+    /// Until 2026-09-09 both failure arms in the tensor loop printed to stderr
+    /// and continued, while the completion event reported `tensor_names.len()`
+    /// -- the DECLARED count. Measured on a truncated copy of
+    /// SmolLM2-135M-Instruct-Q4_0: `load_gguf` returned `Ok`, `raw_tensors`
+    /// held ZERO of 272 tensors, and the progress callback was told 272.
+    ///
+    /// This fixture is the smallest version of that: two declared, one
+    /// readable.
+    #[test]
+    fn a_tensor_that_cannot_be_read_is_not_silently_dropped() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let path = gguf_with_one_tensor_missing(dir.path());
+
+        // ⚠️ NON-VACUITY: the fixture's header must be VALID, or this test
+        // passes because the file is malformed rather than because the loader
+        // refuses a partial read.
+        let declared = {
+            let mut fh = std::fs::File::open(&path).expect("open");
+            candlelight::quantized::gguf_file::Content::read(&mut fh)
+                .expect("the fixture's header is well formed")
+                .tensor_infos
+                .len()
+        };
+        assert_eq!(declared, 2, "the fixture declares two tensors");
+
+        let err = load_gguf(&path, &crate::loader::LoadOptions::default())
+            .err()
+            .expect("a declared tensor could not be read, so the load refuses");
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("declares 2 tensors and 1 could not be read"),
+            "the refusal states both counts, so a partial read cannot be \
+             mistaken for a whole one: {msg}"
+        );
+        assert!(
+            msg.contains("output.weight"),
+            "and names the tensor that failed: {msg}"
+        );
+    }
+
+    /// ⚠️ THE CONTROL. The refusal above must come from the MISSING tensor, not
+    /// from the fixture being unreadable in some other way.
+    ///
+    /// The same builder with both tensors' data present loads cleanly, and the
+    /// completion event reports 2 -- which is also the assertion that the
+    /// reported count is what was LOADED.
+    #[test]
+    fn a_complete_file_loads_and_reports_what_it_loaded() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let path = gguf_with_one_tensor_missing(dir.path());
+        // Append the second tensor's 64 bytes, making the file complete.
+        let mut bytes = std::fs::read(&path).expect("read");
+        bytes.extend(std::iter::repeat_n(0u8, 4 * 4 * 4));
+        std::fs::write(&path, &bytes).expect("write");
+
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = events.clone();
+        let opts = crate::loader::LoadOptions::default().with_custom_progress(
+            crate::progress::custom_progress(move |e: ProgressEvent| {
+                sink.lock().expect("lock").push(e)
+            }),
+        );
+
+        let model = load_gguf(&path, &opts).expect("a complete file loads");
+        assert_eq!(model.raw_tensors.len(), 2, "both tensors are present");
+
+        let reported = events
+            .lock()
+            .expect("lock")
+            .iter()
+            .find_map(|e| match e {
+                ProgressEvent::Complete { tensor_count, .. } => Some(*tensor_count),
+                _ => None,
+            })
+            .expect("a completion event was sent");
+        assert_eq!(
+            reported, 2,
+            "the completion event reports what was loaded, not what was declared"
+        );
+    }
+
     use tempfile::TempDir;
 
     #[test]
