@@ -68,59 +68,171 @@ fn sources(root: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// The line with its comments removed, carrying block-comment state across
-/// lines.
+/// What a line looks like with comments and string contents removed.
 ///
-/// ⚠️ It handled only `//`. A body of `/* intentionally empty */` therefore
-/// looked like a STATEMENT and passed the guard -- a false negative on the
-/// exact thing this checks, reachable by writing the same empty test a
-/// slightly different way.
+/// ⚠️ **The previous version stripped comments only, and its doc claimed that
+/// treating a string's contents as code was SAFE "because it can only make a
+/// body look emptier". THAT WAS WRONG, and it was a comment asserting a
+/// guarantee it did not have.**
 ///
-/// Naive about one thing on purpose: a `//` or `/*` inside a string literal
-/// is treated as a comment. That direction is SAFE here -- it can only make a
-/// body look emptier than it is, and an empty body is what gets REPORTED, so
-/// a false positive is loud and visible rather than silent. The opposite
-/// mistake is the one that hides a defect.
-fn strip_comments(line: &str, in_block: &mut bool) -> String {
-    let chars: Vec<char> = line.chars().collect();
+/// A brace inside a literal does not make a body look fuller or emptier -- it
+/// corrupts the BRACE BALANCE, so `body_of` runs past the real closing brace
+/// and swallows whatever follows. Every `#[test]` inside the overshoot is
+/// then never scanned at all.
+///
+/// Measured at `origin/main` 04a1b51, before this fix: **4 tests invisible**.
+/// `documented_imports.rs` uses the char literals `'{'` and `'}'` and lost 3;
+/// `shards.rs` embeds raw byte strings of JSON whose braces span lines and
+/// lost 1. A guard cannot report on tests it never reached.
+///
+/// So strings, raw strings and char literals are now skipped as units. What
+/// survives is structure: braces that actually nest.
+/// The escape character, named so the lexer never spells it inline.
+const ESCAPE: char = '\\';
+
+#[derive(Default)]
+struct LexState {
+    in_block_comment: bool,
+    /// `Some(n)` inside a raw string closed by a quote and `n` hashes.
+    in_raw_string: Option<usize>,
+    /// Inside a plain `"` string that has not closed on this line.
+    ///
+    /// ⚠️ The first version of this lexer had no such flag, and its doc
+    /// claimed a plain string "does not span lines: an unterminated one ends
+    /// at the line end, which is what an unclosed literal means anyway."
+    /// **That was false.** A Rust string spans lines freely -- with a trailing
+    /// backslash continuation, or simply by containing a newline -- and both
+    /// forms are in this workspace. Treating the continuation as CODE counted
+    /// the braces inside it, which is the same overshoot that hid tests in the
+    /// first place.
+    in_string: bool,
+}
+
+fn strip_noncode(line: &str, st: &mut LexState) -> String {
+    let ch: Vec<char> = line.chars().collect();
     let mut out = String::with_capacity(line.len());
     let mut i = 0;
-    while i < chars.len() {
-        if *in_block {
-            let (next, still_open) = skip_block(&chars, i);
-            i = next;
-            *in_block = still_open;
+    while i < ch.len() {
+        if st.in_block_comment {
+            i = skip_block(&ch, i, st);
             continue;
         }
-        match (chars[i], chars.get(i + 1)) {
-            // A line comment ends the line as far as code is concerned.
-            ('/', Some('/')) => break,
-            ('/', Some('*')) => {
-                *in_block = true;
+        if let Some(hashes) = st.in_raw_string {
+            i = skip_raw(&ch, i, hashes, st);
+            continue;
+        }
+        if st.in_string {
+            i = skip_string_body(&ch, i, st);
+            continue;
+        }
+        match ch[i] {
+            '/' if ch.get(i + 1) == Some(&'/') => break,
+            '/' if ch.get(i + 1) == Some(&'*') => {
+                st.in_block_comment = true;
                 i += 2;
             }
-            (c, _) => {
-                out.push(c);
-                i += 1;
-            }
+            _ => i = consume_code(&ch, i, st, &mut out),
         }
     }
     out
 }
 
-/// Advance past block-comment content from `i`, returning where to resume and
-/// whether the block is still open at end of line.
-///
-/// Separated from [`strip_comments`] so each function has one job: this one
-/// knows only how a block ends, and the caller knows only how one starts.
-fn skip_block(chars: &[char], mut i: usize) -> (usize, bool) {
-    while i < chars.len() {
-        if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
-            return (i + 2, false);
+/// One unit of non-comment input: a raw string opener, a plain string, a char
+/// literal, or a single ordinary character. Returns where to resume.
+fn consume_code(ch: &[char], i: usize, st: &mut LexState, out: &mut String) -> usize {
+    if let Some(next) = raw_string_start(ch, i) {
+        let (hashes, after) = next;
+        st.in_raw_string = Some(hashes);
+        return after;
+    }
+    match ch[i] {
+        '"' => {
+            st.in_string = true;
+            skip_string_body(ch, i + 1, st)
+        }
+        '\'' => skip_char_literal(ch, i),
+        c => {
+            out.push(c);
+            i + 1
+        }
+    }
+}
+
+/// `(hash count, index after the opening quote)` if a raw string starts at
+/// `i` -- `r"`, `r#"`, `br##"` and so on.
+fn raw_string_start(ch: &[char], i: usize) -> Option<(usize, usize)> {
+    let mut j = i;
+    if ch.get(j) == Some(&'b') {
+        j += 1;
+    }
+    if ch.get(j) != Some(&'r') {
+        return None;
+    }
+    j += 1;
+    let mut hashes = 0;
+    while ch.get(j) == Some(&'#') {
+        hashes += 1;
+        j += 1;
+    }
+    (ch.get(j) == Some(&'"')).then_some((hashes, j + 1))
+}
+
+/// Advance through raw-string content, clearing the state at its terminator.
+fn skip_raw(ch: &[char], mut i: usize, hashes: usize, st: &mut LexState) -> usize {
+    while i < ch.len() {
+        if ch[i] == '"' && (1..=hashes).all(|k| ch.get(i + k) == Some(&'#')) {
+            st.in_raw_string = None;
+            return i + 1 + hashes;
         }
         i += 1;
     }
-    (i, true)
+    i
+}
+
+/// Advance through a plain string's content, clearing the state at its
+/// closing quote.
+///
+/// If the line ends first the string is STILL OPEN, and `in_string` carries
+/// that to the next line. Rust strings span lines both with a trailing
+/// backslash and without one, and this workspace contains both.
+fn skip_string_body(ch: &[char], mut i: usize, st: &mut LexState) -> usize {
+    while i < ch.len() {
+        match ch[i] {
+            ESCAPE => i += 2,
+            '"' => {
+                st.in_string = false;
+                return i + 1;
+            }
+            _ => i += 1,
+        }
+    }
+    i
+}
+/// Advance past a char literal. `'{'` was the case that cost three tests.
+///
+/// A lifetime (`'a`) is not a literal and must not swallow the rest of the
+/// line, so this only treats it as one when a closing quote is where a char
+/// literal would put it.
+fn skip_char_literal(ch: &[char], i: usize) -> usize {
+    let escaped = ch.get(i + 1) == Some(&'\\');
+    let close = if escaped { i + 3 } else { i + 2 };
+    if ch.get(close) == Some(&'\'') {
+        close + 1
+    } else {
+        i + 1 // a lifetime or similar: consume just the quote
+    }
+}
+
+/// Advance past block-comment content from `i`, clearing the state at its end.
+fn skip_block(ch: &[char], mut i: usize, st: &mut LexState) -> usize {
+    while i < ch.len() {
+        if ch[i] == '*' && ch.get(i + 1) == Some(&'/') {
+            st.in_block_comment = false;
+            return i + 2;
+        }
+        i += 1;
+    }
+    i
 }
 
 /// The line index of the `fn` belonging to the `#[test]` at `attr`, if any.
@@ -142,11 +254,12 @@ fn body_of(lines: &[&str], fn_line: usize) -> (String, usize) {
     let (mut depth, mut started) = (0i32, false);
     let mut body = String::new();
     let mut k = fn_line;
-    // Block-comment state has to survive the line boundary, or a `/*` on one
-    // line and its `*/` on the next would leave the tail treated as code.
-    let mut in_block = false;
+    // Lexer state has to survive the line boundary: a block comment or a raw
+    // string can open on one line and close on another, and either would
+    // leave the tail treated as code.
+    let mut st = LexState::default();
     while k < lines.len() {
-        let code = strip_comments(lines[k], &mut in_block);
+        let code = strip_noncode(lines[k], &mut st);
         let code = code.as_str();
         depth += code.matches('{').count() as i32;
         depth -= code.matches('}').count() as i32;
@@ -165,12 +278,25 @@ fn body_of(lines: &[&str], fn_line: usize) -> (String, usize) {
 }
 
 /// `(tests seen, empty ones)` for one file.
-fn scan_file(path: &Path, root: &Path) -> (usize, Vec<(String, usize, String)>) {
+/// `(attributes present, bodies scanned, empty ones)` for one file.
+///
+/// The first two are counted by DIFFERENT means on purpose: attributes by a
+/// plain line scan that cannot go wrong, bodies by the brace walk that can.
+/// Their equality is what makes an overshoot visible.
+fn scan_file(path: &Path, root: &Path) -> (usize, usize, Vec<(String, usize, String)>) {
     // ⚠️ Same reason as the directory walk: an unreadable file must not
     // quietly reduce the scanned set.
     let text = fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("{} must be readable to scan it: {e}", path.display()));
     let lines: Vec<&str> = text.lines().collect();
+
+    // Counted without any brace logic, so it cannot be wrong for the reason
+    // the walk can be.
+    let declared = lines
+        .iter()
+        .filter(|l| l.trim_start().starts_with("#[test]"))
+        .count();
+
     let mut total = 0;
     let mut empty = Vec::new();
     let mut i = 0;
@@ -200,26 +326,27 @@ fn scan_file(path: &Path, root: &Path) -> (usize, Vec<(String, usize, String)>) 
         }
         i = end + 1;
     }
-    (total, empty)
+    (declared, total, empty)
 }
 
 /// `(file, line, name)` for every `#[test]` whose body holds no statement.
-fn empty_tests(files: &[PathBuf], root: &Path) -> (usize, Vec<(String, usize, String)>) {
-    let mut total = 0;
+fn empty_tests(files: &[PathBuf], root: &Path) -> (usize, usize, Vec<(String, usize, String)>) {
+    let (mut declared, mut total) = (0, 0);
     let mut empty = Vec::new();
     for path in files {
-        let (n, mut found) = scan_file(path, root);
+        let (d, n, mut found) = scan_file(path, root);
+        declared += d;
         total += n;
         empty.append(&mut found);
     }
-    (total, empty)
+    (declared, total, empty)
 }
 
 #[test]
 fn no_test_has_an_empty_body() {
     let root = common::workspace_root();
     let files = sources(&root);
-    let (total, empty) = empty_tests(&files, &root);
+    let (declared, total, empty) = empty_tests(&files, &root);
 
     // ⚠️ NON-VACUITY, BEFORE ANY CLAIM. "No empty tests" and "the walker found
     // no tests" are byte-identical, and this walker has two ways to find
@@ -235,6 +362,22 @@ fn no_test_has_an_empty_body() {
         "found only {total} `#[test]` functions in {} files. The workspace has \
          several hundred, so the recogniser is broken",
         files.len()
+    );
+
+    // ⚠️ COVERAGE, NOT JUST NON-VACUITY. The two counts are produced by
+    // DIFFERENT means: `declared` by a plain line scan that cannot go wrong,
+    // `total` by the brace walk that can. When the walk overshoots a test's
+    // real closing brace it swallows whatever follows, and every `#[test]`
+    // inside the overshoot is never scanned -- silently, since the guard then
+    // reports clean on a smaller set.
+    //
+    // Measured before this check existed: 479 walked against 489 declared,
+    // FOUR of them real tests hidden behind a char literal `'{'` and a
+    // multi-line string. A floor like `total > 100` cannot see that; only
+    // comparing the two counts can.
+    assert_eq!(
+        total, declared,
+        "the brace walk reached {total} test bodies but {declared} `#[test]`          attributes are present. The walk is overshooting some test's closing          brace and swallowing the tests after it, so this guard is reporting          on a SUBSET and its clean result means nothing"
     );
 
     let report: Vec<String> = empty
