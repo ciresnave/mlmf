@@ -44,10 +44,12 @@ mod common;
 /// Every `.rs` file in the workspace, excluding build output.
 fn sources(root: &Path) -> Vec<PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        let entries = match fs::read_dir(dir) {
-            Ok(e) => e,
-            Err(_) => return,
-        };
+        // ⚠️ A panic, not a `return`. An unreadable directory used to be
+        // skipped silently, so the guard could pass having scanned a SUBSET of
+        // the workspace -- and a subset scan is indistinguishable from a clean
+        // one in the output.
+        let entries = fs::read_dir(dir)
+            .unwrap_or_else(|e| panic!("{} must be readable to scan it: {e}", dir.display()));
         for entry in entries.flatten() {
             let path = entry.path();
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -66,17 +68,47 @@ fn sources(root: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// The line with any `//` comment removed.
+/// The line with its comments removed, carrying block-comment state across
+/// lines.
 ///
-/// Naive on purpose: a `//` inside a string literal would be treated as a
-/// comment. That direction is safe here — it can only make a body look
-/// EMPTIER than it is, and an empty body is what gets reported, so a false
-/// positive would be visible and loud rather than silent.
-fn without_comment(line: &str) -> &str {
-    match line.find("//") {
-        Some(i) => &line[..i],
-        None => line,
+/// ⚠️ It handled only `//`. A body of `/* intentionally empty */` therefore
+/// looked like a STATEMENT and passed the guard -- a false negative on the
+/// exact thing this checks, reachable by writing the same empty test a
+/// slightly different way.
+///
+/// Naive about one thing on purpose: a `//` or `/*` inside a string literal
+/// is treated as a comment. That direction is SAFE here -- it can only make a
+/// body look emptier than it is, and an empty body is what gets REPORTED, so
+/// a false positive is loud and visible rather than silent. The opposite
+/// mistake is the one that hides a defect.
+fn strip_comments(line: &str, in_block: &mut bool) -> String {
+    let mut out = String::with_capacity(line.len());
+    let bytes: Vec<char> = line.chars().collect();
+    let mut i = 0;
+    while i < bytes.len() {
+        if *in_block {
+            if bytes[i] == '*' && i + 1 < bytes.len() && bytes[i + 1] == '/' {
+                *in_block = false;
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+        if bytes[i] == '/' && i + 1 < bytes.len() {
+            if bytes[i + 1] == '/' {
+                break; // line comment: nothing after it matters
+            }
+            if bytes[i + 1] == '*' {
+                *in_block = true;
+                i += 2;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
     }
+    out
 }
 
 /// The line index of the `fn` belonging to the `#[test]` at `attr`, if any.
@@ -84,7 +116,8 @@ fn without_comment(line: &str) -> &str {
 /// Not `attr + 1`: a test can carry more attributes, and `#[should_panic]`
 /// between them is exactly the case that must not be skipped over.
 fn fn_line(lines: &[&str], attr: usize) -> Option<usize> {
-    (attr + 1..lines.len()).find(|&j| lines[j].contains("fn "))
+    // From `attr`, not `attr + 1`: the `fn` may share the attribute's line.
+    (attr..lines.len()).find(|&j| lines[j].contains("fn "))
 }
 
 /// The body of the function starting at `fn_line`, comments removed, together
@@ -97,8 +130,12 @@ fn body_of(lines: &[&str], fn_line: usize) -> (String, usize) {
     let (mut depth, mut started) = (0i32, false);
     let mut body = String::new();
     let mut k = fn_line;
+    // Block-comment state has to survive the line boundary, or a `/*` on one
+    // line and its `*/` on the next would leave the tail treated as code.
+    let mut in_block = false;
     while k < lines.len() {
-        let code = without_comment(lines[k]);
+        let code = strip_comments(lines[k], &mut in_block);
+        let code = code.as_str();
         depth += code.matches('{').count() as i32;
         depth -= code.matches('}').count() as i32;
         if started {
@@ -117,16 +154,21 @@ fn body_of(lines: &[&str], fn_line: usize) -> (String, usize) {
 
 /// `(tests seen, empty ones)` for one file.
 fn scan_file(path: &Path, root: &Path) -> (usize, Vec<(String, usize, String)>) {
-    let Ok(text) = fs::read_to_string(path) else {
-        return (0, Vec::new());
-    };
+    // ⚠️ Same reason as the directory walk: an unreadable file must not
+    // quietly reduce the scanned set.
+    let text = fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("{} must be readable to scan it: {e}", path.display()));
     let lines: Vec<&str> = text.lines().collect();
     let mut total = 0;
     let mut empty = Vec::new();
     let mut i = 0;
 
     while i < lines.len() {
-        if lines[i].trim() != "#[test]" {
+        // ⚠️ `starts_with`, not equality. Requiring `#[test]` to OWN the line
+        // meant `#[test] fn planted_empty() {}` -- valid Rust, and the most
+        // compact way to write the very thing this guard looks for -- was
+        // skipped entirely. A trailing comment on the attribute did the same.
+        if !lines[i].trim_start().starts_with("#[test]") {
             i += 1;
             continue;
         }
