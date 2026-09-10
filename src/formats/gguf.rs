@@ -36,6 +36,115 @@ pub struct GGUFContent {
     candle_content: quantized::gguf_file::Content,
 }
 
+/// What MLMF can say about a file whose tensor data the decoder could not read.
+///
+/// # ⚠️ The refusal named a number in a field labelled "tensor"
+///
+/// The underlying reader fails with `unknown dtype for tensor 23`, and a reader
+/// takes that for a tensor INDEX — so they go looking for the 23rd of 272
+/// tensors. Measured over the corpus:
+///
+/// | file | the message says | ggml type codes actually in the file |
+/// |---|---|---|
+/// | `…IQ4_XS.gguf` | tensor **23** | 8, 20, **23** |
+/// | `…IQ3_XS.gguf` | tensor **21** | 8, 20, **21** |
+/// | `…Q2_K.gguf` | tensor **20** | 8, 11, **20** |
+///
+/// **The number is present in every case as a type code, and 23 is the code for
+/// IQ4_XS — the quantisation the file is named after.** This function does not
+/// assert what the upstream number means; it reports the codes the file
+/// actually declares, so a reader can see the coincidence and stop hunting for
+/// a tensor.
+///
+/// ⚠️ **And the filename does not name the tensors.** `…Q2_K.gguf` contains
+/// **no** Q2_K tensors at all — code 10 is absent; it holds Q3_K (11), IQ4_NL
+/// (20), Q8_0 (8) and F32. Naming a quantisation from a filename is a guess.
+///
+/// # Why MLMF can say more than the decoder
+///
+/// `mlmf-gguf` parses all three of these files completely: header, metadata and
+/// the full tensor directory. **It is only the tensor DATA decoder that cannot
+/// handle these encodings.** So the structure is available at the exact moment
+/// the load fails, and refusing without reporting it throws away information
+/// MLMF already has. Spec: MLMF's job is to read what is in the file.
+///
+/// A second read on the failure path only. If it also fails, the underlying
+/// message is returned alone rather than replaced — a diagnostic that hides the
+/// error it was called to explain is worse than none.
+fn unreadable_tensor_data(path: &Path, underlying: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut msg = format!(
+        "GGUF tensor data in {} could not be decoded: {underlying}",
+        path.display()
+    );
+
+    let Ok(bytes) = std::fs::read(path) else {
+        return msg;
+    };
+    let origin = path.display().to_string();
+    let Ok((meta, _)) = mlmf_gguf::GgufMetadata::parse(&bytes, &origin) else {
+        return msg;
+    };
+    let Ok((tensors, _)) = mlmf_gguf::parse_tensors(&bytes, &meta, &origin) else {
+        return msg;
+    };
+
+    let all = mlmf_core::TensorContainer::tensors(&tensors);
+    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for t in all.iter() {
+        *counts.entry(format!("{:?}", t.encoding)).or_default() += 1;
+    }
+
+    // ⚠️ THE CORRECTION GOES BESIDE THE TRAP, NOT UNDER THE REPORT.
+    //
+    // Adding context below a misleading sentence still leaves the misleading
+    // sentence first, and a reader acts on the first line. If the underlying
+    // message ends in a number that matches a code this file actually declares,
+    // say so immediately -- with the tensor count for that code, which is the
+    // fact that makes "not an index" undeniable rather than merely asserted.
+    if let Some(code) = trailing_number(underlying) {
+        if let Some((_, n)) = counts
+            .iter()
+            .find(|(enc, _)| enc.contains(&format!("code: {code},")))
+        {
+            let _ = write!(
+                msg,
+                "\n\n>> The `{code}` in that message is a GGML TYPE CODE, not a tensor \
+                 index. This file declares {n} tensors whose encoding is code {code}."
+            );
+        }
+    }
+
+    let _ = write!(
+        msg,
+        "\n\nMLMF read this file's structure: {} tensors in {} distinct encodings.",
+        all.len(),
+        counts.len()
+    );
+    for (encoding, n) in &counts {
+        let _ = write!(msg, "\n  {n:>4} tensors  {encoding}");
+    }
+    let _ = write!(
+        msg,
+        "\n\nNOTE: a bare number in the underlying message is a GGML TYPE CODE, \
+         not a tensor index -- compare it against the `code:` values above \
+         before looking for a tensor by that number."
+    );
+    msg
+}
+
+/// The last whitespace-separated token of `s`, if it parses as a type code.
+///
+/// Deliberately not a regex over the wording. The underlying message is a third
+/// party's and its phrasing is not ours to depend on; what we rely on is only
+/// that it ends in the number it is complaining about. If it ever stops doing
+/// that, this returns `None` and the report below still prints — a degraded
+/// message, not a wrong one.
+fn trailing_number(s: &str) -> Option<u32> {
+    s.split_whitespace().last()?.trim_matches('.').parse().ok()
+}
+
 impl GGUFContent {
     /// Load GGUF file with memory mapping
     pub fn read<P: AsRef<Path>>(path: P) -> Result<Self> {
@@ -73,7 +182,7 @@ impl GGUFContent {
             ))
         })?;
         let candle_content = quantized::gguf_file::Content::read(&mut file)
-            .map_err(|e| Error::model_loading(&format!("Failed to parse GGUF content: {}", e)))?;
+            .map_err(|e| Error::model_loading(unreadable_tensor_data(path, &e.to_string())))?;
 
         Ok(Self {
             _mmap: mmap,
@@ -962,6 +1071,173 @@ mod tests {
         let cfg = config_from_gguf(&gguf_declaring("gptneox"), "neox.gguf")
             .expect("a complete gptneox file yields a config");
         assert_eq!(cfg.architecture, crate::name_mapping::Architecture::GPTNeoX);
+    }
+
+    /// ⚠️ A DIAGNOSTIC MUST NOT HIDE THE ERROR IT EXISTS TO EXPLAIN.
+    ///
+    /// `unreadable_tensor_data` re-reads the file to describe it. When that
+    /// second read fails — a deleted file, a truncated one, a path that never
+    /// existed — it must return the underlying message rather than a report
+    /// about nothing.
+    ///
+    /// This needs no corpus: the failure it exercises is the re-read failing,
+    /// and a path that does not exist fails it exactly.
+    #[test]
+    fn a_diagnostic_that_cannot_re_read_returns_the_underlying_message() {
+        let absent = std::path::Path::new("C:/definitely/not/here/x.gguf");
+        let msg = unreadable_tensor_data(absent, "unknown dtype for tensor 23");
+
+        assert!(
+            msg.contains("unknown dtype for tensor 23"),
+            "the underlying error survives: {msg}"
+        );
+        assert!(
+            !msg.contains("MLMF read this file's structure"),
+            "and no structure is claimed for a file that could not be read: {msg}"
+        );
+    }
+
+    /// ⚠️ A REFUSAL REPORTS WHAT MLMF COULD READ, NOT ONLY WHAT IT COULD NOT.
+    ///
+    /// Measured before this landed, the whole message was:
+    ///
+    /// ```text
+    /// Failed to parse GGUF content: unknown dtype for tensor 23
+    /// ```
+    ///
+    /// ⚠️ **`23` is a GGML TYPE CODE and the field is labelled "tensor"**, so a
+    /// reader goes looking for the 23rd of 272 tensors. The file is named
+    /// `IQ4_XS` and 23 is IQ4_XS's code — a coincidence invisible without the
+    /// structure beside it.
+    ///
+    /// `mlmf-gguf` parses this file completely; only the data decoder cannot
+    /// read these encodings. So the structure is in hand at the moment of
+    /// failure, and refusing without it discards what MLMF already knows.
+    /// Every claim the diagnostic makes about ONE undecodable file.
+    ///
+    /// Split out of the test below, which measured 61 lines of code against a
+    /// limit of 50 once the second case was added. ⚠️ Codacy was RIGHT here,
+    /// and it had produced a phantom span on this same rule earlier in the day
+    /// (a 4-line function reported as 105) — **a tool that was wrong once is
+    /// not wrong always**, and dismissing this on that history would have been
+    /// the mirror of believing the phantom.
+    fn assert_diagnostic_names_the_code(
+        path: &std::path::Path,
+        file: &str,
+        code: u32,
+        tensors_at_code: usize,
+    ) {
+        let err = load_gguf(path, &crate::loader::LoadOptions::default())
+            .err()
+            .unwrap_or_else(|| panic!("{file} cannot be decoded by this build"));
+        let msg = err.to_string();
+
+        // Control: the underlying cause is still there. A diagnostic that
+        // replaces the error is worse than one that omits the detail.
+        assert!(
+            msg.contains("unknown dtype"),
+            "{file}: the decoder's own message survives: {msg}"
+        );
+        assert!(
+            msg.contains("272 tensors"),
+            "{file}: and MLMF states what it DID read -- the full directory: {msg}"
+        );
+        assert!(
+            msg.contains(&format!("code: {code},")),
+            "{file}: including the type code the underlying message names, so the \
+             coincidence is visible rather than needing to be known: {msg}"
+        );
+
+        // ⚠️ THE CORRECTION MUST SIT BESIDE THE TRAP, NOT UNDER THE REPORT.
+        // Adding context below a misleading sentence leaves the misleading
+        // sentence first, and a reader acts on the first line.
+        assert!(
+            msg.contains(&format!("The `{code}` in that message is a GGML TYPE CODE")),
+            "{file}: the number is corrected by name, immediately: {msg}"
+        );
+        assert!(
+            msg.contains(&format!(
+                "{tensors_at_code} tensors whose encoding is code {code}"
+            )),
+            "{file}: and with the count that makes it undeniable rather than \
+             asserted -- no tensor INDEX is shared by {tensors_at_code} tensors: {msg}"
+        );
+    }
+
+    #[test]
+    fn an_undecodable_file_reports_the_encodings_it_contains() {
+        // ⚠️ TWO FILES, AND THE SECOND ONE IS THE WHOLE POINT.
+        //
+        // With IQ4_XS alone this test could not tell the parser from a constant:
+        // sabotaging `trailing_number` to return a hardcoded `23` left it GREEN,
+        // because 23 IS the right answer for that file. A test whose expected
+        // value coincides with an injected default has been shown to run, not to
+        // discriminate.
+        //
+        // Q2_K reports 20 and declares 180 tensors at that code, so no single
+        // constant satisfies both rows.
+        let cases: [(&str, u32, usize); 2] = [
+            ("SmolLM2-135M-Instruct-IQ4_XS.gguf", 23, 30),
+            ("SmolLM2-135M-Instruct-Q2_K.gguf", 20, 180),
+        ];
+
+        let mut checked = 0;
+        for (file, code, tensors_at_code) in cases {
+            let path = std::path::PathBuf::from("C:/Models/gguf-corpus/quants").join(file);
+            if !path.exists() {
+                println!(
+                    "SKIPPED: no corpus file at {}. The diagnostic's CONTENT was NOT \
+                     checked against this file on this run.",
+                    path.display()
+                );
+                continue;
+            }
+            checked += 1;
+            assert_diagnostic_names_the_code(&path, file, code, tensors_at_code);
+        }
+
+        // ⚠️ NON-VACUITY, ANNOUNCED RATHER THAN ASSERTED.
+        //
+        // Every case skipping is byte-identical to every case passing, and the
+        // `continue` above makes that outcome silent. This cannot be an
+        // `assert!`: the corpus is absent in CI by design, and failing there
+        // would turn "we could not check" into "the code is broken" -- a tool
+        // failure and a subject property sharing one exit arm.
+        //
+        // So it says so on stdout, in the token the gate runner greps for, and
+        // names the count so a partial run is distinguishable from a full one.
+        if checked == 0 {
+            println!(
+                "SKIPPED: no corpus file was present, so this test asserted NOTHING \
+                 about the diagnostic's content. Its re-read fallback is covered by \
+                 `a_diagnostic_that_cannot_re_read_returns_the_underlying_message`, \
+                 which needs no corpus."
+            );
+        } else if checked < cases.len() {
+            println!(
+                "PARTIAL: {checked} of {} corpus cases present. A single case cannot \
+                 tell the parser from a constant -- see this test's header.",
+                cases.len()
+            );
+        }
+    }
+
+    /// ⚠️ THE NUMBER IS TAKEN FROM THE END OF THE MESSAGE, NOT FROM ITS WORDING.
+    ///
+    /// The underlying text belongs to a third party. Depending on its phrasing
+    /// would make this break silently when they reword it; depending only on
+    /// "it ends in the number it is complaining about" degrades to no inline
+    /// correction, and the structure report still prints.
+    #[test]
+    fn the_trailing_number_is_read_without_depending_on_the_wording() {
+        assert_eq!(trailing_number("unknown dtype for tensor 23"), Some(23));
+        assert_eq!(trailing_number("some other phrasing entirely 20"), Some(20));
+        assert_eq!(trailing_number("ends with a full stop 11."), Some(11));
+
+        // No trailing number: the caller must fall back, not guess.
+        assert_eq!(trailing_number("unknown dtype"), None);
+        assert_eq!(trailing_number(""), None);
+        assert_eq!(trailing_number("tensor blk.0.attn_q.weight"), None);
     }
 
     /// ⚠️ BOTH PUBLIC ARCHITECTURE FIELDS AGREE, AND FOR THE SAME REASON.
