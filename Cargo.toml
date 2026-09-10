@@ -105,11 +105,11 @@ version    = "0.4.0"
     bytemuck  = "1.14"
     byteorder = "1.5"
     regex     = "1.10"
-    sysinfo   = "0.38"
+    sysinfo   = "0.39"
     thiserror = "2"
 
     # Optional dependencies for specific formats
-    tokenizers = { version = "0.22", optional = true }
+    tokenizers = { version = "0.23", optional = true }
 
     # Progress reporting and distributed timestamps
     chrono    = { version = "0.4", features = ["serde"] }
