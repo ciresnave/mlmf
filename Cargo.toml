@@ -66,7 +66,7 @@ version    = "0.4.0"
     # script fetches CUTLASS from GitHub and checks out files with extremely long
     # Doxygen-generated HTML names that exceed Windows' MAX_PATH (260 chars), breaking
     # the build on Windows entirely.
-    candlelight = { git = "https://github.com/ciresnave/candlelight", rev = "d70a03f325294a7c3ac354dc74d4768c4c96db5e", default-features = false }
+    candlelight = { git = "https://github.com/ciresnave/candlelight", rev = "3009b2d5101fd03619635fdc3c81b7b20359ac4f", default-features = false }
 
     # The FIRST edge from the legacy root package to the backend-agnostic
     # crates. §12 has scheduled retiring this package since August and nothing
@@ -96,7 +96,7 @@ version    = "0.4.0"
     mlmf-core = { path = "crates/mlmf-core", version = "0.4.0" }
 
     # Serialization and file handling
-    safetensors = "0.7"
+    safetensors = "0.8"
     serde       = { version = "1.0", features = ["derive"] }
     serde_json  = "1.0"
 
