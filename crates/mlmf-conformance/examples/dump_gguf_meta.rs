@@ -62,7 +62,41 @@ const SCHEMA: &str = "gguf-metadata-dump/v1";
 fn sha256_of(body: &str) -> String {
     let mut h = Sha256::new();
     h.update(body.as_bytes());
-    format!("{:x}", h.finalize())
+    // ⚠️ Hex-encoded a byte at a time rather than `format!("{:x}", ..)`.
+    //
+    // sha2 0.11 changed `finalize()`'s return from `GenericArray`, which
+    // implemented `LowerHex`, to `Array`, which does not. The old form is a
+    // compile error, not a silent change — but the digest it produced is part
+    // of a CROSS-IMPLEMENTATION contract with the lightbulb lane's dumper, so
+    // the replacement has to be byte-identical, not merely valid.
+    //
+    // `{b:02x}` per byte in order is exactly what `LowerHex` on a byte array
+    // emitted: lower-case, zero-padded, no separators.
+    //
+    // ⚠️ **VERIFIED AGAINST AN INDEPENDENT ORACLE, NOT BY A TEST, AND THE
+    // DIFFERENCE IS WORTH STATING.** This form was run against Python's
+    // `hashlib.sha256().hexdigest()` on three vectors and matched byte for
+    // byte:
+    //
+    // ```text
+    // ""                       e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    // "abc"                    ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+    // "gguf-metadata-dump/v1"  a485606325d35b784428cd0939b04ca8e1fc3ee06610e307d3d8b370dcc3a6a9
+    // ```
+    //
+    // ⚠️ **There is deliberately NO test here, because a test here would never
+    // run.** CI invokes `cargo test -p mlmf-conformance`, which runs the lib
+    // unit tests, `tests/*` and doc-tests — **example targets' tests are not
+    // among them** (measured: that command reports `src/lib.rs`,
+    // `cross_backend.rs`, `meta_corpus.rs` and doc-tests, and nothing else). A
+    // `#[test]` in this file would read as coverage and execute never, which
+    // is worse than none. If this digest needs a live guard, `sha256_of` has to
+    // move somewhere `cargo test` reaches.
+    h.finalize().iter().fold(String::new(), |mut s, b| {
+        use std::fmt::Write as _;
+        let _ = write!(s, "{b:02x}");
+        s
+    })
 }
 
 fn digest(body: &str) -> Value {
