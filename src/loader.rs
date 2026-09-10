@@ -796,14 +796,35 @@ impl LoadedModel {
         }
         let weights_hash = format!("{:x}", weights_hasher.finish());
 
-        // Calculate config hash
-        let mut config_hasher = DefaultHasher::new();
-        if let Ok(config_str) = serde_json::to_string(&self.config.raw_config) {
-            config_str.hash(&mut config_hasher);
-        }
-        let config_hash = format!("{:x}", config_hasher.finish());
+        // ⚠️ NO SOURCE CONFIG MEANS NO CONFIG HASH, NOT A HASH OF NOTHING.
+        //
+        // This hashed `raw_config` unconditionally. `serde_json::to_string` of
+        // `Value::Null` is the four-character string `"null"`, so EVERY GGUF
+        // and ONNX model produced the SAME `config_hash` — a collision by
+        // construction across two entire formats, in a field whose only
+        // purpose is to tell two models apart.
+        //
+        // `update_hashes` already takes `Option<String>` and the field is
+        // already `Option`, so "there is no config to hash" was representable
+        // all along; the code just declined to say it.
+        //
+        // ⚠️ Deliberately NOT replaced with a hash of `ModelConfig`'s fields.
+        // Measured before designing one: `config_hash` is written here, stored
+        // on `ModelMetadata`, and READ BY NOTHING in this workspace. Inventing
+        // a hashing scheme for a consumer that does not exist would be
+        // choosing stability-vs-coverage trade-offs on behalf of nobody. If a
+        // consumer appears, it can say what it needs hashed.
+        let config_hash = if self.config.raw_config.is_null() {
+            None
+        } else {
+            let mut config_hasher = DefaultHasher::new();
+            if let Ok(config_str) = serde_json::to_string(&self.config.raw_config) {
+                config_str.hash(&mut config_hasher);
+            }
+            Some(format!("{:x}", config_hasher.finish()))
+        };
 
-        self.metadata.update_hashes(weights_hash, Some(config_hash));
+        self.metadata.update_hashes(weights_hash, config_hash);
         Ok(())
     }
 
@@ -953,9 +974,54 @@ impl LoadedModel {
         // Save metadata
         self.save_metadata(output_dir.join("metadata.json"))?;
 
-        // Save model config
-        let config_json = serde_json::to_string_pretty(&self.config.raw_config)?;
-        std::fs::write(output_dir.join("config.json"), config_json)?;
+        // ⚠️ A FILE NAMED `config.json` MUST HOLD A CONFIG, OR NOT EXIST.
+        //
+        // `raw_config` is the verbatim bytes of the source `config.json`, and
+        // ONLY the HuggingFace loader has one to copy. GGUF and ONNX set it to
+        // `Value::Null` because those formats carry no such file.
+        //
+        // This used to write it unconditionally, so for every GGUF and ONNX
+        // model it produced a file called `config.json` whose entire content
+        // was `null` — four bytes. Measured on a real checkpoint whose config
+        // MLMF had read CORRECTLY:
+        //
+        // ```text
+        // config.architecture = LLaMA     <- read from the file
+        // config.vocab_size   = 49152     <- read from the file
+        // config.json         = null      <- what was written to disk
+        // ```
+        //
+        // ⚠️ A downstream reader gets `null`, not an error. That is a write
+        // path producing a plausible artifact with no data, on a public API,
+        // with the data in hand on the same struct — the severe half of the
+        // class this crate has spent its recent history removing from the READ
+        // side (#37, #43, #50, #58, #59, #62).
+        //
+        // ## Why omit rather than write `ModelConfig`
+        //
+        // Serialising our own struct here would put MLMF'S NORMALISED VIEW in
+        // a filename that, on the HF path, means "the bytes the model shipped
+        // with". The same name would then carry two provenances and a consumer
+        // could not tell which it held — solving this by manufacturing #48's
+        // problem inside the field meant to fix it.
+        //
+        // An absent `config.json` says the true thing: this source format has
+        // no config file. `metadata.json` still carries what MLMF read.
+        if self.config.raw_config.is_null() {
+            // Not silent: the caller asked for a directory and gets one file
+            // fewer than the HF path produces, and silence about that is how a
+            // consumer builds a loader that trips over the missing name later.
+            eprintln!(
+                "mlmf: no config.json written to {} — this model's source \
+                 format carries no config file, and writing `null` under that \
+                 name would be worse than omitting it. Model configuration as \
+                 MLMF read it is in metadata.json.",
+                output_dir.display()
+            );
+        } else {
+            let config_json = serde_json::to_string_pretty(&self.config.raw_config)?;
+            std::fs::write(output_dir.join("config.json"), config_json)?;
+        }
 
         // TODO: Save tensor data (would require safetensors writing)
         // For now, we just save the comprehensive metadata
@@ -1491,6 +1557,141 @@ mod tests {
         candlelight::safetensors::save(&written, dir.path().join("model.safetensors"))
             .expect("write safetensors");
         (dir, names)
+    }
+
+    /// ⚠️ A FILE NAMED `config.json` MUST HOLD A CONFIG, OR NOT EXIST.
+    ///
+    /// Measured before this changed, on a real GGUF checkpoint whose config
+    /// MLMF had read correctly:
+    ///
+    /// ```text
+    /// config.architecture = LLaMA     <- read from the file
+    /// config.vocab_size   = 49152     <- read from the file
+    /// config.json         = null      <- 4 bytes, written to disk
+    /// ```
+    ///
+    /// ⚠️ **The two arms differ in exactly one field.** Same model, same
+    /// loader, same directory — `raw_config` set to `Null` on one and left
+    /// alone on the other. A GGUF fixture would have varied the format, the
+    /// loader and the tensor set at the same time, and then a difference in
+    /// the output would not have named its cause.
+    #[test]
+    fn no_source_config_means_no_config_json_and_no_config_hash() {
+        let (dir, _names) = minimal_safetensors_model();
+        let opts = LoadOptions::default();
+
+        // ---- CONTROL: the HF path, which HAS a source config.json ----------
+        let mut model =
+            load_safetensors(dir.path(), opts.clone_basic()).expect("the fixture loads");
+        assert!(
+            !model.config.raw_config.is_null(),
+            "the control must actually carry a source config, or it proves nothing"
+        );
+
+        let out_hf = TempDir::new().expect("temp dir");
+        model
+            .save_with_metadata(out_hf.path())
+            .expect("saving an HF-sourced model succeeds");
+        let hf_config = out_hf.path().join("config.json");
+        assert!(
+            hf_config.is_file(),
+            "a model WITH a source config still gets a config.json written"
+        );
+        let hf_text = fs::read_to_string(&hf_config).expect("readable");
+        assert!(
+            hf_text.contains("vocab_size"),
+            "and it holds the source config, not a placeholder: {hf_text}"
+        );
+
+        // ---- THE SUBJECT: the one field GGUF and ONNX leave empty ----------
+        model.config.raw_config = serde_json::Value::Null;
+
+        let out_null = TempDir::new().expect("temp dir");
+        model
+            .save_with_metadata(out_null.path())
+            .expect("saving still succeeds; the file is omitted, not the save");
+
+        assert!(
+            !out_null.path().join("config.json").exists(),
+            "a model with NO source config must not get a config.json at all -- \
+             writing `null` under that name is a plausible artifact with no data"
+        );
+        // The rest of the directory is unaffected: omitting one file must not
+        // quietly become "the save did less".
+        assert!(
+            out_null.path().join("metadata.json").is_file(),
+            "metadata.json still written -- what MLMF read is still reported"
+        );
+        assert!(
+            out_null.path().join("tensor_mappings.json").is_file(),
+            "and so is tensor_mappings.json"
+        );
+    }
+
+    /// ⚠️ `"null"` IS FOUR CHARACTERS AND HASHES LIKE ANY OTHER STRING.
+    ///
+    /// `config_hash` hashed `raw_config` unconditionally, and
+    /// `serde_json::to_string(&Value::Null)` is `"null"` — so every GGUF and
+    /// every ONNX model produced the **same** hash, in a field whose only
+    /// purpose is telling two models apart.
+    ///
+    /// The two arms are again one field apart on one model.
+    #[test]
+    fn an_absent_source_config_yields_no_hash_rather_than_a_shared_one() {
+        let (dir, _names) = minimal_safetensors_model();
+        let opts = LoadOptions::default();
+        let mut model =
+            load_safetensors(dir.path(), opts.clone_basic()).expect("the fixture loads");
+
+        model
+            .update_model_hashes()
+            .expect("hashing a real config succeeds");
+        let with_config = model.metadata.config_hash.clone();
+        assert!(
+            with_config.is_some(),
+            "a model WITH a source config gets a hash: {with_config:?}"
+        );
+
+        model.config.raw_config = serde_json::Value::Null;
+        model.update_model_hashes().expect("hashing still succeeds");
+
+        assert_eq!(
+            model.metadata.config_hash, with_config,
+            "⚠️ `update_hashes` only OVERWRITES on Some, so the earlier hash \
+             legitimately survives -- this asserts the stale value is kept \
+             rather than replaced by a hash of \"null\", which is the defect"
+        );
+
+        // ⚠️ AND SPECIFICALLY NOT THE HASH OF `"null"`.
+        //
+        // The assertion above catches a revert on its own: the old code
+        // computed `Some(hash("null"))`, and `update_hashes` DOES overwrite on
+        // `Some`, so the real hash would have been replaced. This one names the
+        // value that would have replaced it, so a failure says WHICH defect
+        // came back rather than only that something changed.
+        //
+        // ⚠️ My first draft asserted that a freshly-loaded model whose
+        // `raw_config` I had nulled would have `config_hash == None`. It does
+        // not: `load_safetensors` calls `update_model_hashes` DURING the load,
+        // so no model reaches a test unhashed. The test caught my wrong model
+        // of when hashing happens — which is the only reason this note is
+        // accurate rather than confident.
+        let null_hash = {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut h = DefaultHasher::new();
+            serde_json::to_string(&serde_json::Value::Null)
+                .expect("Null serialises")
+                .hash(&mut h);
+            format!("{:x}", h.finish())
+        };
+        assert_ne!(
+            model.metadata.config_hash.as_deref(),
+            Some(null_hash.as_str()),
+            "the hash must not be the hash of the four characters \"null\" -- \
+             that value is shared by every GGUF and every ONNX model, in a \
+             field whose only purpose is telling two models apart"
+        );
     }
 
     /// unit-level pass-through one in `progress.rs`.
