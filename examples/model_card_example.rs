@@ -22,10 +22,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (model_name, config) in models {
         println!("📋 Generating model card for: {}", model_name);
         println!("   Architecture: {}", config.architecture);
-        println!(
-            "   Parameters: {:.1}M",
-            estimate_parameters(&config) as f64 / 1_000_000.0
-        );
+        match estimate_parameters(&config) {
+            Some(params) => println!("   Parameters: {:.1}M", params as f64 / 1_000_000.0),
+            None => println!("   Parameters: not declared (no intermediate_size)"),
+        }
 
         // Create model card generator
         let generator = ModelCardGenerator::new()
@@ -147,14 +147,14 @@ fn create_example_models() -> Vec<(String, ModelConfig)> {
                 num_attention_heads: 32,
                 num_key_value_heads: 32,
                 num_hidden_layers: 32,
-                intermediate_size: 11008,
-                max_position_embeddings: 4096,
-                dropout: 0.0,
-                layer_norm_eps: 1e-6,
-                attention_dropout: 0.0,
-                activation_function: "silu".to_string(),
-                rope_theta: 10000.0,
-                tie_word_embeddings: false,
+                intermediate_size: Some(11008),
+                max_position_embeddings: Some(4096),
+                dropout: Some(0.0),
+                layer_norm_eps: Some(1e-6),
+                attention_dropout: Some(0.0),
+                activation_function: Some("silu".to_string()),
+                rope_theta: Some(10000.0),
+                tie_word_embeddings: Some(false),
                 architecture: Architecture::LLaMA,
                 raw_config: serde_json::json!({}),
             },
@@ -167,14 +167,14 @@ fn create_example_models() -> Vec<(String, ModelConfig)> {
                 num_attention_heads: 16,
                 num_key_value_heads: 16,
                 num_hidden_layers: 24,
-                intermediate_size: 4096,
-                max_position_embeddings: 1024,
-                dropout: 0.1,
-                layer_norm_eps: 1e-5,
-                attention_dropout: 0.1,
-                activation_function: "gelu".to_string(),
-                rope_theta: 10000.0,
-                tie_word_embeddings: true,
+                intermediate_size: Some(4096),
+                max_position_embeddings: Some(1024),
+                dropout: Some(0.1),
+                layer_norm_eps: Some(1e-5),
+                attention_dropout: Some(0.1),
+                activation_function: Some("gelu".to_string()),
+                rope_theta: Some(10000.0),
+                tie_word_embeddings: Some(true),
                 architecture: Architecture::GPT2,
                 raw_config: serde_json::json!({}),
             },
@@ -187,14 +187,14 @@ fn create_example_models() -> Vec<(String, ModelConfig)> {
                 num_attention_heads: 12,
                 num_key_value_heads: 12,
                 num_hidden_layers: 12,
-                intermediate_size: 3072,
-                max_position_embeddings: 2048,
-                dropout: 0.1,
-                layer_norm_eps: 1e-5,
-                attention_dropout: 0.1,
-                activation_function: "gelu".to_string(),
-                rope_theta: 10000.0,
-                tie_word_embeddings: false,
+                intermediate_size: Some(3072),
+                max_position_embeddings: Some(2048),
+                dropout: Some(0.1),
+                layer_norm_eps: Some(1e-5),
+                attention_dropout: Some(0.1),
+                activation_function: Some("gelu".to_string()),
+                rope_theta: Some(10000.0),
+                tie_word_embeddings: Some(false),
                 architecture: Architecture::GPTNeoX,
                 raw_config: serde_json::json!({}),
             },
@@ -310,14 +310,14 @@ fn demonstrate_format_specific_cards() -> Result<(), Box<dyn std::error::Error>>
         num_attention_heads: 12,
         num_key_value_heads: 12,
         num_hidden_layers: 12,
-        intermediate_size: 3072,
-        max_position_embeddings: 1024,
-        dropout: 0.1,
-        layer_norm_eps: 1e-5,
-        attention_dropout: 0.1,
-        activation_function: "gelu".to_string(),
-        rope_theta: 10000.0,
-        tie_word_embeddings: true,
+        intermediate_size: Some(3072),
+        max_position_embeddings: Some(1024),
+        dropout: Some(0.1),
+        layer_norm_eps: Some(1e-5),
+        attention_dropout: Some(0.1),
+        activation_function: Some("gelu".to_string()),
+        rope_theta: Some(10000.0),
+        tie_word_embeddings: Some(true),
         architecture: Architecture::GPT2,
         raw_config: serde_json::json!({}),
     };
@@ -351,14 +351,14 @@ fn demonstrate_card_customization() -> Result<(), Box<dyn std::error::Error>> {
         num_attention_heads: 16,
         num_key_value_heads: 16,
         num_hidden_layers: 16,
-        intermediate_size: 5504,
-        max_position_embeddings: 2048,
-        dropout: 0.0,
-        layer_norm_eps: 1e-6,
-        attention_dropout: 0.0,
-        activation_function: "silu".to_string(),
-        rope_theta: 10000.0,
-        tie_word_embeddings: false,
+        intermediate_size: Some(5504),
+        max_position_embeddings: Some(2048),
+        dropout: Some(0.0),
+        layer_norm_eps: Some(1e-6),
+        attention_dropout: Some(0.0),
+        activation_function: Some("silu".to_string()),
+        rope_theta: Some(10000.0),
+        tie_word_embeddings: Some(false),
         architecture: Architecture::LLaMA,
         raw_config: serde_json::json!({}),
     };
@@ -431,11 +431,15 @@ fn demonstrate_card_customization() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn estimate_parameters(config: &ModelConfig) -> u64 {
+fn estimate_parameters(config: &ModelConfig) -> Option<u64> {
+    // The FFN term needs an intermediate size, which a format may not
+    // declare. No size, no count: an omitted FFN term would understate the
+    // total by roughly a third and still read as a parameter count.
+    let intermediate_size = config.intermediate_size?;
     let embedding_params = config.vocab_size * config.hidden_size;
     let attention_params = config.num_hidden_layers * config.hidden_size * config.hidden_size * 4;
-    let ffn_params = config.num_hidden_layers * config.hidden_size * config.intermediate_size * 2;
+    let ffn_params = config.num_hidden_layers * config.hidden_size * intermediate_size * 2;
     let norm_params = config.num_hidden_layers * config.hidden_size * 2;
 
-    (embedding_params + attention_params + ffn_params + norm_params) as u64
+    Some((embedding_params + attention_params + ffn_params + norm_params) as u64)
 }

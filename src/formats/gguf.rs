@@ -533,9 +533,12 @@ pub fn find_gguf_files(model_dir: &Path) -> Result<Vec<PathBuf>> {
 /// value.** Each of these is the former, and the reason differs per field --
 /// which is why they carry their reasons here rather than in a table.
 struct DocumentedDefaults {
+    /// Absent MEANS one KV head per query head. A value, on a citation.
     num_key_value_heads: usize,
-    rope_theta: f64,
-    layer_norm_eps: f64,
+    /// ⚠️ NO LONGER DEFAULTED. Absent means absent -- see below.
+    rope_theta: Option<f64>,
+    /// ⚠️ NO LONGER DEFAULTED. Absent means absent -- see below.
+    layer_norm_eps: Option<f64>,
 }
 
 /// Resolve the optional structural fields.
@@ -554,11 +557,21 @@ fn documented_defaults(
         num_key_value_heads: optional_u(meta, arch, "attention.head_count_kv")
             .unwrap_or(num_attention_heads),
 
-        // Architecture-specific and legitimately absent for some: falcon and
-        // gpt-2 declare no RoPE base, bert-bge no RMS epsilon. Where the file
-        // is silent these values do NOT claim to come from it.
-        rope_theta: optional_f(meta, arch, "rope.freq_base").unwrap_or(10000.0),
-        layer_norm_eps: optional_f(meta, arch, "attention.layer_norm_rms_epsilon").unwrap_or(1e-6),
+        // ⚠️ THE COMMENT THAT USED TO STAND HERE MADE A PROMISE THE TYPE
+        // COULD NOT KEEP. Verbatim: "Where the file is silent these values do
+        // NOT claim to come from it." The field was an `f64`, so the silent
+        // case and the declared case arrived at the caller as the same
+        // number, and nothing but this comment distinguished them. A comment
+        // is not a mechanism; the `Option` is.
+        //
+        // Measured over the 28 parseable corpus files: `rope.freq_base` is
+        // absent from 9 and `attention.layer_norm_rms_epsilon` from 8.
+        // ⚠️ Two of those 9 declare architecture `llama` -- ggml-vocab-aquila
+        // and ggml-vocab-llama-spm -- and both used to be handed 10000.0,
+        // which is the constant #37 removed elsewhere after measuring a real
+        // checkpoint that declares 100000.
+        rope_theta: optional_f(meta, arch, "rope.freq_base"),
+        layer_norm_eps: optional_f(meta, arch, "attention.layer_norm_rms_epsilon"),
     }
 }
 
@@ -678,8 +691,11 @@ fn config_from_gguf(bytes: &[u8], origin: &str) -> Result<ModelConfig> {
     Ok(ModelConfig {
         hidden_size: required_u(&meta, &arch, "embedding_length", origin)?,
         num_hidden_layers: required_u(&meta, &arch, "block_count", origin)?,
-        intermediate_size: required_u(&meta, &arch, "feed_forward_length", origin)?,
-        max_position_embeddings: required_u(&meta, &arch, "context_length", origin)?,
+        // `Some(..)` rather than `None`: GGUF REQUIRES these two and refuses
+        // without them, so on this path they are always read from the file.
+        // Measured 28/28 present across the corpus.
+        intermediate_size: Some(required_u(&meta, &arch, "feed_forward_length", origin)?),
+        max_position_embeddings: Some(required_u(&meta, &arch, "context_length", origin)?),
         num_attention_heads,
 
         num_key_value_heads: supplied.num_key_value_heads,
@@ -705,15 +721,17 @@ fn config_from_gguf(bytes: &[u8], origin: &str) -> Result<ModelConfig> {
         // crate; what MLMF can say is that this one is asserted with nothing
         // behind it.
         //
-        // Not fixed here because the remedy is not a better constant: it is
-        // that `ModelConfig` demands a field the format cannot supply. That
-        // is the normalized-struct problem already dispositioned on
-        // `config.rs`'s row, and inventing an architecture-to-activation
-        // table would ADD the interpretation §10 removes.
-        activation_function: "silu".to_string(),
-        tie_word_embeddings: false,
-        dropout: 0.0,
-        attention_dropout: 0.0,
+        // ✅ FIXED, AND BY THE REMEDY THIS COMMENT NAMED. It said: "the
+        // remedy is not a better constant: it is that `ModelConfig` demands a
+        // field the format cannot supply." That is now false -- `ModelConfig`
+        // no longer demands them, so all four are `None` and no
+        // architecture-to-activation table was invented. The paragraph above
+        // is kept because it is the evidence for WHY they are `None`, and a
+        // reader who deletes it loses the measurement behind the decision.
+        activation_function: None,
+        tie_word_embeddings: None,
+        dropout: None,
+        attention_dropout: None,
 
         architecture: architecture_of(&arch),
         raw_config: serde_json::Value::Null,
@@ -1439,13 +1457,32 @@ mod tests {
         assert_eq!(cfg.num_hidden_layers, 30, "llama.block_count");
         assert_eq!(cfg.num_attention_heads, 9, "llama.attention.head_count");
         assert_eq!(cfg.num_key_value_heads, 3, "llama.attention.head_count_kv");
-        assert_eq!(cfg.intermediate_size, 1536, "llama.feed_forward_length");
-        assert_eq!(cfg.max_position_embeddings, 8192, "llama.context_length");
+        // `Some(..)`, not a bare number: after #48 a DECLARED value must
+        // arrive wrapped. Asserting the bare value would still compile if the
+        // field were `usize`, so this pins the representation as well as the
+        // number.
+        assert_eq!(
+            cfg.intermediate_size,
+            Some(1536),
+            "llama.feed_forward_length"
+        );
+        assert_eq!(
+            cfg.max_position_embeddings,
+            Some(8192),
+            "llama.context_length"
+        );
         assert_eq!(cfg.vocab_size, 49152, "llama.vocab_size");
+
+        // ⚠️ THE FILE DECLARES 100000 AND THE OLD DEFAULT WAS 10000. This
+        // checkpoint is the measurement behind #37, and it is why `rope_theta`
+        // is now `Option`: a factor of ten, in a field that used to be handed
+        // out silently whenever a file said nothing.
+        let rope_theta = cfg
+            .rope_theta
+            .expect("this checkpoint declares llama.rope.freq_base");
         assert!(
-            (cfg.rope_theta - 100_000.0).abs() < 1.0,
-            "llama.rope.freq_base, got {}",
-            cfg.rope_theta
+            (rope_theta - 100_000.0).abs() < 1.0,
+            "llama.rope.freq_base, got {rope_theta}"
         );
 
         // ⚠️ GQA IS READ, NOT ASSUMED. The replaced code hardcoded 32 for both

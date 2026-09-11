@@ -109,7 +109,9 @@ pub struct TechnicalSpecs {
     /// Model architecture type
     pub architecture: String,
     /// Total parameter count
-    pub parameter_count: u64,
+    /// Estimated parameter count, or `None` if the config does not declare
+    /// enough to compute one (it needs `intermediate_size`).
+    pub parameter_count: Option<u64>,
     /// Vocabulary size
     pub vocab_size: usize,
     /// Hidden dimension size
@@ -118,8 +120,12 @@ pub struct TechnicalSpecs {
     pub num_layers: usize,
     /// Number of attention heads
     pub num_attention_heads: usize,
-    /// Maximum sequence length
-    pub max_sequence_length: usize,
+    /// Maximum sequence length, or `None` if the model did not declare one.
+    ///
+    /// ⚠️ Was `usize`, and every ONNX model printed 2048 here -- a constant
+    /// that was never read from any file. A card is a document a human reads
+    /// and quotes; a number in it is taken as a fact about the model.
+    pub max_sequence_length: Option<usize>,
     /// Supported data types
     pub supported_dtypes: Vec<String>,
     /// Model file format
@@ -331,7 +337,17 @@ impl ModelCardGenerator {
             });
         }
 
-        let memory_estimate = validation::estimate_memory_usage(config, DType::F16, Some(1), None);
+        // ⚠️ NOT `unwrap_or_default()`. A zeroed MemoryRequirements is what
+        // this function already returns when the caller DISABLED estimation,
+        // so reusing it here would make "you turned it off" and "MLMF could
+        // not compute it" render identically in the card.
+        let Some(memory_estimate) =
+            validation::estimate_memory_usage(config, DType::F16, Some(1), None)
+        else {
+            return Err(crate::error::Error::invalid_config(
+                "Cannot estimate memory for the model card: this model declares no intermediate_size.",
+            ));
+        };
         let param_memory = (memory_estimate.parameters_gb * 1024.0) as u64;
         let inference_memory = (memory_estimate.total_gb * 1024.0) as u64;
         let training_memory = param_memory * 4; // Rough estimate for gradients and optimizer states
@@ -346,19 +362,28 @@ impl ModelCardGenerator {
     }
 
     /// Estimate total parameter count
-    fn estimate_parameter_count(&self, config: &ModelConfig) -> u64 {
+    /// Estimate total parameter count, or `None` if it cannot be computed.
+    ///
+    /// The FFN term needs `intermediate_size`, which a format may not declare.
+    /// Returning a count that silently omits the FFN would understate a 7B
+    /// model by roughly a third and still look like a parameter count.
+    fn estimate_parameter_count(&self, config: &ModelConfig) -> Option<u64> {
+        let intermediate_size = config.intermediate_size?;
         let embedding_params = config.vocab_size * config.hidden_size;
         let attention_params =
             config.num_hidden_layers * config.hidden_size * config.hidden_size * 4; // Q, K, V, O projections
-        let ffn_params =
-            config.num_hidden_layers * config.hidden_size * config.intermediate_size * 2; // Up and down projections
+        let ffn_params = config.num_hidden_layers * config.hidden_size * intermediate_size * 2; // Up and down projections
         let norm_params = config.num_hidden_layers * config.hidden_size * 2; // Layer norms
 
-        (embedding_params + attention_params + ffn_params + norm_params) as u64
+        Some((embedding_params + attention_params + ffn_params + norm_params) as u64)
     }
 
     /// Format parameter count for display
-    fn format_parameter_count(&self, count: u64) -> String {
+    fn format_parameter_count(&self, count: Option<u64>) -> String {
+        // "an unknown number of parameters" rather than a plausible one.
+        let Some(count) = count else {
+            return "an undeclared number of".to_string();
+        };
         if count >= 1_000_000_000 {
             format!("{:.1}B", count as f64 / 1_000_000_000.0)
         } else if count >= 1_000_000 {
@@ -372,7 +397,9 @@ impl ModelCardGenerator {
 
     /// Infer model variant from name and config
     fn infer_model_variant(&self, name: &str, config: &ModelConfig) -> Option<String> {
-        let param_count = self.estimate_parameter_count(config);
+        // A size variant named from a parameter count MLMF could not compute
+        // would be a label on a guess, so an unknown count yields no variant.
+        let param_count = self.estimate_parameter_count(config)?;
         let size_variant = if param_count >= 70_000_000_000 {
             "70B+"
         } else if param_count >= 13_000_000_000 {
@@ -528,15 +555,22 @@ impl ModelCardGenerator {
             "mlmf".to_string(),
         ];
 
-        // Add parameter size tag
-        if specs.parameter_count >= 70_000_000_000 {
-            tags.push("70b+".to_string());
-        } else if specs.parameter_count >= 13_000_000_000 {
-            tags.push("13b".to_string());
-        } else if specs.parameter_count >= 7_000_000_000 {
-            tags.push("7b".to_string());
-        } else if specs.parameter_count >= 1_000_000_000 {
-            tags.push("1b+".to_string());
+        // Add parameter size tag.
+        //
+        // No count, no tag. A "7b" tag is a searchable, quotable claim about
+        // the model, and attaching one to a parameter count MLMF could not
+        // compute would put a guess into the card's metadata, where it
+        // outlives the card.
+        if let Some(parameter_count) = specs.parameter_count {
+            if parameter_count >= 70_000_000_000 {
+                tags.push("70b+".to_string());
+            } else if parameter_count >= 13_000_000_000 {
+                tags.push("13b".to_string());
+            } else if parameter_count >= 7_000_000_000 {
+                tags.push("7b".to_string());
+            } else if parameter_count >= 1_000_000_000 {
+                tags.push("1b+".to_string());
+            }
         }
 
         // Add format tag
@@ -608,7 +642,10 @@ impl ModelCardGenerator {
             ));
             md.push_str(&format!(
                 "| Max Sequence Length | {} |\n",
-                card.technical_specs.max_sequence_length
+                match card.technical_specs.max_sequence_length {
+                    Some(n) => n.to_string(),
+                    None => "not declared".to_string(),
+                }
             ));
             md.push_str(&format!(
                 "| Model Format | {} |\n",
