@@ -102,6 +102,33 @@ fn is_literal(value: &str) -> bool {
     if v.is_empty() {
         return false;
     }
+    // ⚠️ `Some(10000.0)` IS A LITERAL, AND MISSING THAT WOULD HAVE SILENTLY
+    // RETIRED THIS ENTIRE GUARD.
+    //
+    // #48 made the invented fields `Option<T>`, so every value this scanner
+    // inspects changed shape in one commit: `rope_theta: 10000.0` became
+    // `rope_theta: Some(10000.0)`. A `Some(..)` reads as a CALL, calls are
+    // expressions, and this function permits expressions -- so the change
+    // that removed the defect would also have made the defect invisible.
+    //
+    // ⚠️ The only thing that surfaced it was this file's NON-VACUITY assert
+    // firing: the population dropped to zero and the guard said so instead of
+    // going green. Without that clause the scanner would have reported clean
+    // over a tree it could no longer read, which is precisely the failure
+    // mode named in this function's own doc comment above -- "every form this
+    // fails to recognise is a SILENT PASS" -- arriving by a route nobody
+    // anticipated, because the FIX rewrote the syntax rather than a person.
+    //
+    // A wrapped constant is exactly as fabricated as a bare one, so unwrap
+    // one layer and judge what is inside.
+    let v = v
+        .strip_prefix("Some(")
+        .and_then(|inner| inner.strip_suffix(')'))
+        .map(str::trim)
+        .unwrap_or(v);
+    if v.is_empty() {
+        return false;
+    }
     if v == "true" || v == "false" {
         return true;
     }
@@ -244,13 +271,19 @@ fn is_disclosed(lines: &[&str], i: usize, j: usize) -> bool {
 }
 
 /// Every literal-valued model field in one construction, with the offending
-/// subset. Returns `(literal_fields_seen, offences)`.
+/// subset. Returns `(model_fields, literal_fields_seen, offences)`.
+///
+/// ⚠️ `model_fields` counts every recognised model field REGARDLESS of its
+/// value, and exists solely so the non-vacuity check can tell "the tree is
+/// clean" from "the field parser stopped working". See
+/// `assert_the_scanner_is_alive`.
 fn fields_in_construction(
     lines: &[&str],
     rel: &str,
     i: usize,
     end: usize,
-) -> (usize, Vec<Offence>) {
+) -> (usize, usize, Vec<Offence>) {
+    let mut model_fields = 0;
     let mut seen = 0;
     let mut offences = Vec::new();
     for (j, l) in lines.iter().enumerate().take(end + 1).skip(i) {
@@ -262,7 +295,11 @@ fn fields_in_construction(
             continue;
         };
         let name = name.trim();
-        if !MODEL_FIELDS.contains(&name) || !is_literal(value) {
+        if !MODEL_FIELDS.contains(&name) {
+            continue;
+        }
+        model_fields += 1;
+        if !is_literal(value) {
             continue;
         }
         seen += 1;
@@ -275,14 +312,14 @@ fn fields_in_construction(
             });
         }
     }
-    (seen, offences)
+    (model_fields, seen, offences)
 }
 
-/// Walk one file, returning `(constructions, literal_fields, offences)`.
+/// Walk one file, returning `(constructions, model_fields, literal_fields, offences)`.
 ///
 /// A construction is a line containing `ModelConfig {` that is not the struct
 /// DEFINITION.
-fn scan(path: &Path, text: &str) -> (usize, usize, Vec<Offence>) {
+fn scan(path: &Path, text: &str) -> (usize, usize, usize, Vec<Offence>) {
     let lines: Vec<&str> = text.lines().collect();
     let display = path.display().to_string().replace('\\', "/");
     let rel = display
@@ -297,7 +334,7 @@ fn scan(path: &Path, text: &str) -> (usize, usize, Vec<Offence>) {
         .position(|l| l.trim_start().starts_with("#[cfg(test)]"))
         .unwrap_or(lines.len());
 
-    let (mut constructions, mut literal_fields) = (0, 0);
+    let (mut constructions, mut model_fields, mut literal_fields) = (0, 0, 0);
     let mut offences = Vec::new();
 
     let mut i = 0;
@@ -308,28 +345,31 @@ fn scan(path: &Path, text: &str) -> (usize, usize, Vec<Offence>) {
         }
         constructions += 1;
         let end = construction_end(&lines, i);
-        let (seen, mut found) = fields_in_construction(&lines, &rel, i, end);
+        let (mf, seen, mut found) = fields_in_construction(&lines, &rel, i, end);
+        model_fields += mf;
         literal_fields += seen;
         offences.append(&mut found);
         i = end + 1;
     }
-    (constructions, literal_fields, offences)
+    (constructions, model_fields, literal_fields, offences)
 }
 
-/// Scan every file, accumulating `(constructions, literal_fields, offences)`.
-fn survey(files: &[PathBuf]) -> (usize, usize, Vec<Offence>) {
+/// Scan every file, accumulating `(constructions, model_fields, literal_fields, offences)`.
+fn survey(files: &[PathBuf]) -> (usize, usize, usize, Vec<Offence>) {
     let mut constructions = 0;
+    let mut model_fields = 0;
     let mut literal_fields = 0;
     let mut offences: Vec<Offence> = Vec::new();
     for path in files {
         let text = fs::read_to_string(path)
             .unwrap_or_else(|e| panic!("{} is readable: {e}", path.display()));
-        let (c, lf, o) = scan(path, &text);
+        let (c, mf, lf, o) = scan(path, &text);
         constructions += c;
+        model_fields += mf;
         literal_fields += lf;
         offences.extend(o);
     }
-    (constructions, literal_fields, offences)
+    (constructions, model_fields, literal_fields, offences)
 }
 
 /// ⚠️ NON-VACUITY, ASSERTED BEFORE ANY CLAIM ABOUT THE CODE.
@@ -339,7 +379,7 @@ fn survey(files: &[PathBuf]) -> (usize, usize, Vec<Offence>) {
 /// recognising no constructions, and failing to parse the fields inside them.
 /// Each gets its own assertion, because a single combined one would not say
 /// which of the three had happened.
-fn assert_the_scanner_is_alive(files: usize, constructions: usize, literal_fields: usize) {
+fn assert_the_scanner_is_alive(files: usize, constructions: usize, model_fields: usize) {
     assert!(
         files > 20,
         "walked {files} files under src/; the root crate has far more, so the walk is broken and nothing else here is a claim about the code"
@@ -348,9 +388,36 @@ fn assert_the_scanner_is_alive(files: usize, constructions: usize, literal_field
         constructions > 0,
         "found no `ModelConfig` construction in {files} files. Either the root crate stopped building configs -- in which case delete this guard rather than leave it green -- or the scanner no longer recognises one"
     );
+    // ⚠️ THIS ASSERT USED TO REQUIRE `literal_fields > 0`, AND #48 MADE THAT
+    // UNSATISFIABLE. Recorded rather than quietly relaxed, because the reason
+    // matters more than the change.
+    //
+    // Its purpose was to separate "the tree is clean" from "the field parser
+    // broke", which it did by insisting the tree still contain at least one
+    // literal. That works only while the defect exists. #48 converted the
+    // invented fields to `Option<T>` and every production construction now
+    // passes expressions, so the count is legitimately zero and the guard
+    // could no longer start.
+    //
+    // ⚠️ The obvious move -- the old message's own advice -- was to DELETE
+    // this guard as having no population. That would have been wrong. The
+    // defect class is not dead, it MOVED: `src/formats/onnx_import.rs` still
+    // seeds `vocab_size = 50257`, `hidden_size = 768` and `num_layers = 12`
+    // (GPT-2's constants) in `let mut` initialisers that reach the struct
+    // through variables, one syntactic step outside what this scanner reads.
+    // Deleting the guard would have retired the only mechanical check on a
+    // class with live instances.
+    //
+    // So the discriminator changes instead. `model_fields` counts every
+    // recognised field in a construction whatever its value, which is zero if
+    // and only if the parser is broken -- and stays positive on a clean tree.
+    // That the LITERAL half still works is established separately, by this
+    // file's own unit tests against synthetic constructions, which is where a
+    // parser check belongs: they cannot be silenced by the tree changing
+    // shape, and the old assert could.
     assert!(
-        literal_fields > 0,
-        "found {constructions} `ModelConfig` constructions and not one literal-valued model field in any of them. That is the outcome this guard wants, but it is ALSO what a broken field parser looks like. Confirm by hand that no literal remains; if so, this guard has no population left and should be deleted rather than kept as a green line nobody can distinguish from a no-op"
+        model_fields > 0,
+        "found {constructions} `ModelConfig` constructions and parsed not one recognised model field from them, so the field parser is broken and `offences.is_empty()` below is a claim about nothing"
     );
 }
 
@@ -361,8 +428,8 @@ fn a_literal_model_field_must_be_disclosed() {
     // format loaders, which all live there.
     let files = common::rust_sources(&root.join("src"));
 
-    let (constructions, literal_fields, offences) = survey(&files);
-    assert_the_scanner_is_alive(files.len(), constructions, literal_fields);
+    let (constructions, model_fields, _literal_fields, offences) = survey(&files);
+    assert_the_scanner_is_alive(files.len(), constructions, model_fields);
 
     let report: Vec<String> = offences
         .iter()

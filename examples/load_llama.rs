@@ -74,9 +74,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Memory usage information
-    let memory_estimate =
-        mlmf::validation::estimate_memory_usage(&loaded.config, dtype, Some(1), None);
-    println!("\n💾 {}", memory_estimate.summary());
+    match mlmf::validation::estimate_memory_usage(&loaded.config, dtype, Some(1), None) {
+        Some(memory_estimate) => println!("\n💾 {}", memory_estimate.summary()),
+        // Not a failure: this model declared no FFN size, so there is no
+        // estimate to print rather than a fabricated one.
+        None => println!(
+            "\n💾 {}",
+            "no memory estimate: this model declares no intermediate_size"
+        ),
+    }
 
     Ok(())
 }

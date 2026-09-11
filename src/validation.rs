@@ -286,7 +286,10 @@ pub fn validate_dtype_for_device(dtype: DType, device: &Device) -> Result<()> {
 ///
 /// // Unquantised FP16 model — pass DType directly
 /// # let config: ModelConfig = unimplemented!();
-/// let estimate = estimate_memory_usage(&config, DType::F16, Some(1), Some(2048));
+/// // `None` when the config did not declare intermediate_size, an
+/// // activation function, tie_word_embeddings, or any sequence length.
+/// let estimate = estimate_memory_usage(&config, DType::F16, Some(1), Some(2048))
+///     .expect("this config declares everything the estimate needs");
 /// println!("{}", estimate.summary());
 ///
 /// // GGUF Q4 model — weight bytes and activation bytes differ
@@ -297,10 +300,50 @@ pub fn estimate_memory_usage(
     quant: impl Into<QuantizationInfo>,
     batch_size: Option<usize>,
     sequence_length: Option<usize>,
-) -> MemoryEstimate {
+) -> Option<MemoryEstimate> {
     let quant = quant.into();
     let batch_size = batch_size.unwrap_or(1);
-    let sequence_length = sequence_length.unwrap_or(config.max_position_embeddings);
+
+    // ⚠️ AN UNDER-ESTIMATE IS THE DANGEROUS DIRECTION, SO NOTHING HERE MAY
+    // ASSUME DOWNWARD.
+    //
+    // Several inputs are now `Option`, because the formats genuinely may not
+    // declare them. A memory figure that is too small does not look wrong --
+    // it looks affordable, and the caller allocates against it. So this
+    // function obeys one rule: EVERY assumption it makes must err toward MORE
+    // memory, and anything it cannot bound at all is not estimated.
+    //
+    // That splits the absent fields cleanly, and the split is about the size
+    // of the domain rather than about taste:
+    //
+    //   FINITE DOMAIN   -> take the worst case. `is_gated_ffn` and
+    //                      `tie_word_embeddings` are booleans, so "unknown"
+    //                      has exactly two candidates and the larger one is
+    //                      an exact, bounded upper bound (at most 1.5x on the
+    //                      FFN term, and one extra output matrix).
+    //
+    //   UNBOUNDED       -> refuse. `intermediate_size` is a free integer.
+    //                      There is no defensible worst case for it, and
+    //                      picking one would be inventing a model's value in
+    //                      a consumer -- the same defect #48 removed from
+    //                      `ModelConfig`, relocated rather than fixed.
+    //
+    // ⚠️ This is also why the estimator stays usable after #48. GGUF REQUIRES
+    // `feed_forward_length` and refuses without it (measured 28/28 present),
+    // so every GGUF model still estimates. Only a format that genuinely does
+    // not declare an FFN size -- ONNX, when no tensor shape reveals one --
+    // returns `None`, and for those MLMF really does not know.
+    let intermediate_size = config.intermediate_size?;
+
+    // Unknown gating -> assume gated: 3 matrices per layer rather than 2.
+    let is_gated_ffn = config.is_gated_ffn().unwrap_or(true);
+    // Unknown tying -> assume UNTIED, which costs a separate output matrix.
+    let tie_word_embeddings = config.tie_word_embeddings.unwrap_or(false);
+
+    // The caller's explicit sequence length wins; the model's declared
+    // maximum is the fallback. If neither exists there is no length to
+    // estimate against, and a length cannot be bounded upward either.
+    let sequence_length = sequence_length.or(config.max_position_embeddings)?;
 
     let bytes_per_weight = quant.weight_bits / 8.0;
     let activation_bytes = quant.activation_bytes;
@@ -314,7 +357,9 @@ pub fn estimate_memory_usage(
     let pos_emb_params = if config.architecture.uses_rope() {
         0
     } else {
-        config.max_position_embeddings * config.hidden_size
+        // Reached only for architectures with a LEARNED position table. A
+        // model that has one but does not declare its size cannot be bounded.
+        config.max_position_embeddings? * config.hidden_size
     };
 
     // Per-layer attention: Q and O use the full hidden→hidden projection;
@@ -325,12 +370,12 @@ pub fn estimate_memory_usage(
         + 2 * config.hidden_size * kv_projection_size // K and V projections (GQA-aware)
         + 4 * config.hidden_size; // biases (when present)
 
-    let ffn_params_per_layer = if config.is_gated_ffn() {
+    let ffn_params_per_layer = if is_gated_ffn {
         // SwiGLU / GeGLU: gate_proj + up_proj + down_proj
-        3 * config.hidden_size * config.intermediate_size + 3 * config.intermediate_size
+        3 * config.hidden_size * intermediate_size + 3 * intermediate_size
     } else {
         // Standard FFN: fc_in + fc_out
-        2 * config.hidden_size * config.intermediate_size + 2 * config.intermediate_size
+        2 * config.hidden_size * intermediate_size + 2 * intermediate_size
     };
 
     let layernorm_params_per_layer = 2 * config.hidden_size; // pre-attn + pre-ffn norms
@@ -339,7 +384,7 @@ pub fn estimate_memory_usage(
     let total_ffn_params = ffn_params_per_layer * config.num_hidden_layers;
     let total_layernorm_params = layernorm_params_per_layer * config.num_hidden_layers;
 
-    let output_params = if config.tie_word_embeddings {
+    let output_params = if tie_word_embeddings {
         0
     } else {
         config.vocab_size * config.hidden_size
@@ -371,7 +416,7 @@ pub fn estimate_memory_usage(
 
     // FFN intermediate tensor per layer.
     let ffn_activations =
-        batch_size * sequence_length * config.intermediate_size * config.num_hidden_layers;
+        batch_size * sequence_length * intermediate_size * config.num_hidden_layers;
 
     let working_activations_gb =
         (hidden_state_activations + attention_score_activations + ffn_activations) as f64
@@ -403,12 +448,12 @@ pub fn estimate_memory_usage(
         kv_cache_gb,
     };
 
-    MemoryEstimate {
+    Some(MemoryEstimate {
         parameters_gb,
         activation_gb,
         total_gb: parameters_gb + activation_gb,
         breakdown,
-    }
+    })
 }
 
 /// Get system memory in GB (best effort)
@@ -442,7 +487,20 @@ pub fn validate_memory_requirements(config: &ModelConfig, dtype: DType) -> Resul
     // the O(n²) attention activation term wildly over-estimate memory for long-context models
     // (e.g. 8192 context inflates activation estimates 16× vs 2048).
     const VALIDATION_SEQ_LEN: usize = 2048;
-    let estimate = estimate_memory_usage(config, dtype, Some(1), Some(VALIDATION_SEQ_LEN));
+    // ⚠️ A VALIDATION THAT COULD NOT RUN MUST NOT RETURN `Ok`. `Ok(())` here
+    // means "checked, and it fits". If the estimate cannot be computed then
+    // nothing was checked, and reporting success would be the false-clean
+    // this repo keeps finding: a caller cannot distinguish "validated" from
+    // "skipped". The refusal names the field that stopped it.
+    let Some(estimate) = estimate_memory_usage(config, dtype, Some(1), Some(VALIDATION_SEQ_LEN))
+    else {
+        return Err(Error::device_validation(
+            "Cannot validate memory requirements: this model declares no \
+             intermediate_size, so its FFN parameter count is unknown \
+             and any estimate would be a guess. Returning success here \
+             would report a check that never ran.",
+        ));
+    };
 
     if estimate.exceeds_system_memory() {
         return Err(Error::device_validation(format!(
@@ -467,14 +525,14 @@ mod tests {
             num_attention_heads: 32,
             num_key_value_heads: 32, // Standard attention (same as num_attention_heads)
             num_hidden_layers: 32,
-            intermediate_size: 11008,
-            max_position_embeddings: 4096,
-            dropout: 0.0,
-            layer_norm_eps: 1e-6,
-            attention_dropout: 0.0,
-            activation_function: "silu".to_string(),
-            rope_theta: 10000.0,
-            tie_word_embeddings: false,
+            intermediate_size: Some(11008),
+            max_position_embeddings: Some(4096),
+            dropout: Some(0.0),
+            layer_norm_eps: Some(1e-6),
+            attention_dropout: Some(0.0),
+            activation_function: Some("silu".to_string()),
+            rope_theta: Some(10000.0),
+            tie_word_embeddings: Some(false),
             architecture: Architecture::LLaMA,
             raw_config: serde_json::Value::Object(serde_json::Map::new()),
         }
@@ -483,7 +541,8 @@ mod tests {
     #[test]
     fn test_memory_estimation() {
         let config = sample_config();
-        let estimate = estimate_memory_usage(&config, DType::F16, Some(1), None);
+        let estimate = estimate_memory_usage(&config, DType::F16, Some(1), None)
+            .expect("the fixture declares intermediate_size, so the estimate is computable");
 
         // Should be reasonable for LLaMA-7B model
         assert!(estimate.parameters_gb > 10.0); // At least 10GB for 7B model
@@ -527,7 +586,8 @@ mod tests {
     #[test]
     fn test_memory_breakdown() {
         let config = sample_config();
-        let estimate = estimate_memory_usage(&config, DType::F16, Some(1), None);
+        let estimate = estimate_memory_usage(&config, DType::F16, Some(1), None)
+            .expect("the fixture declares intermediate_size, so the estimate is computable");
 
         // The six parameter-weight fields should sum to parameters_gb.
         // kv_cache_gb is deliberately excluded — it lives in activation memory, not weights.
@@ -558,7 +618,8 @@ mod tests {
     fn test_rope_eliminates_position_embeddings() {
         // LLaMA (RoPE): no stored position embedding table
         let llama_config = sample_config(); // uses Architecture::LLaMA
-        let llama_est = estimate_memory_usage(&llama_config, DType::F16, Some(1), Some(512));
+        let llama_est = estimate_memory_usage(&llama_config, DType::F16, Some(1), Some(512))
+            .expect("the fixture declares intermediate_size, so the estimate is computable");
         assert_eq!(
             llama_est.breakdown.position_embeddings_gb, 0.0,
             "LLaMA (RoPE) should have 0 position embedding memory"
@@ -569,7 +630,8 @@ mod tests {
             architecture: Architecture::GPT2,
             ..sample_config()
         };
-        let gpt2_est = estimate_memory_usage(&gpt2_config, DType::F16, Some(1), Some(512));
+        let gpt2_est = estimate_memory_usage(&gpt2_config, DType::F16, Some(1), Some(512))
+            .expect("the fixture declares intermediate_size, so the estimate is computable");
         assert!(
             gpt2_est.breakdown.position_embeddings_gb > 0.0,
             "GPT-2 should have non-zero position embedding memory"
@@ -586,8 +648,10 @@ mod tests {
     #[test]
     fn test_kv_cache_scales_with_sequence_length() {
         let config = sample_config();
-        let short = estimate_memory_usage(&config, DType::F16, Some(1), Some(512));
-        let long = estimate_memory_usage(&config, DType::F16, Some(1), Some(2048));
+        let short = estimate_memory_usage(&config, DType::F16, Some(1), Some(512))
+            .expect("the fixture declares intermediate_size, so the estimate is computable");
+        let long = estimate_memory_usage(&config, DType::F16, Some(1), Some(2048))
+            .expect("the fixture declares intermediate_size, so the estimate is computable");
 
         // KV cache is linear in sequence length
         assert!(
@@ -670,11 +734,14 @@ mod tests {
         // Q4 software quant should store 4-bit weights but use FP16 activations.
         // A Q4 model should use ~1/8th the weight memory of F32 but similar activation memory.
         let config = sample_config();
-        let f32_est = estimate_memory_usage(&config, QuantizationInfo::F32, Some(1), Some(512));
+        let f32_est = estimate_memory_usage(&config, QuantizationInfo::F32, Some(1), Some(512))
+            .expect("the fixture declares intermediate_size, so the estimate is computable");
         let q4_est =
-            estimate_memory_usage(&config, QuantizationInfo::Q4_SOFTWARE, Some(1), Some(512));
+            estimate_memory_usage(&config, QuantizationInfo::Q4_SOFTWARE, Some(1), Some(512))
+                .expect("the fixture declares intermediate_size, so the estimate is computable");
         let fp8_est =
-            estimate_memory_usage(&config, QuantizationInfo::FP8_NATIVE, Some(1), Some(512));
+            estimate_memory_usage(&config, QuantizationInfo::FP8_NATIVE, Some(1), Some(512))
+                .expect("the fixture declares intermediate_size, so the estimate is computable");
 
         // Weight memory: Q4 should be 1/8 of F32 (4 bits vs 32 bits)
         let weight_ratio = f32_est.parameters_gb / q4_est.parameters_gb;
@@ -718,20 +785,21 @@ mod tests {
             num_attention_heads: 9,
             num_key_value_heads: 3, // GQA: 3 KV heads vs 9 Q heads
             num_hidden_layers: 30,
-            intermediate_size: 1536,
+            intermediate_size: Some(1536),
             vocab_size: 32000,
-            max_position_embeddings: 2048,
-            dropout: 0.0,
-            layer_norm_eps: 1e-6,
-            attention_dropout: 0.0,
-            activation_function: "silu".to_string(),
-            rope_theta: 10000.0,
-            tie_word_embeddings: false,
+            max_position_embeddings: Some(2048),
+            dropout: Some(0.0),
+            layer_norm_eps: Some(1e-6),
+            attention_dropout: Some(0.0),
+            activation_function: Some("silu".to_string()),
+            rope_theta: Some(10000.0),
+            tie_word_embeddings: Some(false),
             architecture: Architecture::LLaMA,
             raw_config: serde_json::Value::Object(serde_json::Map::new()),
         };
 
-        let estimate = estimate_memory_usage(&config, DType::BF16, Some(1), Some(512));
+        let estimate = estimate_memory_usage(&config, DType::BF16, Some(1), Some(512))
+            .expect("the fixture declares intermediate_size, so the estimate is computable");
 
         // Parameter memory ~0.27GB + activations ~0.24GB + KV cache ~0.01GB ≈ 0.52GB total.
         // (Comment previously said ~0.35GB before KV cache was added to the estimate.)

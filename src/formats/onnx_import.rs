@@ -413,12 +413,34 @@ impl ONNXLoader {
         name_mapper: &SmartTensorNameMapper,
     ) -> Result<ModelConfig> {
         // Try to infer configuration from tensor shapes
-        let mut vocab_size = 50257; // Default
+        // ⚠️ THESE THREE SEEDS ARE GPT-2'S CONSTANTS AND THEY ARE STILL LIVE.
+        //
+        // 50257 / 768 / 12 are GPT-2's vocabulary, hidden size and layer
+        // count. An ONNX graph that yields no matching tensor keeps them, and
+        // they ship as facts about whatever model was actually loaded.
+        //
+        // ⚠️ `num_layers` is worse than a seed: it is combined with `.max()`
+        // below, so 12 is a FLOOR. A six-layer model is reported as twelve.
+        //
+        // NOT FIXED IN THIS COMMIT, AND THE REASON IS SCOPE, NOT DOUBT. This
+        // change converts the fields CireSnave's policy covers -- the ones no
+        // supported format reliably supplies. These three are supplied by HF
+        // and by GGUF (measured 28/28), so they stay concrete here and the
+        // defect is ONNX-specific: it is a derivation that needs a refusal,
+        // not a representation that needs an `Option`. Filed separately so it
+        // is tracked rather than absorbed into a type change.
+        //
+        // ⚠️ They sit in `let mut` initialisers, which is why the
+        // `model_config_literals` gate does not see them -- that gate scans
+        // `ModelConfig { .. }` constructions, and these reach the struct
+        // through variables.
+        let mut vocab_size = 50257;
         let mut hidden_size = 768;
         let mut num_layers = 12;
         let mut num_heads = 12;
-        let mut intermediate_size = 3072;
-        let mut max_pos_embeddings = 2048;
+        // 3072 is GPT-2's FFN size. Now `None` until a tensor shape supplies
+        // one, so a graph that yields nothing reports nothing.
+        let mut intermediate_size: Option<usize> = None;
 
         // Look for common tensor patterns to infer dimensions
         for (name, tensor) in tensors {
@@ -450,7 +472,7 @@ impl ONNXLoader {
                     let dim0 = shape.dims()[0];
                     let dim1 = shape.dims()[1];
                     if dim0 > hidden_size || dim1 > hidden_size {
-                        intermediate_size = dim0.max(dim1);
+                        intermediate_size = Some(dim0.max(dim1));
                     }
                 }
             }
@@ -482,7 +504,14 @@ impl ONNXLoader {
             num_key_value_heads: num_heads,
             num_hidden_layers: num_layers,
             intermediate_size,
-            max_position_embeddings: max_pos_embeddings,
+
+            // ⚠️ `max_pos_embeddings` WAS NEVER ASSIGNED. It was initialised
+            // to 2048 and read straight into this field, so EVERY ONNX model
+            // MLMF has ever loaded reported a context length of 2048 -- not
+            // as a fallback for a missing value, but unconditionally. The
+            // variable is gone; ONNX declares no context length, so this is
+            // `None`.
+            max_position_embeddings: None,
 
             // ⚠⚠ EVERYTHING BELOW IS ASSERTED WITHOUT EVIDENCE. None of it is
             // read from the ONNX file, and none of it is a documented ONNX
@@ -502,18 +531,18 @@ impl ONNXLoader {
             // FORMAT's documented default and may never supply a MODEL's value.
             // `rope_theta` and the activation are a model's; the dropouts are
             // arguably inference-time settings rather than model facts. Not
-            // fixed here because the remedy is not a better constant -- it is
-            // `Resolution::Supplied { value, citation }` from #22, which makes
-            // a supplied value citable and surfaces it in the conversion
-            // report, and that is a §12-sized job in `mlmf-core`, not a
-            // constant swap. Named here so it is disclosed rather than shipped
-            // silently.
-            dropout: 0.1,
-            layer_norm_eps: 1e-5,
-            attention_dropout: 0.1,
-            activation_function: "gelu".to_string(),
-            rope_theta: 10000.0,
-            tie_word_embeddings: false,
+            // ✅ NOW FIXED, THOUGH NOT BY THE ROUTE THIS COMMENT PREDICTED.
+            // It proposed `Resolution::Supplied { value, citation }` from #22
+            // and called it a §12-sized job. CireSnave ruled instead that an
+            // absent field is `Option<T>`, which needs no citation machinery
+            // because there is no supplied value left to cite. The paragraph
+            // above is kept for its evidence, not its prescription.
+            dropout: None,
+            layer_norm_eps: None,
+            attention_dropout: None,
+            activation_function: None,
+            rope_theta: None,
+            tie_word_embeddings: None,
             architecture: info.architecture,
             raw_config: serde_json::Value::Null,
         })

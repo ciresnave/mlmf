@@ -27,11 +27,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         model_config.num_key_value_heads
     );
     println!("  num_hidden_layers: {}", model_config.num_hidden_layers);
-    println!("  intermediate_size: {}", model_config.intermediate_size);
+    // `{:?}` rather than `{}`: after #48 this is an `Option`, and a config
+    // that declared no FFN size now prints `None` instead of a number
+    // nobody read.
+    println!("  intermediate_size: {:?}", model_config.intermediate_size);
     println!();
 
     // Calculate memory for bfloat16 (2 bytes per param)
-    let mem_estimate = estimate_memory_usage(&model_config, DType::BF16, Some(1), None);
+    let Some(mem_estimate) = estimate_memory_usage(&model_config, DType::BF16, Some(1), None)
+    else {
+        println!("No memory estimate: this config declares no intermediate_size.");
+        return Ok(());
+    };
     println!("{}", mem_estimate.summary());
     println!();
     println!("Expected: ~0.35 GB");
