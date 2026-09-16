@@ -49,9 +49,13 @@ pub struct HFConfig {
     )]
     pub max_position_embeddings: Option<usize>,
 
-    /// Dropout probability
-    #[serde(default = "default_dropout")]
-    pub dropout: f64,
+    /// Dropout probability, or `None` if the file did not declare one.
+    ///
+    /// ⚠️ This used to carry `#[serde(default = "default_dropout")]`, which
+    /// returned 0.1 while PARSING a file that never mentioned the key. The
+    /// default was applied before any MLMF code ran, so nothing downstream
+    /// could tell a declared 0.1 from a silent file.
+    pub dropout: Option<f64>,
 
     /// Layer norm epsilon
     #[serde(
@@ -140,11 +144,6 @@ pub struct ModelConfig {
     pub architecture: Architecture,
     /// Raw configuration JSON for metadata extraction
     pub raw_config: serde_json::Value,
-}
-
-// Default values
-fn default_dropout() -> f64 {
-    0.1
 }
 
 impl HFConfig {
@@ -314,19 +313,13 @@ impl HFConfig {
         // key is now absent.
         let attention_dropout = self.attention_dropout;
 
-        // ⚠️ `dropout` IS STILL COLLAPSED, ONE LAYER UP, AND THIS IS THE
-        // HONEST PLACE TO SAY SO. `HFConfig::dropout` carries
-        // `#[serde(default = "default_dropout")]`, which hands back 0.1 for a
-        // file that never mentioned the key. That default is applied during
-        // PARSING, so by the time this function runs a declared 0.1 and a
-        // silent file are already identical and no code here can separate
-        // them. Making this field `Option` therefore buys a type that CAN
-        // express absence while the value flowing into it still cannot be
-        // absent -- an improvement in the signature and not yet in the
-        // behaviour. Closing it means changing the parse layer, which is a
-        // separate change against a separate field, and it is listed in the
-        // PR rather than folded in here where nobody would find it.
-        let dropout = Some(self.dropout);
+        // ✅ `dropout` IS NO LONGER COLLAPSED. #77 made this field `Option`
+        // but left serde's `default = "default_dropout"` on the parse side,
+        // which returned 0.1 before this function ever ran, so a declared 0.1
+        // and a silent file arrived here identical. That was the gap #77
+        // recorded rather than fixed. The parse-layer default is gone, so
+        // absence now reaches this line as absence.
+        let dropout = self.dropout;
 
         // ⚠️ THE ONE FALLBACK THAT SURVIVES, AND IT SURVIVES ON A CITATION.
         //
@@ -634,7 +627,7 @@ mod tests {
             num_hidden_layers: 6,
             intermediate_size: None,
             max_position_embeddings: None,
-            dropout: 0.1,
+            dropout: Some(0.1),
             layer_norm_epsilon: None,
             rms_norm_eps: None,
             attention_dropout: None,
@@ -665,7 +658,7 @@ mod tests {
             num_hidden_layers: 32,
             intermediate_size: Some(11008),
             max_position_embeddings: Some(4096),
-            dropout: 0.0,
+            dropout: Some(0.0),
             layer_norm_epsilon: None,
             rms_norm_eps: Some(1e-6),
             attention_dropout: None,
@@ -937,6 +930,36 @@ mod tests {
         assert!(
             summary.contains("(undeclared head dim)"),
             "the derived value has to say so too: {summary}"
+        );
+    }
+
+    /// ⚠️ `dropout` WAS THE ONE FIELD #77 LEFT COLLAPSED, AND SAID SO.
+    ///
+    /// `HFConfig::dropout` carried `#[serde(default = "default_dropout")]`,
+    /// which hands back 0.1 while PARSING a config.json that never mentions
+    /// the key. `to_model_config` then wrapped it as `Some(..)`, so
+    /// `ModelConfig::dropout` had the right type and the wrong behaviour: a
+    /// silent file reported `Some(0.1)`, indistinguishable from a declared one.
+    ///
+    /// Both fixtures already differ on exactly this key -- the declared one
+    /// says `"dropout": 0.1`, the silent one omits it -- so this varies one
+    /// field and nothing else. The declared arm runs FIRST as the control: a
+    /// conversion that dropped dropout unconditionally would satisfy the
+    /// second assertion while breaking every real caller.
+    #[test]
+    fn an_absent_dropout_is_none_not_serdes_default() {
+        let declared = model_config_from(DECLARES_THE_FALLBACKS_OWN_VALUES);
+        assert_eq!(
+            declared.dropout,
+            Some(0.1),
+            "control: a declared 0.1 survives"
+        );
+
+        let silent = model_config_from(IS_SILENT_ABOUT_THEM);
+        assert_eq!(
+            silent.dropout, None,
+            "the file never mentions dropout, so MLMF has nothing to report. \
+             0.1 here is serde's default arriving as if the model declared it."
         );
     }
 }
