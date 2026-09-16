@@ -72,22 +72,20 @@ pub struct GGUFContent {
 /// message is returned alone rather than replaced — a diagnostic that hides the
 /// error it was called to explain is worse than none.
 fn unreadable_tensor_data(path: &Path, underlying: &str) -> String {
-    use std::fmt::Write as _;
-
-    let mut msg = format!(
+    let head = format!(
         "GGUF tensor data in {} could not be decoded: {underlying}",
         path.display()
     );
 
     let Ok(bytes) = std::fs::read(path) else {
-        return msg;
+        return head;
     };
     let origin = path.display().to_string();
     let Ok((meta, _)) = mlmf_gguf::GgufMetadata::parse(&bytes, &origin) else {
-        return msg;
+        return head;
     };
     let Ok((tensors, _)) = mlmf_gguf::parse_tensors(&bytes, &meta, &origin) else {
-        return msg;
+        return head;
     };
 
     let all = mlmf_core::TensorContainer::tensors(&tensors);
@@ -96,40 +94,79 @@ fn unreadable_tensor_data(path: &Path, underlying: &str) -> String {
         *counts.entry(format!("{:?}", t.encoding)).or_default() += 1;
     }
 
+    decode_failure_report(&head, underlying, &counts, all.len())
+}
+
+/// Build the report. Separated from the file reading so it is testable without
+/// a corpus file -- the corpus is absent in CI by design.
+#[cfg(feature = "gguf")]
+fn decode_failure_report(
+    head: &str,
+    underlying: &str,
+    counts: &std::collections::BTreeMap<String, usize>,
+    total: usize,
+) -> String {
+    use std::fmt::Write as _;
+    let mut msg = head.to_string();
+
     // ⚠️ THE CORRECTION GOES BESIDE THE TRAP, NOT UNDER THE REPORT.
     //
     // Adding context below a misleading sentence still leaves the misleading
-    // sentence first, and a reader acts on the first line. If the underlying
-    // message ends in a number that matches a code this file actually declares,
-    // say so immediately -- with the tensor count for that code, which is the
-    // fact that makes "not an index" undeniable rather than merely asserted.
-    if let Some(code) = trailing_number(underlying) {
-        if let Some((_, n)) = counts
+    // sentence first, and a reader acts on the first line.
+    if let Some(code) = trailing_number(underlying)
+        && let Some((_, n)) = counts
             .iter()
             .find(|(enc, _)| enc.contains(&format!("code: {code},")))
-        {
+    {
+        let _ = write!(
+            msg,
+            "\n\n>> The `{code}` in that message is a GGML TYPE CODE, not a \
+             tensor index. This file declares {n} tensors whose encoding is code \
+             {code}."
+        );
+
+        // ⚠️ AND IT IS THE FIRST CODE THE DECODER REFUSED, NOT NECESSARILY THE
+        // ONLY ONE IT WOULD.
+        //
+        // The decoder stops at the first encoding it cannot handle, so the
+        // number it names is a LOWER BOUND on the work. Measured over the
+        // corpus: `…IQ3_XS.gguf` is refused naming code 21 while ALSO carrying
+        // 180 tensors of code 20 -- and `…Q2_K.gguf`, refused naming code 20,
+        // proves the decoder rejects that one too. A reader who fixed "code
+        // 21" would have landed straight on code 20 next, with nothing in the
+        // old message to warn them.
+        //
+        // ⚠️ MLMF does NOT say WHICH of the others are unsupported, and that
+        // is deliberate. `candle-core`'s `GgmlDType::from_u32` is `pub(crate)`,
+        // so this crate cannot ask it; copying its table here would be a
+        // hand-written set that drifts silently the moment candle changes.
+        // Naming a supported encoding as a suspect would be a fabricated fact
+        // about the decoder -- the §6 error, aimed one crate over.
+        let others = counts.len().saturating_sub(1);
+        if others > 0 {
             let _ = write!(
                 msg,
-                "\n\n>> The `{code}` in that message is a GGML TYPE CODE, not a tensor \
-                 index. This file declares {n} tensors whose encoding is code {code}."
+                "\n>> It is also the FIRST code the decoder refused, not necessarily \
+                 the only one: decoding stops at the first encoding it cannot handle, \
+                 and this file declares {others} other encoding(s) listed below. \
+                 Fixing support for code {code} alone may not be sufficient."
             );
         }
     }
 
     let _ = write!(
         msg,
-        "\n\nMLMF read this file's structure: {} tensors in {} distinct encodings.",
-        all.len(),
+        "\n\nMLMF read this file's structure: {total} tensors in {} distinct encodings.",
         counts.len()
     );
-    for (encoding, n) in &counts {
+    for (encoding, n) in counts {
         let _ = write!(msg, "\n  {n:>4} tensors  {encoding}");
     }
     let _ = write!(
         msg,
-        "\n\nNOTE: a bare number in the underlying message is a GGML TYPE CODE, \
-         not a tensor index -- compare it against the `code:` values above \
-         before looking for a tensor by that number."
+        "\n\nNOTE: a bare number in the underlying message is a GGML TYPE \
+         CODE, not a tensor index -- compare it against the `code:` values \
+         above before looking for a tensor by that number."
     );
     msg
 }
@@ -1183,6 +1220,18 @@ mod tests {
             "{file}: and with the count that makes it undeniable rather than \
              asserted -- no tensor INDEX is shared by {tensors_at_code} tensors: {msg}"
         );
+
+        // ⚠️ AND IT MUST SAY THE NAMED CODE IS THE FIRST REFUSAL, NOT THE ONLY
+        // ONE. All three of these files carry MORE than one encoding, and
+        // `IQ3_XS` is refused naming code 21 while also holding 180 tensors of
+        // code 20 -- which `Q2_K`, refused naming 20, proves the decoder
+        // rejects too. Without this sentence a reader fixes one code and lands
+        // straight on the next.
+        assert!(
+            msg.contains("FIRST code the decoder refused"),
+            "{file}: the named code is a LOWER BOUND on the work and the \
+             message has to say so: {msg}"
+        );
     }
 
     #[test]
@@ -1584,6 +1633,113 @@ mod tests {
         assert!(
             mlmf_gguf::GgufMetadata::parse(&bytes, "synthetic-v1.gguf").is_err(),
             "mlmf-gguf refuses v1 rather than misreading it"
+        );
+    }
+
+    /// Synthetic counts shaped like `SmolLM2-135M-Instruct-IQ3_XS.gguf`,
+    /// measured for #52: 180 tensors of code 20, 30 of code 21, plus Q8_0 and
+    /// F32. The decoder refuses it naming code **21**.
+    fn iq3_xs_shaped_counts() -> std::collections::BTreeMap<String, usize> {
+        let mut counts = std::collections::BTreeMap::new();
+        counts.insert(
+            "Blocked(BlockSpec { family: \"ggml\", code: 20, elements_per_block: 32 })".to_string(),
+            180,
+        );
+        counts.insert(
+            "Blocked(BlockSpec { family: \"ggml\", code: 21, elements_per_block: 256 })"
+                .to_string(),
+            30,
+        );
+        counts.insert(
+            "Blocked(BlockSpec { family: \"ggml\", code: 8, elements_per_block: 32 })".to_string(),
+            1,
+        );
+        counts.insert("Dense(F32)".to_string(), 61);
+        counts
+    }
+
+    /// ⚠️ THE NAMED CODE IS A LOWER BOUND ON THE WORK, AND THE MESSAGE MUST
+    /// SAY SO.
+    ///
+    /// Measured for #52: this file is refused naming code 21 while ALSO
+    /// carrying 180 tensors of code 20 -- and `…Q2_K.gguf`, refused naming
+    /// code 20, proves the decoder rejects that one too. A reader who fixed
+    /// "code 21" would have landed straight on code 20 next.
+    #[test]
+    fn a_refusal_says_the_named_code_is_the_first_blocker_not_the_only_one() {
+        let counts = iq3_xs_shaped_counts();
+        let msg = decode_failure_report(
+            "head",
+            "unknown dtype for tensor 21",
+            &counts,
+            counts.values().sum(),
+        );
+
+        assert!(
+            msg.contains("code 21"),
+            "it must still name the code the decoder reported: {msg}"
+        );
+        assert!(
+            msg.contains("FIRST code the decoder refused"),
+            "a reader who takes 21 for THE blocker does the work twice: {msg}"
+        );
+        assert!(
+            msg.contains("may not be sufficient"),
+            "and it has to say what that means for them: {msg}"
+        );
+    }
+
+    /// ⚠️ IT MUST NOT NAME A SUPPORTED ENCODING AS A SUSPECT.
+    ///
+    /// `Q8_0` (code 8) and `F32` are both decodable, and this file contains
+    /// them. MLMF cannot ask which codes the decoder supports --
+    /// `candle-core`'s `GgmlDType::from_u32` is `pub(crate)` -- so asserting
+    /// that any particular other code is unsupported would be a fabricated
+    /// fact about another crate. The message points at the LIST; it does not
+    /// accuse a member of it.
+    #[test]
+    fn a_refusal_accuses_no_specific_other_code() {
+        let counts = iq3_xs_shaped_counts();
+        let msg = decode_failure_report(
+            "head",
+            "unknown dtype for tensor 21",
+            &counts,
+            counts.values().sum(),
+        );
+        for claim in [
+            "code 20 is unsupported",
+            "code 8 is unsupported",
+            "F32 is unsupported",
+        ] {
+            assert!(!msg.contains(claim), "must not assert {claim:?}: {msg}");
+        }
+    }
+
+    /// ⚠️ CONTROL: a file with ONE encoding gets no such warning.
+    ///
+    /// Without this, a message that appended the sentence unconditionally
+    /// would satisfy the test above while being wrong whenever there is
+    /// genuinely nothing else in the file.
+    #[test]
+    fn a_single_encoding_file_is_not_warned_about_other_codes() {
+        let mut counts = std::collections::BTreeMap::new();
+        counts.insert(
+            "Blocked(BlockSpec { family: \"ggml\", code: 21, elements_per_block: 256 })"
+                .to_string(),
+            30,
+        );
+        let msg = decode_failure_report(
+            "head",
+            "unknown dtype for tensor 21",
+            &counts,
+            counts.values().sum(),
+        );
+
+        assert!(msg.contains("code 21"), "still names the code: {msg}");
+        assert!(
+            !msg.contains("FIRST code the decoder refused"),
+            "there is nothing else in this file, so the warning would be \
+             false: {msg}"
         );
     }
 }
