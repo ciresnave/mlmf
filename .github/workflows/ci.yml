@@ -292,9 +292,49 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc -p mlmf-source-file --no-deps --no-default-features
 
-# NOT gated here, deliberately and on the record: the legacy root `mlmf`
-# package. It depends on `candlelight` from git and runs a `prost-build`
-# build script, so it needs `protoc` and a long build. Spec §11 schedules it
-# for rewrite across the format axis rather than repair. When that lands,
-# `cargo test --workspace` belongs in the matrix above and the `mlmf` entry
-# comes out of BUILD_SCRIPT_ALLOWED in crates/mlmf-core/tests/workspace.rs.
+  # ⚠️ THE LEGACY ROOT `mlmf` PACKAGE: TESTED HERE, BUT NOT LINTED OR DOCUMENTED.
+  #
+  # Until this job existed, CI never compiled or ran the root crate. Every PR
+  # that touched it -- #77, #78, #79, #80 and #81 all did -- merged on a
+  # green tick that said nothing about the changed code, and each one had to
+  # state that in its body. #79 shipped a card-rendering defect in root-crate
+  # code that no CI step could have seen; an analyser caught it.
+  #
+  # Why it was excluded, and why that no longer holds for TESTS:
+  #   * `protoc` -- the build script runs `prost-build`, which finds `protoc`
+  #     on PATH. Installed below.
+  #   * a long build -- a cost, not a correctness reason. Ubuntu only, one
+  #     job, cached.
+  #   * spec §11 schedules a rewrite -- which presupposes the crate still
+  #     works when that starts, and only running its tests can show that.
+  #
+  # ⚠️ STILL NOT RUN FOR THIS CRATE: clippy and rustdoc. Both FAIL on it today
+  # (a nightly-only lint; see the module doc of
+  # crates/mlmf-core/tests/ci_coverage.rs), so adding them would give a
+  # permanently red check, which hides every new failure behind the old one.
+  # For the same reason this is not `--workspace`. When §11 lands,
+  # `--workspace` belongs in the matrix above and `mlmf` comes out of
+  # BUILD_SCRIPT_ALLOWED in crates/mlmf-core/tests/workspace.rs.
+  root-crate-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Same pin as the core-gates job: `toolchain_pin_matches_ci` requires it.
+      - uses: dtolnay/rust-toolchain@1.98.0
+      - uses: Swatinem/rust-cache@v2
+
+      # `prost-build` does not ship `protoc`; it looks for it on PATH.
+      # Printing the version records which `protoc` this run actually used.
+      - name: install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler && protoc --version
+
+      - name: cargo test -p mlmf --lib
+        run: cargo test -p mlmf --lib
+
+      - name: cargo test -p mlmf --doc
+        run: cargo test -p mlmf --doc
+
+      # Examples are built but not run. #77 and #79 each broke an example
+      # that only a local `--all-targets` build caught.
+      - name: cargo build -p mlmf --all-targets
+        run: cargo build -p mlmf --all-targets
