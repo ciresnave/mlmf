@@ -8,10 +8,11 @@ members = ["crates/*"]
 # template contains, checked nothing.
 default-members = [
     # THE LEGACY ROOT PACKAGE, AND IT STAYS. Removing it is the obvious
-    # tidy-up — it is not a gated member, `gated_members()` walks `crates/*`
-    # only, and `ci.yml` excludes it on the record because it needs `protoc`
-    # and a long build. But CI excluding it and no gate naming it means
-    # `default-members` is the ONLY thing that builds this crate at all, and
+    # tidy-up — it is not a gated member, and `gated_members()` walks
+    # `crates/*` only. `ci.yml`'s `root-crate-tests` job now builds and TESTS
+    # it (it used to exclude it for needing `protoc`), but still does not lint
+    # or document it, and no gate names it. `default-members` is still what
+    # makes a plain `cargo build` include it, and
     # spec §11 schedules it for a REWRITE, which presupposes it still
     # compiles when somebody starts. Deleting this line would let it rot
     # unobserved and nothing would say so.
