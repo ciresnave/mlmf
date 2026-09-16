@@ -303,8 +303,8 @@ jobs:
   # Why it was excluded, and why that no longer holds for TESTS:
   #   * `protoc` -- the build script runs `prost-build`, which finds `protoc`
   #     on PATH. Installed below.
-  #   * a long build -- a cost, not a correctness reason. Ubuntu only, one
-  #     job, cached.
+  #   * a long build -- a cost, not a correctness reason, and smaller than
+  #     feared: the first run's test build took 58s. Ubuntu only, one job.
   #   * spec §11 schedules a rewrite -- which presupposes the crate still
   #     works when that starts, and only running its tests can show that.
   #
@@ -321,7 +321,9 @@ jobs:
       - uses: actions/checkout@v4
       # Same pin as the core-gates job: `toolchain_pin_matches_ci` requires it.
       - uses: dtolnay/rust-toolchain@1.98.0
-      - uses: Swatinem/rust-cache@v2
+      # No cache action, deliberately. The uncached test build took 58s on the
+      # first run, so a cache saves little, and a third-party action is a
+      # supply-chain dependency the core-gates job does not have either.
 
       # `prost-build` does not ship `protoc`; it looks for it on PATH.
       # Printing the version records which `protoc` this run actually used.
