@@ -426,15 +426,23 @@ impl ONNXLoader {
         let hidden_size = dims.hidden_size;
         let num_layers = dims.num_hidden_layers;
         let intermediate_size = dims.intermediate_size;
-        let num_heads = dims.num_attention_heads;
 
         Ok(ModelConfig {
             vocab_size,
             hidden_size,
-            num_attention_heads: num_heads,
-            // ⚠️ Not a file fact: ONNX declares no GQA grouping, so this
-            // asserts every model has none. See the note at `num_heads`.
-            num_key_value_heads: num_heads,
+            // ⚠️ BOTH `None`, AND THE DIVISION THAT USED TO FILL THEM IS
+            // DELETED RATHER THAN MOVED.
+            //
+            // An ONNX graph declares tensor shapes, not a head count. The old
+            // code divided `hidden_size` by 64, then 32, then fell back -- its
+            // own comment said it "hopes" -- and assigned the SAME quotient to
+            // both fields, so every ONNX model was reported as non-GQA. #37
+            // measured a real checkpoint with 9 query heads and 3 KV heads.
+            //
+            // A quotient of `hidden_size` carries no information the caller did
+            // not already have, so there was never a value here to preserve.
+            num_attention_heads: None,
+            num_key_value_heads: None,
             num_hidden_layers: num_layers,
             intermediate_size,
 
@@ -521,7 +529,6 @@ struct DerivedDims {
     hidden_size: usize,
     num_hidden_layers: usize,
     intermediate_size: Option<usize>,
-    num_attention_heads: usize,
 }
 
 /// Recover what an ONNX graph's tensor shapes actually say.
@@ -562,7 +569,6 @@ fn dimensions_from_tensor_shapes(shapes: &[(&str, &[usize])], origin: &str) -> R
         // ⚠️ SECOND PASS, AND THE SPLIT IS A CORRECTNESS FIX RATHER THAN
         // TIDYING -- see `intermediate_size_from`.
         intermediate_size: intermediate_size_from(shapes, hidden_size),
-        num_attention_heads: attention_heads_from(hidden_size),
         num_hidden_layers,
     })
 }
@@ -670,30 +676,6 @@ fn intermediate_size_from(shapes: &[(&str, &[usize])], hidden_size: usize) -> Op
         }
     }
     intermediate_size
-}
-
-/// ⚠️ DERIVED BY DIVISION, AND STILL NOT READ.
-///
-/// An ONNX graph carries no declared head count, so this divides the hidden
-/// size and hopes: right for the common head dims of 64 and 32, wrong for
-/// every model using another, and nothing downstream can tell which it got.
-/// The same value becomes `num_key_value_heads`, so every ONNX model reads as
-/// non-GQA -- #37 measured a real checkpoint with 9 query heads and 3 KV heads.
-///
-/// NOT FIXED HERE, and the reason is measured rather than preferred:
-/// representing "the head count is unknown" needs `num_attention_heads` to
-/// become `Option`, which is 57 production read sites and three public
-/// accessors (`head_dim`, `kv_head_dim`, `kv_projection_size`). That is a
-/// separate change with its own review surface, and #76 records it.
-#[cfg(feature = "onnx")]
-fn attention_heads_from(hidden_size: usize) -> usize {
-    if hidden_size % 64 == 0 {
-        hidden_size / 64
-    } else if hidden_size % 32 == 0 {
-        hidden_size / 32
-    } else {
-        (hidden_size / 64).max(1)
-    }
 }
 
 /// Extract layer number from tensor name (e.g., "layer.5.weight" -> Some(5))
@@ -851,9 +833,11 @@ mod tests {
         assert_eq!(dims.vocab_size, 32000, "from embed_tokens.weight dim 0");
         assert_eq!(dims.hidden_size, 512, "from embed_tokens.weight dim 1");
         assert_eq!(dims.intermediate_size, Some(1376), "from mlp.gate_proj");
-        // 512 / 64 = 8. Still a division rather than a declared count -- see
-        // the note at `num_attention_heads`; that half is deferred, not fixed.
-        assert_eq!(dims.num_attention_heads, 8);
+        // ⚠️ THERE IS NO `num_attention_heads` TO ASSERT ANY MORE, AND THAT
+        // IS THE FIX. This used to read `assert_eq!(dims.num_attention_heads,
+        // 8)` with a comment conceding "512 / 64 = 8. Still a division rather
+        // than a declared count". The field and the division are gone, so the
+        // graph's silence about head count is now representable.
     }
 
     /// ⚠️ THE SAME GRAPH, HANDED OVER IN TWO ORDERS, MUST GIVE ONE ANSWER.
@@ -901,5 +885,73 @@ mod tests {
         // and the graph does not reveal an intermediate size at all.
         assert_eq!(forward.hidden_size, 1024);
         assert_eq!(forward.intermediate_size, None);
+    }
+
+    /// ⚠️ THE CONSTRUCTION SITE ITSELF, NOT JUST THE SHAPE WALK.
+    ///
+    /// `dimensions_from_tensor_shapes` no longer HAS a head-count field, so
+    /// the compiler stops that half. But `num_attention_heads: Some(hidden /
+    /// 64)` is still writable by hand at the construction below, which is
+    /// exactly how the defect got there the first time. This test is the arm
+    /// that would go red if someone wrote it again.
+    ///
+    /// It goes through `infer_model_config` rather than the helper, so it
+    /// exercises the real path: a loader, real `Tensor`s on the CPU device,
+    /// and the `ONNXModelInfo` the importer actually builds.
+    #[test]
+    fn an_onnx_config_declares_no_head_count_at_all() {
+        let device = Device::Cpu;
+        let mut tensors: HashMap<String, Tensor> = HashMap::new();
+        // Small but real: vocab 96, hidden 512. ⚠️ 512 is divisible by 64, so
+        // the DELETED derivation would have confidently reported 8 heads here.
+        tensors.insert(
+            "model.embed_tokens.weight".to_string(),
+            Tensor::zeros((96usize, 512usize), DType::F32, &device).expect("cpu tensor"),
+        );
+        tensors.insert(
+            "model.layers.0.self_attn.q_proj.weight".to_string(),
+            Tensor::zeros((512usize, 512usize), DType::F32, &device).expect("cpu tensor"),
+        );
+
+        let names: Vec<String> = tensors.keys().cloned().collect();
+        let name_mapper = SmartTensorNameMapper::from_tensor_names(&names)
+            .expect("LLaMA-style names are recognised");
+        let info = ONNXModelInfo {
+            model_version: 1,
+            producer_name: "probe".to_string(),
+            producer_version: "0".to_string(),
+            domain: String::new(),
+            doc_string: String::new(),
+            graph_name: "head-count-probe".to_string(),
+            num_nodes: 0,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            architecture: Architecture::LLaMA,
+        };
+        let loader = ONNXLoader::new(ONNXLoadOptions::default());
+
+        let config = loader
+            .infer_model_config(&info, &tensors, &name_mapper)
+            .expect("this graph declares a vocabulary, a hidden size and layer 0");
+
+        // CONTROL FIRST: what the graph DOES declare must survive, or the
+        // assertions below would pass on a config that failed to read anything.
+        assert_eq!(config.vocab_size, 96, "dim 0 of the embedding");
+        assert_eq!(config.hidden_size, 512, "dim 1 of the embedding");
+        assert_eq!(config.num_hidden_layers, 1, "layer index 0 means one layer");
+
+        assert_eq!(
+            config.num_attention_heads, None,
+            "an ONNX graph declares tensor shapes, not a head count. The \
+             deleted code divided 512 by 64 and reported 8 -- a restatement of \
+             hidden_size that a caller could not tell from a declared value."
+        );
+        assert_eq!(
+            config.num_key_value_heads, None,
+            "the same quotient used to be assigned here too, so every ONNX \
+             model was reported as non-GQA; #37 measured a real checkpoint \
+             with 9 query heads and 3 KV heads"
+        );
+        assert_eq!(config.head_dim(), None, "nothing to divide by");
     }
 }

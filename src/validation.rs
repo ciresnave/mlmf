@@ -334,6 +334,13 @@ pub fn estimate_memory_usage(
     // not declare an FFN size -- ONNX, when no tensor shape reveals one --
     // returns `None`, and for those MLMF really does not know.
     let intermediate_size = config.intermediate_size?;
+    // Head counts are unbounded integers, so they fall on the REFUSE side of
+    // the rule above: there is no defensible worst case for "how many heads".
+    // ⚠️ This is why an ONNX model no longer estimates -- MLMF genuinely does
+    // not know its head count, and the number it used to use was a quotient of
+    // `hidden_size` rather than anything the graph declared.
+    let num_attention_heads = config.num_attention_heads?;
+    let num_key_value_heads = config.num_key_value_heads?;
 
     // Unknown gating -> assume gated: 3 matrices per layer rather than 2.
     let is_gated_ffn = config.is_gated_ffn().unwrap_or(true);
@@ -364,8 +371,8 @@ pub fn estimate_memory_usage(
 
     // Per-layer attention: Q and O use the full hidden→hidden projection;
     // K and V use the smaller KV-head projection for GQA models.
-    let head_dim = config.hidden_size / config.num_attention_heads;
-    let kv_projection_size = config.num_key_value_heads * head_dim;
+    let head_dim = config.hidden_size / num_attention_heads;
+    let kv_projection_size = num_key_value_heads * head_dim;
     let attention_params_per_layer = 2 * config.hidden_size * config.hidden_size   // Q and O projections
         + 2 * config.hidden_size * kv_projection_size // K and V projections (GQA-aware)
         + 4 * config.hidden_size; // biases (when present)
@@ -409,7 +416,7 @@ pub fn estimate_memory_usage(
 
     // Attention score matrix: (batch, heads, seq, seq) per layer.
     let attention_score_activations = batch_size
-        * config.num_attention_heads
+        * num_attention_heads
         * sequence_length
         * sequence_length
         * config.num_hidden_layers;
@@ -427,7 +434,7 @@ pub fn estimate_memory_usage(
     // Keys + values for every layer, stored at activation precision:
     //   2 (K+V) × kv_heads × head_dim × layers × seq_len × batch
     let kv_cache_elements = 2
-        * config.num_key_value_heads
+        * num_key_value_heads
         * head_dim
         * config.num_hidden_layers
         * sequence_length
@@ -522,8 +529,8 @@ mod tests {
         ModelConfig {
             vocab_size: 32000,
             hidden_size: 4096,
-            num_attention_heads: 32,
-            num_key_value_heads: 32, // Standard attention (same as num_attention_heads)
+            num_attention_heads: Some(32),
+            num_key_value_heads: Some(32), // Standard attention (same as num_attention_heads)
             num_hidden_layers: 32,
             intermediate_size: Some(11008),
             max_position_embeddings: Some(4096),
@@ -782,8 +789,8 @@ mod tests {
         // 176M params, 256.6MB file, should estimate ~0.35GB not 71.57GB
         let config = ModelConfig {
             hidden_size: 576,
-            num_attention_heads: 9,
-            num_key_value_heads: 3, // GQA: 3 KV heads vs 9 Q heads
+            num_attention_heads: Some(9),
+            num_key_value_heads: Some(3), // GQA: 3 KV heads vs 9 Q heads
             num_hidden_layers: 30,
             intermediate_size: Some(1536),
             vocab_size: 32000,

@@ -88,9 +88,15 @@ fn demonstrate_real_onnx_import(model_path: &Path) -> Result<(), Box<dyn std::er
             println!("      Vocab size: {}", loaded_model.config.vocab_size);
             println!("      Hidden size: {}", loaded_model.config.hidden_size);
             println!("      Layers: {}", loaded_model.config.num_hidden_layers);
+            // ⚠️ Prints `None` for an ONNX model, and that is the point of
+            // #76: an ONNX graph declares tensor shapes, not a head count.
+            // This line used to print a quotient of `hidden_size`.
             println!(
                 "      Attention heads: {}",
-                loaded_model.config.num_attention_heads
+                match loaded_model.config.num_attention_heads {
+                    Some(n) => n.to_string(),
+                    None => "not declared by this format".to_string(),
+                }
             );
 
             // Show some tensor information

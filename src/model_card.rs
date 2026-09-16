@@ -118,8 +118,12 @@ pub struct TechnicalSpecs {
     pub hidden_size: usize,
     /// Number of layers
     pub num_layers: usize,
-    /// Number of attention heads
-    pub num_attention_heads: usize,
+    /// Number of attention heads, or `None` if the model did not declare one.
+    ///
+    /// ⚠️ Was `usize`, and every ONNX model printed a quotient of `hidden_size`
+    /// here. A card is a document a human reads and quotes; a number in it is
+    /// taken as a fact about the model.
+    pub num_attention_heads: Option<usize>,
     /// Maximum sequence length, or `None` if the model did not declare one.
     ///
     /// ⚠️ Was `usize`, and every ONNX model printed 2048 here -- a constant
@@ -638,7 +642,10 @@ impl ModelCardGenerator {
             ));
             md.push_str(&format!(
                 "| Attention Heads | {} |\n",
-                card.technical_specs.num_attention_heads
+                match card.technical_specs.num_attention_heads {
+                    Some(n) => n.to_string(),
+                    None => "not declared".to_string(),
+                }
             ));
             md.push_str(&format!(
                 "| Max Sequence Length | {} |\n",
