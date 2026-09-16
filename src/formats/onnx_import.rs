@@ -530,119 +530,170 @@ struct DerivedDims {
 /// Device or the `candlelight` runtime.
 #[cfg(feature = "onnx")]
 fn dimensions_from_tensor_shapes(shapes: &[(&str, &[usize])], origin: &str) -> Result<DerivedDims> {
-    // ⚠️ NO SEEDS. These were 50257 / 768 / 12 -- GPT-2's vocabulary, hidden
-    // size and layer count -- and a graph that matched none of the patterns
-    // below kept them and shipped them as facts about whatever model was
-    // actually loaded. `None` means the graph did not say.
-    let mut vocab_size: Option<usize> = None;
-    let mut hidden_size: Option<usize> = None;
-    let mut num_hidden_layers: Option<usize> = None;
-
-    // ⚠️ PASS ONE, AND THE SPLIT INTO TWO PASSES IS A CORRECTNESS FIX, NOT
-    // TIDYING. The FFN rule below compares a dimension against `hidden_size`,
-    // which used to be assigned INSIDE this same loop -- and the caller builds
-    // these pairs from a `HashMap`, whose iteration order is unspecified and
-    // varies between runs. So whether the embedding tensor was seen before the
-    // MLP tensor decided whether `intermediate_size` was found at all:
-    // **the same file could yield a different config on two consecutive
-    // loads**, with nothing in the output saying which it got.
-    for (name, dims) in shapes {
-        let rank = dims.len();
-
-        // Embedding: (vocab, hidden).
-        if name.contains("embed") && name.contains("weight") && rank == 2 {
-            vocab_size = Some(dims[0]);
-            hidden_size = Some(dims[1]);
-        }
-
-        // A square attention projection is hidden -> hidden.
-        if name.contains("attn") && name.contains("weight") && rank == 2 && dims[0] == dims[1] {
-            hidden_size = Some(dims[0]);
-        }
-
-        // ⚠️ The layer count is a MAXIMUM OVER WHAT THE GRAPH DECLARES, and it
-        // now starts from nothing. It used to start at 12 and take `.max()`,
-        // which made 12 a FLOOR rather than a default: a six-layer model was
-        // reported as twelve. That corrupts a value the graph DID supply,
-        // which is worse than failing to find one.
-        if let Some(layer_num) = extract_layer_number(name) {
-            let count = layer_num + 1;
-            num_hidden_layers = Some(num_hidden_layers.map_or(count, |n: usize| n.max(count)));
-        }
-    }
+    let recovered = recover_dimensions(shapes);
 
     // Refuse, naming what was looked for. The GGUF loader's `required_u` sets
     // the standard: a refusal that names the key beats a constant nobody read.
-    let missing = |what: &str, looked_for: &str| {
-        Error::invalid_format(format!(
-            "{origin}: cannot determine {what} from this ONNX graph. An ONNX \
-             graph declares tensor shapes, not a model configuration, so this \
-             value is recovered by {looked_for} -- and nothing here matched. \
-             Refusing rather than substituting a default: the constant this \
-             replaced belonged to a different model entirely."
-        ))
-    };
-    let vocab_size = vocab_size.ok_or_else(|| {
-        missing(
+    let vocab_size = recovered.vocab_size.ok_or_else(|| {
+        missing_dimension(
+            origin,
             "vocab_size",
             "reading dimension 0 of a rank-2 tensor whose name contains `embed` and `weight`",
         )
     })?;
-    let hidden_size = hidden_size.ok_or_else(|| {
-        missing(
+    let hidden_size = recovered.hidden_size.ok_or_else(|| {
+        missing_dimension(
+            origin,
             "hidden_size",
             "reading dimension 1 of the embedding tensor, or the side of a square `attn` weight",
         )
     })?;
-    let num_hidden_layers = num_hidden_layers.ok_or_else(|| {
-        missing(
+    let num_hidden_layers = recovered.num_hidden_layers.ok_or_else(|| {
+        missing_dimension(
+            origin,
             "num_hidden_layers",
             "taking the highest layer index appearing in any tensor name",
         )
     })?;
 
-    // PASS TWO: everything that depends on a dimension recovered above, so the
-    // answer no longer depends on which order the map handed us the tensors.
+    Ok(DerivedDims {
+        vocab_size,
+        hidden_size,
+        // ⚠️ SECOND PASS, AND THE SPLIT IS A CORRECTNESS FIX RATHER THAN
+        // TIDYING -- see `intermediate_size_from`.
+        intermediate_size: intermediate_size_from(shapes, hidden_size),
+        num_attention_heads: attention_heads_from(hidden_size),
+        num_hidden_layers,
+    })
+}
+
+/// The refusal an absent dimension produces.
+///
+/// `what` names the field; `looked_for` names the pattern that was searched,
+/// so a reader can tell a graph this code cannot read from a graph that does
+/// not carry the value at all.
+#[cfg(feature = "onnx")]
+fn missing_dimension(origin: &str, what: &str, looked_for: &str) -> Error {
+    Error::invalid_format(format!(
+        "{origin}: cannot determine {what} from this ONNX graph. An ONNX \
+         graph declares tensor shapes, not a model configuration, so this \
+         value is recovered by {looked_for} -- and nothing here matched. \
+         Refusing rather than substituting a default: the constant this \
+         replaced belonged to a different model entirely."
+    ))
+}
+
+/// What the graph's names and shapes actually revealed. `None` means silent.
+#[cfg(feature = "onnx")]
+struct RecoveredDims {
+    vocab_size: Option<usize>,
+    hidden_size: Option<usize>,
+    num_hidden_layers: Option<usize>,
+}
+
+/// Is this a rank-2 embedding matrix, i.e. `(vocab, hidden)`?
+#[cfg(feature = "onnx")]
+fn is_embedding_weight(name: &str, rank: usize) -> bool {
+    rank == 2 && name.contains("embed") && name.contains("weight")
+}
+
+/// Is this a SQUARE attention projection, i.e. `hidden -> hidden`?
+///
+/// Squareness is the whole test: a q/k/v projection under grouped-query
+/// attention is NOT square, and reading a hidden size off one would be wrong.
+#[cfg(feature = "onnx")]
+fn is_square_attention_weight(name: &str, dims: &[usize]) -> bool {
+    dims.len() == 2 && name.contains("attn") && name.contains("weight") && dims[0] == dims[1]
+}
+
+/// Is this a rank-2 feed-forward weight?
+#[cfg(feature = "onnx")]
+fn is_ffn_weight(name: &str, rank: usize) -> bool {
+    rank == 2 && name.contains("weight") && (name.contains("mlp") || name.contains("ffn"))
+}
+
+/// PASS ONE: everything readable from names and shapes alone.
+///
+/// ⚠️ NO SEEDS. These were 50257 / 768 / 12 -- GPT-2's vocabulary, hidden size
+/// and layer count -- and a graph matching none of the patterns kept them and
+/// shipped them as facts about whatever model was actually loaded.
+#[cfg(feature = "onnx")]
+fn recover_dimensions(shapes: &[(&str, &[usize])]) -> RecoveredDims {
+    let mut out = RecoveredDims {
+        vocab_size: None,
+        hidden_size: None,
+        num_hidden_layers: None,
+    };
+
+    for (name, dims) in shapes {
+        if is_embedding_weight(name, dims.len()) {
+            out.vocab_size = Some(dims[0]);
+            out.hidden_size = Some(dims[1]);
+        }
+
+        if is_square_attention_weight(name, dims) {
+            out.hidden_size = Some(dims[0]);
+        }
+
+        // ⚠️ The layer count is a MAXIMUM OVER WHAT THE GRAPH DECLARES, and it
+        // starts from nothing. It used to start at 12 and take `.max()`, which
+        // made 12 a FLOOR rather than a default: a six-layer model was
+        // reported as twelve. That corrupts a value the graph DID supply,
+        // which is worse than failing to find one.
+        if let Some(layer_num) = extract_layer_number(name) {
+            let count = layer_num + 1;
+            out.num_hidden_layers =
+                Some(out.num_hidden_layers.map_or(count, |n: usize| n.max(count)));
+        }
+    }
+
+    out
+}
+
+/// PASS TWO: the FFN width, which can only be judged against a known hidden size.
+///
+/// ⚠️ **SEPARATING THIS FROM PASS ONE IS A CORRECTNESS FIX, NOT TIDYING.** The
+/// comparison below needs `hidden_size`, which used to be assigned inside the
+/// same loop -- and the caller builds these pairs by iterating a `HashMap`,
+/// whose order is unspecified and varies between runs. So whether the
+/// embedding tensor arrived before the MLP tensor decided the answer, and
+/// **two consecutive loads of one file could disagree**, with nothing in the
+/// output saying which it got.
+#[cfg(feature = "onnx")]
+fn intermediate_size_from(shapes: &[(&str, &[usize])], hidden_size: usize) -> Option<usize> {
     let mut intermediate_size: Option<usize> = None;
     for (name, dims) in shapes {
-        if (name.contains("mlp") || name.contains("ffn"))
-            && name.contains("weight")
-            && dims.len() == 2
-            && (dims[0] > hidden_size || dims[1] > hidden_size)
-        {
+        if is_ffn_weight(name, dims.len()) && (dims[0] > hidden_size || dims[1] > hidden_size) {
             let candidate = dims[0].max(dims[1]);
             intermediate_size =
                 Some(intermediate_size.map_or(candidate, |n: usize| n.max(candidate)));
         }
     }
+    intermediate_size
+}
 
-    // ⚠️ STILL DERIVED BY DIVISION, AND STILL NOT READ. An ONNX graph carries
-    // no declared head count, so this divides the hidden size and hopes: right
-    // for the common head dims of 64 and 32, wrong for every model using
-    // another, and nothing downstream can tell which it got. The same value
-    // becomes `num_key_value_heads`, so every ONNX model reads as non-GQA --
-    // #37 measured a real checkpoint with 9 query heads and 3 KV heads.
-    //
-    // NOT FIXED HERE, and the reason is measured rather than preferred:
-    // representing "the head count is unknown" needs `num_attention_heads` to
-    // become `Option`, which is 57 production read sites and three public
-    // accessors (`head_dim`, `kv_head_dim`, `kv_projection_size`). That is a
-    // separate change with its own review surface, and #76 records it.
-    let num_attention_heads = if hidden_size % 64 == 0 {
+/// ⚠️ DERIVED BY DIVISION, AND STILL NOT READ.
+///
+/// An ONNX graph carries no declared head count, so this divides the hidden
+/// size and hopes: right for the common head dims of 64 and 32, wrong for
+/// every model using another, and nothing downstream can tell which it got.
+/// The same value becomes `num_key_value_heads`, so every ONNX model reads as
+/// non-GQA -- #37 measured a real checkpoint with 9 query heads and 3 KV heads.
+///
+/// NOT FIXED HERE, and the reason is measured rather than preferred:
+/// representing "the head count is unknown" needs `num_attention_heads` to
+/// become `Option`, which is 57 production read sites and three public
+/// accessors (`head_dim`, `kv_head_dim`, `kv_projection_size`). That is a
+/// separate change with its own review surface, and #76 records it.
+#[cfg(feature = "onnx")]
+fn attention_heads_from(hidden_size: usize) -> usize {
+    if hidden_size % 64 == 0 {
         hidden_size / 64
     } else if hidden_size % 32 == 0 {
         hidden_size / 32
     } else {
         (hidden_size / 64).max(1)
-    };
-
-    Ok(DerivedDims {
-        vocab_size,
-        hidden_size,
-        num_hidden_layers,
-        intermediate_size,
-        num_attention_heads,
-    })
+    }
 }
 
 /// Extract layer number from tensor name (e.g., "layer.5.weight" -> Some(5))
