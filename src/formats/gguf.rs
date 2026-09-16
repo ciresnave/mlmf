@@ -1689,16 +1689,49 @@ mod tests {
         );
     }
 
+    /// Every ggml code named in a CLAIM, as opposed to merely listed.
+    ///
+    /// ⚠️ The structure table legitimately names every encoding in the file --
+    /// that is its job. The PROSE must name only the code the decoder
+    /// reported. This strips the table rows (`   180 tensors  Blocked(..)`)
+    /// and reads what is left.
+    fn codes_claimed_in_prose(msg: &str) -> Vec<u32> {
+        let prose: String = msg
+            .lines()
+            .filter(|l| !l.trim_start().starts_with(char::is_numeric))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut out = Vec::new();
+        for (marker, skip) in [("code: ", 6usize), ("code ", 5usize)] {
+            let mut rest = prose.as_str();
+            while let Some(i) = rest.find(marker) {
+                let after = &rest[i + skip..];
+                let digits: String = after.chars().take_while(char::is_ascii_digit).collect();
+                if let Ok(n) = digits.parse::<u32>() {
+                    out.push(n);
+                }
+                rest = &rest[i + skip..];
+            }
+        }
+        out
+    }
+
     /// ⚠️ IT MUST NOT NAME A SUPPORTED ENCODING AS A SUSPECT.
     ///
-    /// `Q8_0` (code 8) and `F32` are both decodable, and this file contains
-    /// them. MLMF cannot ask which codes the decoder supports --
+    /// `Q8_0` (code 8) and `F32` are both decodable and both present in these
+    /// files. MLMF cannot ask which codes the decoder supports --
     /// `candle-core`'s `GgmlDType::from_u32` is `pub(crate)` -- so asserting
     /// that any particular other code is unsupported would be a fabricated
-    /// fact about another crate. The message points at the LIST; it does not
-    /// accuse a member of it.
+    /// fact about another crate.
+    ///
+    /// ⚠️ THIS ASSERTS THE SHAPE, NOT THE VOCABULARY, AND THE FIRST VERSION
+    /// DID NOT. It rejected three exact phrasings, so a regression worded
+    /// `code 20 cannot be decoded` would have passed while violating the
+    /// stated invariant -- a test that searches for a defect's WORDS finds
+    /// only the author who used them. Found by Sourcery on #80, and it is the
+    /// same error this repo has recorded before under its own name.
     #[test]
-    fn a_refusal_accuses_no_specific_other_code() {
+    fn a_refusal_names_no_code_other_than_the_one_the_decoder_reported() {
         let counts = iq3_xs_shaped_counts();
         let msg = decode_failure_report(
             "head",
@@ -1706,13 +1739,42 @@ mod tests {
             &counts,
             counts.values().sum(),
         );
-        for claim in [
-            "code 20 is unsupported",
-            "code 8 is unsupported",
-            "F32 is unsupported",
-        ] {
-            assert!(!msg.contains(claim), "must not assert {claim:?}: {msg}");
+
+        let claimed = codes_claimed_in_prose(&msg);
+        assert!(
+            !claimed.is_empty(),
+            "the prose must name the reported code at all, or this test is \
+             vacuous and would pass on an empty message: {msg}"
+        );
+        for code in &claimed {
+            assert_eq!(
+                *code, 21,
+                "the prose names code {code}, which the decoder did not \
+                 report. MLMF cannot know whether that encoding is supported \
+                 -- candle's table is `pub(crate)` -- so naming it is a \
+                 fabricated fact about another crate. Claimed: {claimed:?}\n{msg}"
+            );
         }
+    }
+
+    /// ⚠️ CONTROL FOR THE CONTROL: the shape check can FIRE.
+    ///
+    /// A structural assertion that never fails is worth less than the three
+    /// exact phrases it replaced. This feeds a report that does accuse another
+    /// code and confirms `codes_claimed_in_prose` sees it.
+    #[test]
+    fn the_prose_scanner_detects_an_accusation_of_another_code() {
+        let claimed = codes_claimed_in_prose(
+            "head\n\n>> code 21 is the blocker. Also code 20 cannot be decoded.",
+        );
+        assert!(
+            claimed.contains(&20),
+            "the scanner must see an accusation worded any way at all: {claimed:?}"
+        );
+        assert!(
+            claimed.contains(&21),
+            "and the legitimate one too: {claimed:?}"
+        );
     }
 
     /// ⚠️ CONTROL: a file with ONE encoding gets no such warning.
