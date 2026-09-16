@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             enhanced_card.technical_specs.num_layers
         );
         println!(
-            "      - Attention Heads: {}",
+            "      - Attention Heads: {:?}",
             enhanced_card.technical_specs.num_attention_heads
         );
         println!(
@@ -90,8 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             enhanced_card
                 .technical_specs
                 .memory_requirements
-                .inference_mb as f64
-                / 1024.0
+                .as_ref()
+                .map_or(0.0, |m| m.inference_mb as f64 / 1024.0)
         );
 
         println!("   📋 Usage Guidelines:");
@@ -144,8 +144,8 @@ fn create_example_models() -> Vec<(String, ModelConfig)> {
             ModelConfig {
                 vocab_size: 32000,
                 hidden_size: 4096,
-                num_attention_heads: 32,
-                num_key_value_heads: 32,
+                num_attention_heads: Some(32),
+                num_key_value_heads: Some(32),
                 num_hidden_layers: 32,
                 intermediate_size: Some(11008),
                 max_position_embeddings: Some(4096),
@@ -164,8 +164,8 @@ fn create_example_models() -> Vec<(String, ModelConfig)> {
             ModelConfig {
                 vocab_size: 50257,
                 hidden_size: 1024,
-                num_attention_heads: 16,
-                num_key_value_heads: 16,
+                num_attention_heads: Some(16),
+                num_key_value_heads: Some(16),
                 num_hidden_layers: 24,
                 intermediate_size: Some(4096),
                 max_position_embeddings: Some(1024),
@@ -184,8 +184,8 @@ fn create_example_models() -> Vec<(String, ModelConfig)> {
             ModelConfig {
                 vocab_size: 50432,
                 hidden_size: 768,
-                num_attention_heads: 12,
-                num_key_value_heads: 12,
+                num_attention_heads: Some(12),
+                num_key_value_heads: Some(12),
                 num_hidden_layers: 12,
                 intermediate_size: Some(3072),
                 max_position_embeddings: Some(2048),
@@ -307,8 +307,8 @@ fn demonstrate_format_specific_cards() -> Result<(), Box<dyn std::error::Error>>
     let config = ModelConfig {
         vocab_size: 50257,
         hidden_size: 768,
-        num_attention_heads: 12,
-        num_key_value_heads: 12,
+        num_attention_heads: Some(12),
+        num_key_value_heads: Some(12),
         num_hidden_layers: 12,
         intermediate_size: Some(3072),
         max_position_embeddings: Some(1024),
@@ -348,8 +348,8 @@ fn demonstrate_card_customization() -> Result<(), Box<dyn std::error::Error>> {
     let config = ModelConfig {
         vocab_size: 32000,
         hidden_size: 2048,
-        num_attention_heads: 16,
-        num_key_value_heads: 16,
+        num_attention_heads: Some(16),
+        num_key_value_heads: Some(16),
         num_hidden_layers: 16,
         intermediate_size: Some(5504),
         max_position_embeddings: Some(2048),
@@ -388,7 +388,8 @@ fn demonstrate_card_customization() -> Result<(), Box<dyn std::error::Error>> {
         minimal_card
             .technical_specs
             .memory_requirements
-            .parameters_mb
+            .as_ref()
+            .map_or(0, |m| m.parameters_mb)
     );
 
     // Comprehensive card with custom metadata
@@ -424,8 +425,8 @@ fn demonstrate_card_customization() -> Result<(), Box<dyn std::error::Error>> {
         comprehensive_card
             .technical_specs
             .memory_requirements
-            .inference_mb as f64
-            / 1024.0
+            .as_ref()
+            .map_or(0.0, |m| m.inference_mb as f64 / 1024.0)
     );
 
     Ok(())

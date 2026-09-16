@@ -99,11 +99,22 @@ pub struct ModelConfig {
     pub vocab_size: usize,
     /// Hidden dimension size
     pub hidden_size: usize,
-    /// Number of attention heads
-    pub num_attention_heads: usize,
-    /// Number of key-value heads for Grouped Query Attention (GQA)
-    /// Defaults to num_attention_heads for standard attention
-    pub num_key_value_heads: usize,
+    /// Number of attention heads, or `None` if the file did not declare one.
+    ///
+    /// ⚠️ `None` is not hypothetical. The ONNX importer used to DIVIDE the
+    /// hidden size by 64 or 32 and report the quotient -- its own comment said
+    /// it "hopes" -- so every ONNX model carried a head count that was a
+    /// restatement of `hidden_size`, indistinguishable from one read out of a
+    /// file. An ONNX graph declares tensor shapes, not a head count.
+    pub num_attention_heads: Option<usize>,
+    /// Number of key-value heads for grouped-query attention, or `None`.
+    ///
+    /// An ABSENT `num_key_value_heads` in a format that declares a head count
+    /// means one KV head per query head -- the format states what the absence
+    /// MEANS, so HF and GGUF still yield a value here. `None` means something
+    /// different and stronger: the head count itself is unknown, so the KV
+    /// count it would have defaulted to is unknown too.
+    pub num_key_value_heads: Option<usize>,
     /// Number of transformer layers
     pub num_hidden_layers: usize,
     /// Intermediate/FFN size, or `None` if the file did not declare one.
@@ -335,8 +346,11 @@ impl HFConfig {
         Ok(ModelConfig {
             vocab_size: self.vocab_size,
             hidden_size: self.hidden_size,
-            num_attention_heads: self.num_attention_heads,
-            num_key_value_heads,
+            // `Some(..)`: `HFConfig::num_attention_heads` is NOT `Option` -- an
+            // HF config.json omitting it fails to parse -- so on this path the
+            // count is always read from the file.
+            num_attention_heads: Some(self.num_attention_heads),
+            num_key_value_heads: Some(num_key_value_heads),
             num_hidden_layers: self.num_hidden_layers,
             intermediate_size: self.intermediate_size,
             max_position_embeddings: self.max_position_embeddings,
@@ -352,20 +366,44 @@ impl HFConfig {
     }
 }
 
+/// Render an optional dimension for human-facing text.
+///
+/// ⚠️ Deliberately a WORD rather than a dash or an empty string: a summary line
+/// gets copied into issues and status reports, where `-` reads as a formatting
+/// artefact and a blank reads as a bug in the formatter. "undeclared" survives
+/// being quoted out of context, which is the only place it is ever read.
+fn describe(value: Option<usize>) -> String {
+    match value {
+        Some(n) => n.to_string(),
+        None => "undeclared".to_string(),
+    }
+}
+
 impl ModelConfig {
-    /// Get the head dimension (hidden_size / num_attention_heads)
-    pub fn head_dim(&self) -> usize {
-        self.hidden_size / self.num_attention_heads
+    /// The head dimension, `hidden_size / num_attention_heads`.
+    ///
+    /// `None` when the head count is unknown. ⚠️ There is no safe number to
+    /// return instead: a head dim is used to slice tensors, so a wrong one
+    /// does not produce a wrong report, it produces a wrong SHAPE.
+    pub fn head_dim(&self) -> Option<usize> {
+        Some(self.hidden_size / self.num_attention_heads?)
     }
 
-    /// Get the key/value head dimension for grouped query attention
-    pub fn kv_head_dim(&self) -> usize {
-        self.hidden_size / self.num_attention_heads
+    /// The key/value head dimension for grouped-query attention.
+    ///
+    /// ⚠️ Identical to [`head_dim`](Self::head_dim) today, and that is not an
+    /// oversight to "fix" here: under GQA the KV heads have the SAME head
+    /// dimension as the query heads -- there are simply fewer of them, which
+    /// is what [`kv_projection_size`](Self::kv_projection_size) expresses.
+    pub fn kv_head_dim(&self) -> Option<usize> {
+        self.head_dim()
     }
 
-    /// Get the total KV projection size (num_key_value_heads * head_dim)
-    pub fn kv_projection_size(&self) -> usize {
-        self.num_key_value_heads * self.kv_head_dim()
+    /// The total KV projection size, `num_key_value_heads * kv_head_dim`.
+    ///
+    /// `None` if either factor is unknown.
+    pub fn kv_projection_size(&self) -> Option<usize> {
+        Some(self.num_key_value_heads? * self.kv_head_dim()?)
     }
 
     /// Whether this is a gated FFN architecture (SwiGLU, etc.).
@@ -408,7 +446,7 @@ impl ModelConfig {
         if self.hidden_size == 0 {
             return Err(Error::invalid_config("hidden_size must be greater than 0"));
         }
-        if self.num_attention_heads == 0 {
+        if self.num_attention_heads == Some(0) {
             return Err(Error::invalid_config(
                 "num_attention_heads must be greater than 0",
             ));
@@ -418,7 +456,13 @@ impl ModelConfig {
                 "num_hidden_layers must be greater than 0",
             ));
         }
-        if self.hidden_size % self.num_attention_heads != 0 {
+        // ⚠️ Checked only when the head count was READ. An unknown head count
+        // is not a divisibility failure, and reporting it as one would send an
+        // investigator to a hidden_size that is perfectly fine.
+        if let Some(heads) = self.num_attention_heads
+            && heads != 0
+            && !self.hidden_size.is_multiple_of(heads)
+        {
             return Err(Error::invalid_config(
                 "hidden_size must be divisible by num_attention_heads",
             ));
@@ -458,8 +502,11 @@ impl ModelConfig {
             self.architecture.name(),
             self.num_hidden_layers,
             self.hidden_size,
-            self.num_attention_heads,
-            self.head_dim(),
+            // ⚠️ A summary line is quoted into issues and reports.
+            // "undeclared" is longer than a number, and that is the point: it
+            // cannot be misread as one.
+            describe(self.num_attention_heads),
+            describe(self.head_dim()),
             self.vocab_size
         )
     }
@@ -547,7 +594,7 @@ mod tests {
 
         let model_config = hf_config.to_model_config(Architecture::LLaMA).unwrap();
         assert_eq!(model_config.architecture, Architecture::LLaMA);
-        assert_eq!(model_config.head_dim(), 128);
+        assert_eq!(model_config.head_dim(), Some(128));
         assert_eq!(model_config.layer_norm_eps, Some(1e-6));
     }
 
@@ -574,7 +621,7 @@ mod tests {
 
         let model_config = hf_config.to_model_config(Architecture::GPT2).unwrap();
         assert_eq!(model_config.architecture, Architecture::GPT2);
-        assert_eq!(model_config.head_dim(), 64);
+        assert_eq!(model_config.head_dim(), Some(64));
     }
 
     #[test]
@@ -802,5 +849,94 @@ mod tests {
         );
         assert_eq!(silent.vocab_size, 32000, "declared by both files");
         assert_eq!(silent.hidden_size, 4096, "declared by both files");
+    }
+
+    // ================================================================
+    // #76 -- a head count MLMF did not read is `None`, and everything
+    // derived from it is `None` too.
+    // ================================================================
+
+    /// ⚠️ ONE FIXTURE, ONE FIELD VARIED. Both arms load the same config and
+    /// differ only in `num_attention_heads`, so a difference below cannot come
+    /// from anything else. The `Some` arm runs FIRST and is the control: an
+    /// accessor that returned `None` unconditionally would satisfy every
+    /// assertion in the second half while breaking every real caller.
+    #[test]
+    fn an_unknown_head_count_yields_no_head_dim_and_no_kv_projection() {
+        let mut cfg = model_config_from(DECLARES_THE_FALLBACKS_OWN_VALUES);
+
+        // CONTROL: with the count read from the file, every derived value computes.
+        assert_eq!(cfg.num_attention_heads, Some(32), "declared by the fixture");
+        assert_eq!(cfg.head_dim(), Some(128), "4096 / 32");
+        assert_eq!(cfg.kv_head_dim(), Some(128), "same head dim, fewer heads");
+        assert_eq!(cfg.kv_projection_size(), Some(4096), "32 kv heads x 128");
+
+        // Now the only thing that changes.
+        cfg.num_attention_heads = None;
+
+        assert_eq!(
+            cfg.head_dim(),
+            None,
+            "a head dim is used to SLICE TENSORS, so an invented one does not \
+             produce a wrong report -- it produces a wrong SHAPE. There is no \
+             safe number to return when the head count was never read."
+        );
+        assert_eq!(cfg.kv_head_dim(), None, "derived from head_dim");
+        assert_eq!(
+            cfg.kv_projection_size(),
+            None,
+            "still None even though num_key_value_heads is Some: the factor it \
+             multiplies is unknown"
+        );
+    }
+
+    /// ⚠️ AN ABSENT FIELD IS NOT AN INVALID ONE.
+    ///
+    /// `validate()` divides `hidden_size` by the head count. With the count
+    /// `None` there is nothing to divide by, and reporting that as
+    /// "hidden_size must be divisible by num_attention_heads" would send an
+    /// investigator to a `hidden_size` that is perfectly fine.
+    #[test]
+    fn an_unknown_head_count_is_not_a_validation_failure() {
+        let mut cfg = model_config_from(DECLARES_THE_FALLBACKS_OWN_VALUES);
+        cfg.num_attention_heads = None;
+
+        assert!(
+            cfg.validate().is_ok(),
+            "an unknown head count must not be reported as a bad hidden_size: {:?}",
+            cfg.validate().err()
+        );
+
+        // CONTROL: a head count that IS declared and genuinely does not divide
+        // the hidden size must still be caught, so the guard did not simply
+        // stop checking.
+        cfg.num_attention_heads = Some(7);
+        assert!(
+            cfg.validate().is_err(),
+            "4096 is not divisible by 7, and that is still a real failure"
+        );
+    }
+
+    /// The human-facing string must say the value is missing, not print a gap.
+    #[test]
+    fn a_summary_names_an_undeclared_head_count_rather_than_leaving_a_hole() {
+        let mut cfg = model_config_from(DECLARES_THE_FALLBACKS_OWN_VALUES);
+        assert!(
+            cfg.summary().contains("32 heads"),
+            "control: {}",
+            cfg.summary()
+        );
+
+        cfg.num_attention_heads = None;
+        let summary = cfg.summary();
+        assert!(
+            summary.contains("undeclared heads"),
+            "a summary is quoted into issues and reports, so the absence has to \
+             survive being read out of context: {summary}"
+        );
+        assert!(
+            summary.contains("(undeclared head dim)"),
+            "the derived value has to say so too: {summary}"
+        );
     }
 }

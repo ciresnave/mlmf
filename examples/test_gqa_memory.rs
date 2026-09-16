@@ -18,12 +18,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Model Config:");
     println!("  vocab_size: {}", model_config.vocab_size);
     println!("  hidden_size: {}", model_config.hidden_size);
+    // `{:?}`: both are `Option` after #76 -- a format that does not declare
+    // a head count now prints `None` instead of a quotient of `hidden_size`.
     println!(
-        "  num_attention_heads: {}",
+        "  num_attention_heads: {:?}",
         model_config.num_attention_heads
     );
     println!(
-        "  num_key_value_heads: {} (GQA!)",
+        "  num_key_value_heads: {:?} (GQA!)",
         model_config.num_key_value_heads
     );
     println!("  num_hidden_layers: {}", model_config.num_hidden_layers);

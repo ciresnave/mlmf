@@ -696,9 +696,11 @@ fn config_from_gguf(bytes: &[u8], origin: &str) -> Result<ModelConfig> {
         // Measured 28/28 present across the corpus.
         intermediate_size: Some(required_u(&meta, &arch, "feed_forward_length", origin)?),
         max_position_embeddings: Some(required_u(&meta, &arch, "context_length", origin)?),
-        num_attention_heads,
+        // `Some(..)`: `attention.head_count` is one of the five keys
+        // `required_u` refuses without, measured present in 28/28 corpus files.
+        num_attention_heads: Some(num_attention_heads),
 
-        num_key_value_heads: supplied.num_key_value_heads,
+        num_key_value_heads: Some(supplied.num_key_value_heads),
         vocab_size: vocab_size_of(&meta, &arch, origin)?,
         rope_theta: supplied.rope_theta,
         layer_norm_eps: supplied.layer_norm_eps,
@@ -1053,7 +1055,8 @@ mod tests {
         let cfg = config_from_gguf(&gguf_declaring("llama"), "no-kv.gguf")
             .expect("a complete file yields a config");
         assert_eq!(
-            cfg.num_attention_heads, 2,
+            cfg.num_attention_heads,
+            Some(2),
             "the fixture's declared head count"
         );
         assert_eq!(
@@ -1455,8 +1458,16 @@ mod tests {
 
         assert_eq!(cfg.hidden_size, 576, "llama.embedding_length");
         assert_eq!(cfg.num_hidden_layers, 30, "llama.block_count");
-        assert_eq!(cfg.num_attention_heads, 9, "llama.attention.head_count");
-        assert_eq!(cfg.num_key_value_heads, 3, "llama.attention.head_count_kv");
+        assert_eq!(
+            cfg.num_attention_heads,
+            Some(9),
+            "llama.attention.head_count"
+        );
+        assert_eq!(
+            cfg.num_key_value_heads,
+            Some(3),
+            "llama.attention.head_count_kv"
+        );
         // `Some(..)`, not a bare number: after #48 a DECLARED value must
         // arrive wrapped. Asserting the bare value would still compile if the
         // field were `usize`, so this pins the representation as well as the
