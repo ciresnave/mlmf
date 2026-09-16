@@ -137,7 +137,13 @@ pub struct TechnicalSpecs {
     /// Model file size (bytes)
     pub file_size: Option<u64>,
     /// Estimated memory requirements
-    pub memory_requirements: MemoryRequirements,
+    /// Estimated memory requirements, or `None` if they could not be computed.
+    ///
+    /// ⚠️ `None` is NOT the same as a zeroed estimate. A zeroed one is what a
+    /// caller who DISABLED estimation gets; `None` means MLMF was asked and
+    /// could not answer, because the config does not declare something the
+    /// calculation needs.
+    pub memory_requirements: Option<MemoryRequirements>,
 }
 
 /// Memory usage estimates
@@ -331,38 +337,51 @@ impl ModelCardGenerator {
     }
 
     /// Calculate memory requirements for model
-    fn calculate_memory_requirements(&self, config: &ModelConfig) -> Result<MemoryRequirements> {
+    fn calculate_memory_requirements(
+        &self,
+        config: &ModelConfig,
+    ) -> Result<Option<MemoryRequirements>> {
         if !self.estimate_memory {
-            return Ok(MemoryRequirements {
+            return Ok(Some(MemoryRequirements {
                 parameters_mb: 0,
                 inference_mb: 0,
                 training_mb: None,
                 recommended_ram_mb: 0,
-            });
+            }));
         }
 
-        // ⚠️ NOT `unwrap_or_default()`. A zeroed MemoryRequirements is what
-        // this function already returns when the caller DISABLED estimation,
-        // so reusing it here would make "you turned it off" and "MLMF could
-        // not compute it" render identically in the card.
+        // ⚠️ `Ok(None)`, NOT `Err`. A card that cannot size its memory is
+        // still a useful card, and aborting made #76's own `not declared`
+        // rendering UNREACHABLE for exactly the models that needed it --
+        // memory estimation is on by default, so an ONNX model never got far
+        // enough to print it. Found by Sourcery on #79.
+        //
+        // ⚠️ AND THE ERROR IT REPLACES NAMED THE WRONG CAUSE. It said "this
+        // model declares no intermediate_size" unconditionally, so a model
+        // that declared one but no HEAD COUNT was refused with a message
+        // pointing at a field it had. A refusal that names the wrong missing
+        // value is worse than a bare one: it sends an investigator somewhere
+        // real and wrong.
+        //
+        // Still not `unwrap_or_default()`: a zeroed MemoryRequirements is what
+        // the DISABLED path above returns, and collapsing the two would make
+        // "you turned it off" and "MLMF could not compute it" identical.
         let Some(memory_estimate) =
             validation::estimate_memory_usage(config, DType::F16, Some(1), None)
         else {
-            return Err(crate::error::Error::invalid_config(
-                "Cannot estimate memory for the model card: this model declares no intermediate_size.",
-            ));
+            return Ok(None);
         };
         let param_memory = (memory_estimate.parameters_gb * 1024.0) as u64;
         let inference_memory = (memory_estimate.total_gb * 1024.0) as u64;
         let training_memory = param_memory * 4; // Rough estimate for gradients and optimizer states
         let recommended_ram = inference_memory * 2; // 2x for safety margin
 
-        Ok(MemoryRequirements {
+        Ok(Some(MemoryRequirements {
             parameters_mb: param_memory,
             inference_mb: inference_memory,
             training_mb: Some(training_memory),
             recommended_ram_mb: recommended_ram,
-        })
+        }))
     }
 
     /// Estimate total parameter count
@@ -669,25 +688,44 @@ impl ModelCardGenerator {
             // Memory Requirements
             if self.estimate_memory {
                 md.push_str("### Memory Requirements\n\n");
-                let mem = &card.technical_specs.memory_requirements;
-                md.push_str(&format!(
-                    "- **Parameters:** {:.1} GB\n",
-                    mem.parameters_mb as f64 / 1024.0
-                ));
-                md.push_str(&format!(
-                    "- **Inference:** {:.1} GB\n",
-                    mem.inference_mb as f64 / 1024.0
-                ));
-                if let Some(training_mb) = mem.training_mb {
-                    md.push_str(&format!(
-                        "- **Training:** {:.1} GB\n",
-                        training_mb as f64 / 1024.0
-                    ));
+                // ⚠️ A MATCH, NOT AN EARLY RETURN. An early `return Ok(md)`
+                // here truncates the whole document -- Intended Use,
+                // Limitations and everything below this point vanish, and the
+                // card still renders as a valid document, so nothing looks
+                // wrong. Caught while writing it.
+                //
+                // ⚠️ And say WHY there is no estimate: a missing section reads
+                // as a generator that forgot; a sentence naming the cause
+                // reads as a fact about the model, which is what it is.
+                match &card.technical_specs.memory_requirements {
+                    None => {
+                        md.push_str(
+                            "Not estimated: this model does not declare \
+                             everything the calculation needs (an \
+                             attention-head count, or an intermediate size).\n",
+                        );
+                    }
+                    Some(mem) => {
+                        md.push_str(&format!(
+                            "- **Parameters:** {:.1} GB\n",
+                            mem.parameters_mb as f64 / 1024.0
+                        ));
+                        md.push_str(&format!(
+                            "- **Inference:** {:.1} GB\n",
+                            mem.inference_mb as f64 / 1024.0
+                        ));
+                        if let Some(training_mb) = mem.training_mb {
+                            md.push_str(&format!(
+                                "- **Training:** {:.1} GB\n",
+                                training_mb as f64 / 1024.0
+                            ));
+                        }
+                        md.push_str(&format!(
+                            "- **Recommended RAM:** {:.1} GB\n",
+                            mem.recommended_ram_mb as f64 / 1024.0
+                        ));
+                    }
                 }
-                md.push_str(&format!(
-                    "- **Recommended RAM:** {:.1} GB\n",
-                    mem.recommended_ram_mb as f64 / 1024.0
-                ));
                 md.push_str("\n");
             }
         }
@@ -812,5 +850,130 @@ impl fmt::Display for Architecture {
             Architecture::GPTNeoX => write!(f, "GPT-NeoX"),
             Architecture::Unknown => write!(f, "Unknown"),
         }
+    }
+}
+
+// ⚠️ THE FIRST TESTS IN THIS FILE, ADDED BECAUSE AN ANALYSER FOUND A DEFECT
+// HERE THAT NO TEST COULD HAVE CAUGHT -- there were none.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::name_mapping::Architecture;
+
+    /// An ONNX-shaped config: the graph revealed dimensions, but declared no
+    /// head count, which is #76's whole subject.
+    fn onnx_shaped_config() -> ModelConfig {
+        ModelConfig {
+            vocab_size: 96,
+            hidden_size: 512,
+            num_hidden_layers: 1,
+            num_attention_heads: None,
+            num_key_value_heads: None,
+            intermediate_size: Some(1376),
+            max_position_embeddings: None,
+            dropout: None,
+            layer_norm_eps: None,
+            attention_dropout: None,
+            activation_function: None,
+            rope_theta: None,
+            tie_word_embeddings: None,
+            architecture: Architecture::LLaMA,
+            raw_config: serde_json::Value::Null,
+        }
+    }
+
+    /// ⚠️ A CARD MUST STILL RENDER FOR A MODEL WHOSE HEAD COUNT IS UNKNOWN.
+    ///
+    /// Found by Sourcery on #79, and it is the `a fix can be correct and
+    /// unreachable` shape applied to my own change an hour after I wrote it:
+    /// #76 added a `not declared` rendering for an absent head count, and #77
+    /// had already made the card ABORT when the memory estimate could not be
+    /// computed. Memory estimation is ON by default. So the rendering existed
+    /// for exactly the models that could never reach it.
+    #[test]
+    fn a_card_renders_for_a_model_that_declares_no_head_count() {
+        let generator = ModelCardGenerator::new().with_technical_details(true);
+        let card = generator
+            .generate_from_config(
+                &onnx_shaped_config(),
+                std::path::Path::new("nonexistent-model.onnx"),
+                "head-count-probe".to_string(),
+            )
+            .expect("a card must render for a model whose head count is unknown");
+
+        assert_eq!(
+            card.technical_specs.num_attention_heads, None,
+            "the config declares none, so the card must not invent one"
+        );
+        assert!(
+            card.technical_specs.memory_requirements.is_none(),
+            "memory cannot be estimated without a head count, and that is \
+             different from a zeroed estimate -- a zeroed one is what a caller \
+             who DISABLED estimation gets"
+        );
+    }
+
+    /// The rendering added by #76 must actually appear in the document.
+    #[test]
+    fn the_markdown_says_not_declared_rather_than_leaving_the_row_blank() {
+        let generator = ModelCardGenerator::new().with_technical_details(true);
+        let card = generator
+            .generate_from_config(
+                &onnx_shaped_config(),
+                std::path::Path::new("nonexistent-model.onnx"),
+                "head-count-probe".to_string(),
+            )
+            .expect("card renders");
+        let md = generator
+            .generate_markdown(&card)
+            .expect("markdown renders");
+
+        // ⚠️ THE CARD MUST NOT BE TRUNCATED. The first version of the
+        // no-estimate branch used an early `return Ok(md)`, which silently
+        // dropped Intended Use, Limitations and everything after the memory
+        // section -- and the result was still a VALID markdown document, so
+        // nothing downstream would have looked wrong. This assertion is the
+        // only thing that distinguishes a short card from a complete one.
+        assert!(
+            md.contains("## Intended Use"),
+            "a section that comes AFTER the memory block must survive:\n{md}"
+        );
+        assert!(
+            md.contains("Not estimated:"),
+            "and the absent estimate must say why:\n{md}"
+        );
+
+        assert!(
+            md.contains("| Attention Heads | not declared |"),
+            "a card is read and quoted by humans; a blank cell reads as a bug \
+             in the formatter rather than as a fact about the model:\n{md}"
+        );
+    }
+
+    /// ⚠️ CONTROL: a config that DOES declare a head count still gets a real
+    /// estimate, so the two tests above are not passing because estimation
+    /// silently stopped working for everyone.
+    #[test]
+    fn a_declared_head_count_still_produces_a_memory_estimate() {
+        let mut config = onnx_shaped_config();
+        config.num_attention_heads = Some(8);
+        config.num_key_value_heads = Some(8);
+        config.max_position_embeddings = Some(512);
+
+        let generator = ModelCardGenerator::new().with_technical_details(true);
+        let card = generator
+            .generate_from_config(
+                &config,
+                std::path::Path::new("nonexistent-model.onnx"),
+                "declared".to_string(),
+            )
+            .expect("card renders");
+
+        assert_eq!(card.technical_specs.num_attention_heads, Some(8));
+        assert!(
+            card.technical_specs.memory_requirements.is_some(),
+            "with a head count declared the estimate is computable, so a None \
+             here would mean estimation broke rather than refused"
+        );
     }
 }

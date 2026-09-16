@@ -90,8 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             enhanced_card
                 .technical_specs
                 .memory_requirements
-                .inference_mb as f64
-                / 1024.0
+                .as_ref()
+                .map_or(0.0, |m| m.inference_mb as f64 / 1024.0)
         );
 
         println!("   📋 Usage Guidelines:");
@@ -388,7 +388,8 @@ fn demonstrate_card_customization() -> Result<(), Box<dyn std::error::Error>> {
         minimal_card
             .technical_specs
             .memory_requirements
-            .parameters_mb
+            .as_ref()
+            .map_or(0, |m| m.parameters_mb)
     );
 
     // Comprehensive card with custom metadata
@@ -424,8 +425,8 @@ fn demonstrate_card_customization() -> Result<(), Box<dyn std::error::Error>> {
         comprehensive_card
             .technical_specs
             .memory_requirements
-            .inference_mb as f64
-            / 1024.0
+            .as_ref()
+            .map_or(0.0, |m| m.inference_mb as f64 / 1024.0)
     );
 
     Ok(())
