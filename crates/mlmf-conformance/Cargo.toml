@@ -36,7 +36,37 @@
 # skipped. That gate refusing the dev-dependency was the design working. The
 # answer to a loud failure is to stop needing the exception.
 [dependencies]
+    # AD-1 differential harness ONLY (tests/fuel_differential.rs), spec §9 §7:
+    # "before Fuel switches its dependency, a differential harness parses a
+    # real corpus with both the origin implementation and the ported one and
+    # asserts byte-identical tensor descriptors and byte-identical tensor
+    # bytes." This is a TEST-ONLY edge, not the migration.
+    #
+    # ⚠️ DO NOT READ THIS LINE AS "THE MIGRATION HAPPENED." It answers a
+    # narrower question -- does the port agree with what it was ported from --
+    # and that question is worth answering whether or not Fuel ever depends on
+    # MLMF: mlmf-gguf/mlmf-ggml were built by porting Fuel's parser (see
+    # crates/mlmf-gguf/src/metadata.rs, docs/superpowers/plans/2026-08-15-mlmf-ggml.md)
+    # and have since DELIBERATELY diverged from it (35 live ggml codes here vs
+    # ~15 in fuel-formats), so an undetected regression in the port is a bug in
+    # MLMF regardless of Fuel's adoption decision.
+    #
+    # `optional = true` behind the `fuel-differential` feature (below, default
+    # OFF): a bare `cargo build`/`cargo test` at the workspace root -- what CI
+    # runs, and what every other gate in this workspace assumes -- resolves
+    # and compiles NONE of this. The spec's own weight analysis (mlmf-core's
+    # ≤50-transitive-node ceiling vs the root package's 159) is about a
+    # PRODUCTION dependency; an optional, feature-gated, single-test dev edge
+    # in a crate that is `publish = false` and never ships carries none of
+    # that cost and creates no cycle. Pinned to a commit, not a branch, so the
+    # differential's target does not move out from under it silently --
+    # re-pin deliberately when Fuel's GGUF/GGML parser changes.
+    fuel-formats     = { git = "https://github.com/CireSnave/fuel", rev = "6609d1598939b90e4ca49528f735987eb69b3895", package = "fuel-formats", optional = true }
     mlmf-core        = { path = "../mlmf-core", version = "0.4.0" }
+    # For tests/fuel_differential.rs: round-tripping fuel's raw ggml type
+    # code through mlmf's own geometry table (GgmlType::from_code/nbytes),
+    # which is not re-exported through mlmf-gguf.
+    mlmf-ggml        = { path = "../mlmf-ggml", version = "0.4.0" }
     mlmf-gguf        = { path = "../mlmf-gguf", version = "0.4.0" }
     mlmf-meta        = { path = "../mlmf-meta", version = "0.4.0" }
     mlmf-safetensors = { path = "../mlmf-safetensors", version = "0.4.0" }
@@ -56,3 +86,10 @@
     # this workspace hashes anything.
     serde_json       = { version = "1.0", default-features = false, features = ["std"] }
     sha2             = "0.11"
+
+[features]
+    default = []
+    # Gates tests/fuel_differential.rs. OFF by default so the fuel-formats
+    # edge above is never resolved by a bare `cargo build`/`cargo test` --
+    # see the comment on that dependency for why that matters.
+    fuel-differential = ["dep:fuel-formats"]

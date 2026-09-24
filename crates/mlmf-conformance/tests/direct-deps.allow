@@ -21,7 +21,12 @@
 # A missing file here is a loud panic in deps.rs::allow_list rather than a
 # trivially-satisfied empty list, which is why this file is written out
 # rather than left absent.
+# fuel-formats: AD-1 differential harness only, optional, feature-gated
+# behind `fuel-differential` (default off). See its manifest comment --
+# NOT the migration edge, never resolved by a bare cargo build/test.
+fuel-formats
 mlmf-core
+mlmf-ggml
 mlmf-gguf
 mlmf-meta
 mlmf-safetensors
