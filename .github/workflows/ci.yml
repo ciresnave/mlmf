@@ -221,8 +221,11 @@ jobs:
           curl -sL --fail -o "$root/tiny-random-bert-sharded/model.safetensors.index.json" \
             "$bert_base/model.safetensors.index.json"
 
-          curl -sL --fail -o "$root/tiny-random-gpt2/model.safetensors" \
-            "https://huggingface.co/hf-internal-testing/tiny-random-gpt2/resolve/71034c5d8bde858ff824298bdedc65515b97d2b9/model.safetensors"
+          # AD-2-IN-CI SABOTAGE: this download deliberately removed, to prove
+          # MLMF_CORPUS_REQUIRED actually gates a real CI run. Reverted in
+          # the very next commit.
+          # curl -sL --fail -o "$root/tiny-random-gpt2/model.safetensors" \
+          #   "https://huggingface.co/hf-internal-testing/tiny-random-gpt2/resolve/71034c5d8bde858ff824298bdedc65515b97d2b9/model.safetensors"
 
           curl -sL --fail -o "$root/tiny-random-llama-2/model.safetensors" \
             "https://huggingface.co/stas/tiny-random-llama-2/resolve/3579d71fd57e04f5a364d824d3a2ec3e913dbb67/model.safetensors"
