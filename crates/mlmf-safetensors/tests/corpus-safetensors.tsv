@@ -3,3 +3,10 @@
 file	size	header_len	data_start	n_tensors	first_name	first_dtype	first_lo	first_hi	first_abs_lo	first_abs_hi	furthest_end	dtypes	metadata
 SmolLM2-360M-Instruct/model.safetensors	723674912	32664	32672	290	model.embed_tokens.weight	BF16	0	94371840	32672	94404512	723674912	BF16=290	format=pt
 TinyLlama-1.1B-Chat-v1.0/model.safetensors	2200119864	23088	23096	201	lm_head.weight	BF16	0	131072000	23096	131095096	2200119864	BF16=201	format=pt
+tiny-random-bert-sharded/model-00001-of-00005.safetensors	4224	120	128	1	embeddings.position_ids	I64	0	4096	128	4224	4224	I64=1	format=pt
+tiny-random-bert-sharded/model-00002-of-00005.safetensors	144008	128	136	1	embeddings.word_embeddings.weight	F32	0	143872	136	144008	144008	F32=1	format=pt
+tiny-random-bert-sharded/model-00003-of-00005.safetensors	101492	2264	2272	22	embeddings.LayerNorm.bias	F32	0	128	2272	2400	101492	F32=22	format=pt
+tiny-random-bert-sharded/model-00004-of-00005.safetensors	105296	6008	6016	58	encoder.layer.1.attention.output.LayerNorm.bias	F32	0	128	6016	6144	105296	F32=58	format=pt
+tiny-random-bert-sharded/model-00005-of-00005.safetensors	9920	568	576	6	encoder.layer.4.output.LayerNorm.bias	F32	0	128	576	704	9920	F32=6	format=pt
+tiny-random-gpt2/model.safetensors	453864	5984	5992	64	transformer.h.0.attn.c_attn.bias	F32	0	384	5992	6376	453864	F32=64	format=pt
+tiny-random-llama-2/model.safetensors	210712	2160	2168	21	lm_head.weight	BF16	0	96000	2168	98168	210712	BF16=21	format=pt

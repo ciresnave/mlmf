@@ -24,19 +24,50 @@
 //! cargo test -p mlmf-conformance --features fuel-differential
 //! ```
 //!
-//! # Corpus and what it can and cannot falsify
+//! # Corpus and what it can and cannot falsify — widened 2026-09-25
 //!
-//! Two files, `C:/Models/{SmolLM2-360M-Instruct,TinyLlama-1.1B-Chat-v1.0}/model.safetensors`
-//! (`mlmf-safetensors/tests/corpus-safetensors.tsv`'s own corpus — reused,
-//! not re-measured). `mlmf-safetensors/tests/corpus.rs`'s own doc already
-//! states this corpus's blindness: **every tensor in both files is BF16**,
-//! so [`expected_dtype`] below has exactly one live arm and panics loudly on
-//! anything else, deliberately, rather than silently widening what this file
-//! claims to check.
+//! **Nine files, not two**, reusing `mlmf-safetensors/tests/corpus-safetensors.tsv`
+//! (that crate's own corpus, not re-measured here) — widened for VARIETY,
+//! not just count, per the PM's instruction that two convenient files prove
+//! the happy path twice:
+//!
+//! - Two real single-file downloads (`SmolLM2-360M-Instruct`,
+//!   `TinyLlama-1.1B-Chat-v1.0`, both `BF16`-only) — the original corpus.
+//! - **One sharded checkpoint**, five files plus `model.safetensors.index.json`
+//!   (`hf-internal-testing/tiny-random-bert-sharded`) — sizes from 4,224
+//!   bytes (one tensor) to 105,296 bytes (58 tensors), so the smallest file
+//!   in the whole corpus is now almost all header.
+//! - **Two more single-file tiny models of different architectures**
+//!   (`hf-internal-testing/tiny-random-gpt2`, `stas/tiny-random-llama-2`).
+//!
+//! That brought in **two dtypes this corpus had never carried**: `F32`
+//! (151 tensors) and `I64` (1 tensor — `tiny-random-bert-sharded`'s
+//! `embeddings.position_ids`, the corpus's first non-float tensor ever).
+//! [`expected_dtype`] below has three live arms now, still an explicit
+//! panic on anything else — a corpus that gains a fourth dtype must fail
+//! loudly here, not widen silently. **Still unreached**: `F16`, `F64`,
+//! every integer width but `I64`, `BOOL`, and both `F8` variants — not
+//! sourced in the time available, not claimed as covered.
+//!
+//! `__metadata__` is `{"format": "pt"}` in **all nine**, verified against
+//! every header directly — widening the file count did not widen the
+//! metadata shape. No zero-length shape or empty tensor anywhere in the
+//! nine files, checked directly. Key naming varies by architecture
+//! (LLaMA-, BERT-, GPT-2-style) but nothing pathological turned up; that
+//! was not a deliberately sourced axis.
+//!
+//! **Finding, not a failure: none.** Every one of the nine files agreed —
+//! descriptors, metadata, byte ranges — across three dtypes, one sharded
+//! checkpoint, and a 4 KB-to-2.2 GB size range. Unlike the GGUF/GGML half,
+//! where a real divergence (the ggml-coverage gap) surfaced immediately,
+//! widening this corpus did not surface one. Read as a real, if narrower,
+//! positive result: `mlmf-safetensors` agrees with the upstream `safetensors`
+//! crate (via fuel's re-export) on every structural fact both sides declare,
+//! over every file this corpus could source — not as "nothing to find here."
 //!
 //! # What this file checks
 //!
-//! For every tensor in both files: name, dtype, shape (declared order —
+//! For every tensor in every file: name, dtype, shape (declared order —
 //! safetensors has no GGUF-style reversal to undo), and absolute byte range
 //! (`data_start + data_offsets`, rebased once here since fuel's
 //! `TensorInfo::data_offsets` are relative to the same base mlmf's are).
@@ -44,14 +75,14 @@
 //! flat `string -> string` on both sides (unlike GGUF's typed values), so a
 //! full value comparison costs nothing extra here.
 //!
-//! # What this file does NOT check
+//! # What this file does NOT check — unchanged by widening the corpus
 //!
-//! - **Tensor payload bytes.** Same gap as the GGUF half: ranges are
-//!   compared, not the bytes at them. AD-1's byte-identical-payload
-//!   requirement remains untested by this file too (see the spec's own
-//!   accounting of this, §9 §7).
-//! - **Any dtype but `BF16`.** The corpus doesn't carry another one to check
-//!   against.
+//! - **Tensor payload bytes.** Same gap as the GGUF half, and the widened
+//!   corpus does not close it: ranges are compared, not the bytes at them.
+//!   AD-1's byte-identical-payload requirement remains untested by this
+//!   file (see the spec's own accounting of this, §9 §7, corrected in #84).
+//!   A bigger corpus is not a stronger claim about this.
+//! - **Dtypes outside `{BF16, F32, I64}`.** Listed above; not sourced.
 //! - **Report entries** from either side beyond what the tensor-set
 //!   comparison surfaces.
 
@@ -144,13 +175,15 @@ fn mlmf_facts(bytes: &[u8], origin: &str) -> Result<Vec<Facts>, String> {
     Ok(out)
 }
 
-/// The upstream dtype string this corpus can exercise. One live arm,
+/// The upstream dtypes this corpus can exercise. Three live arms,
 /// deliberately, mirroring `mlmf-safetensors/tests/corpus.rs`'s own
-/// `expected_dtype` — a corpus that gains a second dtype must fail loudly
+/// `expected_dtype` — a corpus that gains a fourth dtype must fail loudly
 /// here, not widen silently.
 fn expected_dtype(d: fuel_formats::safetensors::Dtype) -> mlmf_core::DType {
     match d {
         fuel_formats::safetensors::Dtype::BF16 => mlmf_core::DType::BF16,
+        fuel_formats::safetensors::Dtype::F32 => mlmf_core::DType::F32,
+        fuel_formats::safetensors::Dtype::I64 => mlmf_core::DType::I64,
         other => panic!(
             "the corpus gained the dtype {other:?}. Add an arm here — \
              deliberately, matching mlmf-safetensors/tests/corpus.rs's own rule."
@@ -262,7 +295,7 @@ fn the_corpus_is_present_and_the_harness_resolves_it() {
     };
     assert_eq!(
         corpus_files().len(),
-        2,
+        9,
         "corpus-safetensors.tsv's file list changed size"
     );
 }
