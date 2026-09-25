@@ -8,7 +8,8 @@
 //! failure the authored fixtures in `src/` structurally cannot see, because
 //! those fixtures were written by the same hand as the parser.
 //!
-//! # WHAT THIS CORPUS CANNOT FALSIFY — measured 2026-08-27
+//! # WHAT THIS CORPUS CANNOT FALSIFY — measured 2026-09-25 (widened from
+//! the original 2-file corpus, measured 2026-08-27)
 //!
 //! **Stated here, in numbers, because a differential that does not say what
 //! it is blind to reads as coverage.** That is the same shape as
@@ -16,32 +17,55 @@
 //! explaining why the silence was correct: a snapshot promoted to a
 //! specification by the confidence of the prose beside it.
 //!
-//! - **Two files, against `mlmf-gguf`'s twenty-nine.** Every claim below
-//!   rests on a sample of two.
-//! - **Every tensor in both is `BF16` — one dtype across 491 tensors.** So
-//!   this corpus is *structurally incapable* of falsifying fourteen of the
-//!   fifteen `dtype_of` arms. That is precisely the blindness `dtype.rs` had
-//!   before its own tests existed, relocated into the corpus. The authored
-//!   per-arm table in `src/dtype.rs` remains the only instrument for the
-//!   other fourteen, and the `F8_E4M3`/`F8_E5M2` pair in particular is
-//!   unreachable from here.
-//! - **`__metadata__` is `{"format": "pt"}` in both — one key, and its value
-//!   is not numeric.** So this corpus **cannot falsify the numeric-string
-//!   ruling** that `"32"` stays a `MetaValue::String`. The only control for
-//!   that is `mlmf-conformance`'s
-//!   `divergence_the_seam_permits_is_pinned_as_a_divergence`.
+//! - **Nine files, against `mlmf-gguf`'s twenty-nine** — closer in kind now,
+//!   not just larger: two real single-file downloads (SmolLM2, TinyLlama,
+//!   both `BF16`-only), one **sharded** checkpoint of five files plus its
+//!   `model.safetensors.index.json` (`hf-internal-testing/tiny-random-bert-sharded`),
+//!   and two more single-file tiny models of different architectures
+//!   (`hf-internal-testing/tiny-random-gpt2`, `stas/tiny-random-llama-2`).
+//! - **Three dtypes now, not one: `BF16=512`, `F32=151`, `I64=1`.** The
+//!   `I64` is `tiny-random-bert-sharded`'s `embeddings.position_ids` — the
+//!   first non-float tensor this corpus has ever carried, and the smallest
+//!   shard (4,224 bytes total) is nearly all header. That still leaves
+//!   **twelve of fifteen `dtype_of` arms unreachable from here** — no
+//!   `F16`, `F64`, `I8`/`I16`/`I32`, `U8`/`U16`/`U32`/`U64`, `BOOL`, or
+//!   either `F8` variant appeared in anything sourced. **Not attempted
+//!   further**: a real, small, freely-downloadable safetensors file in one
+//!   of those twelve dtypes was not found in the time available; the
+//!   authored per-arm table in `src/dtype.rs` remains the only instrument
+//!   for all twelve.
+//! - **`__metadata__` is `{"format": "pt"}` in all nine — one key, one
+//!   value, every file, verified by an independent scan of every header in
+//!   the corpus** (not just the first tensor's file, the way the old
+//!   two-file measurement implicitly was). So this corpus **still cannot
+//!   falsify the numeric-string ruling** that `"32"` stays a
+//!   `MetaValue::String` — widening the file count did not widen the
+//!   metadata shape, because `format=pt` is what every PyTorch-originated
+//!   safetensors writer emits. The only control for that ruling remains
+//!   `mlmf-conformance`'s `divergence_the_seam_permits_is_pinned_as_a_divergence`.
+//! - **No zero-length shape and no empty tensor anywhere in the nine
+//!   files**, checked directly against every header (not inferred): still
+//!   an authored-fixture-only concern.
+//! - **Key naming varies by architecture** (`model.embed_tokens.weight` /
+//!   `lm_head.weight` for LLaMA-family; `embeddings.word_embeddings.weight`
+//!   / `encoder.layer.N....` for BERT; `transformer.h.N....` for GPT-2) but
+//!   nothing pathological — no non-ASCII, no path-like `/`, no empty name.
+//!   That variety was not deliberately sourced and nothing unusual turned
+//!   up; not claimed as covered.
 //!
 //! # What it CAN falsify, and what nothing else can
 //!
-//! **Both files' furthest tensor end equals the file size exactly.** A
-//! well-formed model's last tensor touches its last byte, every time — which
-//! makes a real corpus the sharpest available instrument for the `>` versus
-//! `>=` end-of-file boundary, and a thing no authored fixture argues for as
-//! convincingly. `mlmf-gguf`'s corpus caught exactly that off-by-one against
-//! a real 88,202,080-byte model. Here it shows up as
-//! [`the_corpus_agrees_or_says_it_was_not_there`] asserting an **empty
-//! report** on both files: a `>=` bound complains about the last tensor of
-//! every well-formed file on disk.
+//! **Every one of the nine files' furthest tensor end equals its file size
+//! exactly**, including the smallest (4,224 bytes, one tensor) and largest
+//! (2.2 GB, 201 tensors). A well-formed model's last tensor touches its
+//! last byte, every time — which makes a real corpus the sharpest available
+//! instrument for the `>` versus `>=` end-of-file boundary, and a thing no
+//! authored fixture argues for as convincingly. `mlmf-gguf`'s corpus caught
+//! exactly that off-by-one against a real 88,202,080-byte model. Here it
+//! shows up as [`the_corpus_agrees_or_says_it_was_not_there`] asserting an
+//! **empty report** on all nine files: a `>=` bound complains about the
+//! last tensor of every well-formed file on disk, and now does so across a
+//! size range from 4 KB to 2.2 GB rather than only near the top of it.
 
 use std::io::Write as _;
 
@@ -148,13 +172,15 @@ fn rows() -> Vec<Row> {
 /// Using the crate's own mapping would make this half of the differential
 /// agree with the half it is checking: a swapped `dtype_of` arm would map
 /// the fixture's string exactly as wrongly as it maps the file's, and the
-/// comparison would hold. One arm, because the corpus has one dtype — see
-/// this module's blindness note — and an explicit panic for anything else,
-/// so a corpus that gains a dtype fails loudly here instead of silently
-/// widening what this test claims to check.
+/// comparison would hold. Three arms, because the corpus has three dtypes
+/// now — see this module's blindness note — and an explicit panic for
+/// anything else, so a corpus that gains a dtype fails loudly here instead
+/// of silently widening what this test claims to check.
 fn expected_dtype(name: &str) -> DType {
     match name {
         "BF16" => DType::BF16,
+        "F32" => DType::F32,
+        "I64" => DType::I64,
         other => panic!(
             "the corpus gained the dtype {other:?}. Add an arm here — \
              deliberately, and not by calling `dtype_of`, which is the thing \
@@ -167,19 +193,20 @@ fn expected_dtype(name: &str) -> DType {
 fn the_fixture_is_intact() {
     let rows = rows();
 
-    // EXACT, not a floor. `>= 2` passes on a fixture truncated to one row,
-    // and a truncated fixture is what a fixture-integrity test is for.
+    // EXACT, not a floor. `>= 9` passes on a fixture truncated to any subset
+    // of nine rows, and a truncated fixture is what a fixture-integrity
+    // test is for.
     assert_eq!(
         rows.len(),
-        2,
+        9,
         "the fixture is not the corpus that was measured"
     );
 
     // ENUMERATED, not iterated. The whole dtype distribution as one value,
     // so the blindness this module documents is a measured assertion rather
     // than a claim in prose that could drift from the fixture beside it. If
-    // a third file arrives carrying F32, this line fails and the module doc
-    // above must be rewritten — which is the point.
+    // a tenth file arrives carrying a new dtype, this line fails and the
+    // module doc above must be rewritten — which is the point.
     assert_eq!(
         rows.iter()
             .map(|r| (r.file.as_str(), r.dtypes.as_str()))
@@ -187,12 +214,34 @@ fn the_fixture_is_intact() {
         [
             ("SmolLM2-360M-Instruct/model.safetensors", "BF16=290"),
             ("TinyLlama-1.1B-Chat-v1.0/model.safetensors", "BF16=201"),
+            (
+                "tiny-random-bert-sharded/model-00001-of-00005.safetensors",
+                "I64=1"
+            ),
+            (
+                "tiny-random-bert-sharded/model-00002-of-00005.safetensors",
+                "F32=1"
+            ),
+            (
+                "tiny-random-bert-sharded/model-00003-of-00005.safetensors",
+                "F32=22"
+            ),
+            (
+                "tiny-random-bert-sharded/model-00004-of-00005.safetensors",
+                "F32=58"
+            ),
+            (
+                "tiny-random-bert-sharded/model-00005-of-00005.safetensors",
+                "F32=6"
+            ),
+            ("tiny-random-gpt2/model.safetensors", "F32=64"),
+            ("tiny-random-llama-2/model.safetensors", "BF16=21"),
         ],
         "the dtype distribution changed; the blindness note in this module's \
          doc is measured from it and must be rewritten with it"
     );
 
-    // Likewise for `__metadata__`: one key, non-numeric, in both files.
+    // Likewise for `__metadata__`: one key, non-numeric, in all nine files.
     assert_eq!(
         rows.iter()
             .map(|r| (r.file.as_str(), r.metadata.as_str()))
@@ -200,6 +249,28 @@ fn the_fixture_is_intact() {
         [
             ("SmolLM2-360M-Instruct/model.safetensors", "format=pt"),
             ("TinyLlama-1.1B-Chat-v1.0/model.safetensors", "format=pt"),
+            (
+                "tiny-random-bert-sharded/model-00001-of-00005.safetensors",
+                "format=pt"
+            ),
+            (
+                "tiny-random-bert-sharded/model-00002-of-00005.safetensors",
+                "format=pt"
+            ),
+            (
+                "tiny-random-bert-sharded/model-00003-of-00005.safetensors",
+                "format=pt"
+            ),
+            (
+                "tiny-random-bert-sharded/model-00004-of-00005.safetensors",
+                "format=pt"
+            ),
+            (
+                "tiny-random-bert-sharded/model-00005-of-00005.safetensors",
+                "format=pt"
+            ),
+            ("tiny-random-gpt2/model.safetensors", "format=pt"),
+            ("tiny-random-llama-2/model.safetensors", "format=pt"),
         ],
         "the metadata changed; this corpus's inability to falsify the \
          numeric-string ruling is measured from it"
@@ -354,7 +425,7 @@ fn the_corpus_agrees_or_says_it_was_not_there() {
     // with `continue` leaves every assertion above unreached and every one
     // of them green.
     assert_eq!(checked, rows.len(), "not every corpus row was checked");
-    assert_eq!(checked, 2, "the corpus is two files");
+    assert_eq!(checked, 9, "the corpus is nine files");
 }
 
 /// A `MetaValue` rendered the way the fixture spells it.
