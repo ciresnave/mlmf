@@ -75,6 +75,37 @@
 //! flat `string -> string` on both sides (unlike GGUF's typed values), so a
 //! full value comparison costs nothing extra here.
 //!
+//! # This corpus runs in CI now — seven of nine files, by design
+//!
+//! `.github/workflows/ci.yml` downloads the **seven small files** fresh on
+//! every run (`tiny-random-bert-sharded`'s 5 shards + index, `tiny-random-gpt2`,
+//! `tiny-random-llama-2`), each pinned by **revision SHA**, and sets
+//! `MLMF_CORPUS_REQUIRED=1` — so a CI run that cannot reach every one of
+//! those seven fails loudly rather than passing by skipping.
+//! `SmolLM2-360M-Instruct` (723 MB) and `TinyLlama-1.1B-Chat-v1.0` (2.2 GB)
+//! are **never fetched in CI** ([`LOCAL_ONLY_LARGE_FILES`]) — too large to
+//! download every run — and their absence there does not count against
+//! completeness. **What that costs**: CI never exercises the
+//! furthest-tensor-end-equals-file-size boundary at real production scale
+//! (hundreds of MB–GB) or a file with hundreds of tensors; it only proves
+//! agreement at the shapes the seven small files carry. A green CI run
+//! covers the dtype/sharding/metadata *shape* of this corpus, not its
+//! *scale* — read it as that, not as the full 9-file result this doc
+//! describes above, which still requires a local machine with all nine.
+//!
+//! **Licence/provenance, checked before any of this was wired into CI**:
+//! `stas/tiny-random-llama-2` is Apache-2.0 (its own `README.md`); its
+//! weights are freshly random-initialized (`LlamaForCausalLM(config)`, not
+//! loaded from Meta's Llama-2), so `model.safetensors` carries no Llama-2
+//! weight content. `hf-internal-testing/tiny-random-bert-sharded` and
+//! `hf-internal-testing/tiny-random-gpt2` have **no stated licence at
+//! all** — no `license:` tag, no `LICENSE` file, no `README.md` — so
+//! **none of the seven small files are vendored into this repository**;
+//! all seven are fetched-not-vendored specifically because two of the three
+//! source repos have nothing to cite a licence FROM, "widely used and
+//! probably fine" is not a licence, and a download step commits nothing
+//! either way.
+//!
 //! # What this file does NOT check — unchanged by widening the corpus
 //!
 //! - **Tensor payload bytes.** Same gap as the GGUF half, and the widened
@@ -120,16 +151,47 @@ fn corpus_files() -> Vec<String> {
         .collect()
 }
 
+/// The two real-model downloads (2.9 GB together) that CI does not fetch —
+/// too large to download on every run, and their licence status was never
+/// the question (they're CireSnave's own local corpus, sourced before this
+/// file existed). Every OTHER row is small enough that CI downloads it
+/// fresh each run, pinned by revision SHA (see `.github/workflows/ci.yml`);
+/// these two are the only rows this file will accept as MISSING under
+/// `MLMF_CORPUS_REQUIRED=1`.
+///
+/// Present and used unconditionally: this file's own loop still walks and
+/// asserts them like any other row when they exist (a full local corpus
+/// still gets full coverage) — this list only relaxes what counts as
+/// "complete" for the presence check below.
+const LOCAL_ONLY_LARGE_FILES: &[&str] = &[
+    "SmolLM2-360M-Instruct/model.safetensors",
+    "TinyLlama-1.1B-Chat-v1.0/model.safetensors",
+];
+
+/// Whether `file` is allowed to be absent without breaking corpus
+/// completeness — see [`LOCAL_ONLY_LARGE_FILES`].
+fn is_local_only(file: &str) -> bool {
+    LOCAL_ONLY_LARGE_FILES.contains(&file)
+}
+
 fn corpus_or_skip(test_name: &str) -> Option<std::path::PathBuf> {
     let root_s = corpus_root();
     let root = std::path::PathBuf::from(&root_s);
     let files = corpus_files();
-    if files.iter().all(|f| root.join(f).is_file()) {
+    // Complete means "every file that isn't allowed to be local-only is
+    // present" — not "every file is present". A CI run with the two large
+    // files absent and everything else fetched is COMPLETE by this
+    // definition; a run missing any small file is not, regardless of
+    // whether the two large ones are there.
+    let complete = files
+        .iter()
+        .all(|f| root.join(f).is_file() || is_local_only(f));
+    if complete {
         return Some(root);
     }
     assert!(
         !corpus_required(),
-        "MLMF_CORPUS_REQUIRED is set and the safetensors corpus under {root_s} is incomplete. Refusing to pass by skipping."
+        "MLMF_CORPUS_REQUIRED is set and the safetensors corpus under {root_s} is incomplete (a non-local-only file is missing). Refusing to pass by skipping."
     );
     use std::io::Write as _;
     let _ = writeln!(
@@ -308,9 +370,15 @@ fn descriptors_agree_over_the_corpus() {
 
     let files = corpus_files();
     let mut checked = 0usize;
+    let mut skipped_large = 0usize;
 
     for file in &files {
-        let bytes = std::fs::read(root.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
+        let path = root.join(file);
+        if is_local_only(file) && !path.is_file() {
+            skipped_large += 1;
+            continue;
+        }
+        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{file}: {e}"));
 
         let header = parse_header(&bytes).unwrap_or_else(|e| panic!("{file}: {e}"));
         let mlmf = mlmf_facts(&bytes, file);
@@ -339,11 +407,15 @@ fn descriptors_agree_over_the_corpus() {
         checked += 1;
     }
 
-    assert_eq!(checked, files.len(), "corpus present but not fully walked");
+    assert_eq!(
+        checked + skipped_large,
+        files.len(),
+        "corpus present but not fully walked"
+    );
     use std::io::Write as _;
     let _ = writeln!(
         std::io::stderr(),
-        "{}: AD-1-for-safetensors ran on {checked} files, all agreed on descriptors and metadata (payload bytes not compared -- see this file's own doc).",
+        "{}: AD-1-for-safetensors ran on {checked} files ({skipped_large} large local-only files not present here), all agreed on descriptors and metadata (payload bytes not compared -- see this file's own doc).",
         mlmf_core::NOTICE_TOKEN
     );
 }

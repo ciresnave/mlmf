@@ -186,6 +186,65 @@ jobs:
       - name: cargo clippy -p mlmf-conformance
         run: cargo clippy -p mlmf-conformance --all-targets -- -D warnings
 
+      # AD-1-for-safetensors, actually running in CI. Downloads the SEVEN
+      # SMALL files of mlmf-conformance/tests/fuel_differential_safetensors.rs's
+      # corpus, each pinned by REVISION SHA (never a branch — a Hub repo can
+      # be force-pushed, and `main` moving underneath this differential would
+      # make its green mean a different thing tomorrow than it does today).
+      #
+      # The two large files (SmolLM2 723 MB, TinyLlama 2.2 GB) are
+      # deliberately NOT fetched here -- LOCAL_ONLY_LARGE_FILES in that test
+      # file is what makes their absence not count against completeness, so
+      # MLMF_CORPUS_REQUIRED=1 below still passes with only these seven.
+      #
+      # None of these seven are committed to this repository. Two of the
+      # three source repos (hf-internal-testing/tiny-random-bert-sharded,
+      # hf-internal-testing/tiny-random-gpt2) have NO stated licence -- no
+      # `license:` tag, no LICENSE file, no README.md -- so there is nothing
+      # to cite a licence from, and "widely used, 2.4M/41.4M downloads" is
+      # not a grant. `stas/tiny-random-llama-2` IS Apache-2.0, but every file
+      # here is fetched-not-vendored uniformly rather than half-committed,
+      # half-downloaded -- one mechanism to reason about as the corpus grows.
+      - name: download the small AD-1-for-safetensors corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="${{ runner.temp }}/mlmf-safetensors-corpus"
+          mkdir -p "$root/tiny-random-bert-sharded" "$root/tiny-random-gpt2" "$root/tiny-random-llama-2"
+
+          bert_sha="04a52fc6ff50bf21639d65be441bd2bd8410ef5d"
+          bert_base="https://huggingface.co/hf-internal-testing/tiny-random-bert-sharded/resolve/$bert_sha"
+          for shard in 00001 00002 00003 00004 00005; do
+            curl -sL --fail -o "$root/tiny-random-bert-sharded/model-$shard-of-00005.safetensors" \
+              "$bert_base/model-$shard-of-00005.safetensors"
+          done
+          curl -sL --fail -o "$root/tiny-random-bert-sharded/model.safetensors.index.json" \
+            "$bert_base/model.safetensors.index.json"
+
+          curl -sL --fail -o "$root/tiny-random-gpt2/model.safetensors" \
+            "https://huggingface.co/hf-internal-testing/tiny-random-gpt2/resolve/71034c5d8bde858ff824298bdedc65515b97d2b9/model.safetensors"
+
+          curl -sL --fail -o "$root/tiny-random-llama-2/model.safetensors" \
+            "https://huggingface.co/stas/tiny-random-llama-2/resolve/3579d71fd57e04f5a364d824d3a2ec3e913dbb67/model.safetensors"
+
+      # MLMF_CORPUS_REQUIRED=1 turns a download failure OR a real descriptor
+      # disagreement into a red CI run rather than a silent skip --
+      # `corpus_or_skip` in the test file is the mechanism, and a corpus
+      # download step without this variable set would prove nothing while
+      # looking exactly like success (measured before this step existed: the
+      # same harness merged in #83/#85 had never been seen to fail in CI).
+      # `--test fuel_differential_safetensors` scopes this to the file above
+      # ALONE: the sibling GGUF/GGML differential in this same crate needs a
+      # 29-file, 1.1 GiB corpus this workflow does not fetch, and setting
+      # MLMF_CORPUS_REQUIRED globally would fail that skip too if the plain
+      # `--features fuel-differential` form below were used instead.
+      - name: cargo test -p mlmf-conformance --features fuel-differential --test fuel_differential_safetensors
+        shell: bash
+        env:
+          MLMF_SAFETENSORS_CORPUS: ${{ runner.temp }}/mlmf-safetensors-corpus
+          MLMF_CORPUS_REQUIRED: "1"
+        run: cargo test -p mlmf-conformance --features fuel-differential --test fuel_differential_safetensors
+
       # mlmf-meta sits above mlmf-core and below every format crate: it holds
       # the spec §5 canonical key vocabulary as DATA and reads a
       # MetadataSource, so it has no I/O and names no format crate (C4).
