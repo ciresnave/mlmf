@@ -46,8 +46,9 @@
 //!    keeping every other tensor and all metadata. **This is a real
 //!    behavioural difference an adopting caller must design for** — where
 //!    fuel today returns "file unreadable", MLMF returns "file mostly
-//!    readable, here is what wasn't." See
-//!    [`fuel_refuses_whole_file_on_unknown_ggml_code_mlmf_does_not`].
+//!    readable, here is what wasn't." Asserted in `assess_file`'s
+//!    `(Ok(_), Err(fuel_err))` arm, exercised by
+//!    [`descriptors_agree_over_the_corpus`].
 //!
 //! # What this file does NOT check, stated so a green run is not read as more
 //!
@@ -241,118 +242,181 @@ fn metadata_key_sets_agree(
     );
 }
 
-#[test]
-fn the_differential_ran_or_says_it_was_not_there() {
+/// The corpus root, if this machine has one, or `None` after printing a
+/// loud, named skip notice. Shared by every corpus-backed test in this file
+/// so each one's OWN name is what tells a reader which assertion a skip
+/// took the place of, rather than one 100-line function burying both "is
+/// the harness even reachable" and "do the descriptors agree" behind a
+/// single early return.
+fn corpus_or_skip(test_name: &str) -> Option<std::path::PathBuf> {
     let root_s = corpus_root();
-    let root = std::path::Path::new(&root_s);
-    if !root.is_dir() {
-        assert!(
-            !corpus_required(),
-            "MLMF_CORPUS_REQUIRED is set and there is no corpus at {root_s}. Refusing to pass by skipping."
-        );
-        use std::io::Write as _;
-        let _ = writeln!(
-            std::io::stderr(),
-            "{}: SKIPPED: no corpus at {root_s}. AD-1 did NOT run. Point MLMF_GGUF_CORPUS at one, or set MLMF_CORPUS_REQUIRED=1 to make this a failure.",
-            mlmf_core::NOTICE_TOKEN
-        );
-        return;
+    let root = std::path::PathBuf::from(&root_s);
+    if root.is_dir() {
+        return Some(root);
     }
+    assert!(
+        !corpus_required(),
+        "MLMF_CORPUS_REQUIRED is set and there is no corpus at {root_s}. Refusing to pass by skipping."
+    );
+    use std::io::Write as _;
+    let _ = writeln!(
+        std::io::stderr(),
+        "{}: SKIPPED ({test_name}): no corpus at {root_s}. AD-1 did NOT run here. Point MLMF_GGUF_CORPUS at one, or set MLMF_CORPUS_REQUIRED=1 to make this a failure.",
+        mlmf_core::NOTICE_TOKEN
+    );
+    None
+}
 
-    let files = corpus_files();
+/// The harness is reachable at all: the corpus resolves (or loudly skips,
+/// as its own named outcome) and the fixture it will walk is the corpus
+/// that was measured. Asserts nothing about parser agreement — that is
+/// [`descriptors_agree_over_the_corpus`]'s job, not this one's.
+#[test]
+fn the_corpus_is_present_and_the_harness_resolves_it() {
+    let Some(_root) = corpus_or_skip("the_corpus_is_present_and_the_harness_resolves_it") else {
+        return;
+    };
     assert_eq!(
-        files.len(),
+        corpus_files().len(),
         28,
         "corpus-metadata.tsv's file list changed size"
     );
+}
 
-    let mut both_ok = 0usize;
-    let mut fuel_refused_mlmf_read = 0usize;
-    let mut both_refused = 0usize;
-    // Stays 0: the arm that would increment it panics instead (see below --
-    // a mismatch here is a regression, not a countable outcome).
-    let mlmf_refused_fuel_read = 0usize;
+/// Tally of per-file outcomes, kept apart from the assertions that produce
+/// them so `descriptors_agree_over_the_corpus` reads as a loop over a
+/// small, named result rather than a loop carrying four counters by hand.
+#[derive(Default)]
+struct Tally {
+    both_ok: usize,
+    fuel_refused_known_divergence: usize,
+    both_refused: usize,
+}
+
+impl Tally {
+    fn record(&mut self, outcome: Outcome) {
+        match outcome {
+            Outcome::BothAgreed => self.both_ok += 1,
+            Outcome::FuelRefusedKnownDivergence => self.fuel_refused_known_divergence += 1,
+            Outcome::BothRefused => self.both_refused += 1,
+        }
+    }
+}
+
+/// What happened on one file. `mlmf` refusing a file `fuel` reads is not a
+/// variant here: [`assess_file`] panics on that arm directly, because it is
+/// a regression, not an outcome to tally alongside the expected ones.
+enum Outcome {
+    BothAgreed,
+    FuelRefusedKnownDivergence,
+    BothRefused,
+}
+
+/// Every assertion AD-1 makes about one file, given both sides' parse
+/// results. Panics (naming the file and, where applicable, the tensor) on
+/// any disagreement that is not one of the two documented, expected
+/// divergences.
+fn assess_file(
+    file: &str,
+    bytes: &[u8],
+    mlmf: &Result<Vec<Facts>, String>,
+    fuel: &Result<Vec<Facts>, String>,
+) -> Outcome {
+    match (mlmf, fuel) {
+        (Ok(m), Ok(f)) => {
+            assert_descriptors_agree(file, bytes, m, f);
+            Outcome::BothAgreed
+        }
+        (Ok(_), Err(fuel_err)) => {
+            // The documented divergence. Assert it is what we think it is,
+            // not just that it happened, so a DIFFERENT refusal reason does
+            // not hide behind this arm.
+            assert!(
+                fuel_err.contains("unknown dtype"),
+                "{file}: fuel refused for an UNEXPECTED reason (expected an unknown-ggml-dtype error): {fuel_err}"
+            );
+            Outcome::FuelRefusedKnownDivergence
+        }
+        (Err(_), Err(_)) => Outcome::BothRefused,
+        (Err(mlmf_err), Ok(_)) => panic!(
+            "{file}: mlmf refused a file fuel reads cleanly -- \
+             that is a REGRESSION in the port, not an expected divergence: {mlmf_err}"
+        ),
+    }
+}
+
+/// Metadata key sets and every tensor's code/shape/byte-range, for one file
+/// both sides parsed successfully.
+fn assert_descriptors_agree(file: &str, bytes: &[u8], m: &[Facts], f: &[Facts]) {
+    // Metadata key sets. Re-parsed here rather than threaded out of
+    // mlmf_facts/fuel_facts, both of which discard their metadata object
+    // once the tensor directory is built -- cheap to redo since
+    // GgufMetadata indexes without decoding (crates/mlmf-gguf/src/lib.rs's
+    // own doc) and both `Ok` results already prove this file parses.
+    let (meta, _) = GgufMetadata::parse(bytes, file).expect("proven Ok by the caller");
+    let mut cursor = Cursor::new(bytes);
+    let content = fuel_formats::gguf::Content::read(&mut cursor).expect("proven Ok by the caller");
+    metadata_key_sets_agree(&meta, &content.metadata, file);
+
+    // Same tensor SET, named on both sides of a mismatch rather than just
+    // counted (CLAUDE.md §5: "Names, never counts").
+    let missing_from_fuel = only_in(m, f);
+    let missing_from_mlmf = only_in(f, m);
+    assert_eq!(
+        missing_from_fuel,
+        Vec::<&str>::new(),
+        "{file}: tensors mlmf has that fuel does not"
+    );
+    assert_eq!(
+        missing_from_mlmf,
+        Vec::<&str>::new(),
+        "{file}: tensors fuel has that mlmf does not"
+    );
+
+    for mf in m {
+        let ff = f
+            .iter()
+            .find(|x| x.name == mf.name)
+            .unwrap_or_else(|| panic!("{file}: {} present on one side only", mf.name));
+        assert_eq!(
+            mf.code, ff.code,
+            "{file}/{}: ggml type code disagrees",
+            mf.name
+        );
+        assert_eq!(
+            mf.dims_declared, ff.dims_declared,
+            "{file}/{}: shape disagrees once fuel's reversal is undone",
+            mf.name
+        );
+        assert_eq!(
+            (mf.byte_start, mf.byte_end),
+            (ff.byte_start, ff.byte_end),
+            "{file}/{}: absolute byte range disagrees",
+            mf.name
+        );
+    }
+}
+
+/// The differential proper: every file's tensor descriptors and metadata
+/// key sets, compared against fuel's live parser. Presence/resolution is
+/// [`the_corpus_is_present_and_the_harness_resolves_it`]'s job; this test
+/// assumes that one already established the corpus is walkable and only
+/// asserts agreement.
+#[test]
+fn descriptors_agree_over_the_corpus() {
+    let Some(root) = corpus_or_skip("descriptors_agree_over_the_corpus") else {
+        return;
+    };
+
+    let files = corpus_files();
+    let mut tally = Tally::default();
     let mut checked = 0usize;
 
     for file in &files {
-        let path = root.join(file);
-        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{file}: {e}"));
-
+        let bytes = std::fs::read(root.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
         let mlmf = mlmf_facts_sorted(&bytes, file);
         let fuel = fuel_facts(&bytes);
-
-        match (&mlmf, &fuel) {
-            (Ok(m), Ok(f)) => {
-                both_ok += 1;
-
-                // Metadata key sets. Re-parsed here rather than threaded out
-                // of mlmf_facts/fuel_facts, both of which discard their
-                // metadata object once the tensor directory is built --
-                // cheap to redo since GgufMetadata indexes without decoding
-                // (crates/mlmf-gguf/src/lib.rs's own doc) and Content::read
-                // has already proven it succeeds on this file in this arm.
-                let (meta, _) = GgufMetadata::parse(&bytes, file).expect("proven Ok above");
-                let mut cursor2 = Cursor::new(bytes.as_slice());
-                let content2 =
-                    fuel_formats::gguf::Content::read(&mut cursor2).expect("proven Ok above");
-                metadata_key_sets_agree(&meta, &content2.metadata, file);
-
-                // Same tensor SET, named on both sides of a mismatch rather
-                // than just counted (CLAUDE.md §5: "Names, never counts").
-                let missing_from_fuel = only_in(m, f);
-                let missing_from_mlmf = only_in(f, m);
-                assert_eq!(
-                    missing_from_fuel,
-                    Vec::<&str>::new(),
-                    "{file}: tensors mlmf has that fuel does not"
-                );
-                assert_eq!(
-                    missing_from_mlmf,
-                    Vec::<&str>::new(),
-                    "{file}: tensors fuel has that mlmf does not"
-                );
-
-                for mf in m {
-                    let ff = f
-                        .iter()
-                        .find(|x| x.name == mf.name)
-                        .unwrap_or_else(|| panic!("{file}: {} present on one side only", mf.name));
-                    assert_eq!(
-                        mf.code, ff.code,
-                        "{file}/{}: ggml type code disagrees",
-                        mf.name
-                    );
-                    assert_eq!(
-                        mf.dims_declared, ff.dims_declared,
-                        "{file}/{}: shape disagrees once fuel's reversal is undone",
-                        mf.name
-                    );
-                    assert_eq!(
-                        (mf.byte_start, mf.byte_end),
-                        (ff.byte_start, ff.byte_end),
-                        "{file}/{}: absolute byte range disagrees",
-                        mf.name
-                    );
-                }
-            }
-            (Ok(_), Err(fuel_err)) => {
-                fuel_refused_mlmf_read += 1;
-                // The documented divergence. Assert it is what we think it
-                // is, not just that it happened, so a DIFFERENT refusal
-                // reason does not hide behind this arm.
-                assert!(
-                    fuel_err.contains("unknown dtype"),
-                    "{file}: fuel refused for an UNEXPECTED reason (expected an unknown-ggml-dtype error): {fuel_err}"
-                );
-            }
-            (Err(_), Err(_)) => both_refused += 1,
-            (Err(mlmf_err), Ok(_)) => {
-                panic!(
-                    "{file}: mlmf refused a file fuel reads cleanly -- \
-                     that is a REGRESSION in the port, not an expected divergence: {mlmf_err}"
-                );
-            }
-        }
+        tally.record(assess_file(file, &bytes, &mlmf, &fuel));
         checked += 1;
     }
 
@@ -360,8 +424,11 @@ fn the_differential_ran_or_says_it_was_not_there() {
     use std::io::Write as _;
     let _ = writeln!(
         std::io::stderr(),
-        "{}: AD-1 ran on {checked} files: {both_ok} agreed, {fuel_refused_mlmf_read} show the known ggml-coverage divergence, {both_refused} both refused, {mlmf_refused_fuel_read} regressions.",
-        mlmf_core::NOTICE_TOKEN
+        "{}: AD-1 ran on {checked} files: {} agreed, {} show the known ggml-coverage divergence, {} both refused.",
+        mlmf_core::NOTICE_TOKEN,
+        tally.both_ok,
+        tally.fuel_refused_known_divergence,
+        tally.both_refused
     );
 }
 
