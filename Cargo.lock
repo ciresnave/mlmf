@@ -569,6 +569,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
+name = "fuel-formats"
+version = "0.11.0"
+source = "git+https://github.com/CireSnave/fuel?rev=6609d1598939b90e4ca49528f735987eb69b3895#6609d1598939b90e4ca49528f735987eb69b3895"
+dependencies = [
+ "bytemuck",
+ "byteorder",
+ "fuel-ir",
+ "half",
+ "memmap2",
+ "safetensors",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "thiserror 2.0.20",
+ "zip",
+]
+
+[[package]]
+name = "fuel-ir"
+version = "0.11.0"
+source = "git+https://github.com/CireSnave/fuel?rev=6609d1598939b90e4ca49528f735987eb69b3895#6609d1598939b90e4ca49528f735987eb69b3895"
+dependencies = [
+ "float8",
+ "half",
+ "libm",
+ "num-traits",
+ "safetensors",
+ "smallvec",
+ "thiserror 2.0.20",
+ "zip",
+]
+
+[[package]]
 name = "futures-core"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -994,7 +1027,9 @@ dependencies = [
 name = "mlmf-conformance"
 version = "0.4.0"
 dependencies = [
+ "fuel-formats",
  "mlmf-core",
+ "mlmf-ggml",
  "mlmf-gguf",
  "mlmf-meta",
  "mlmf-safetensors",
