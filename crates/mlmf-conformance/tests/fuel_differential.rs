@@ -76,6 +76,55 @@
 //! - **`mlmf-hf-layout`, pickle, imatrix.** No MLMF crate exists for the
 //!   latter two (see the capability report this PR follows from); nothing to
 //!   differential.
+//!
+//! # Running in CI, and why these two files rather than the 28-file corpus
+//!
+//! The 28-file corpus is 1.13 GiB and its own divergence (IQ4_NL/IQ3_S/IQ4_XS)
+//! is **structurally guaranteed to stay stable**: `fuel_ir::GgmlDType`'s
+//! variant list is a compile-time fact (`fuel-ir/src/quantized.rs:14`'s own
+//! doc: *"NOT the IQ*/TQ*/MXFP4/NVFP4 families"*), so that divergence cannot
+//! silently start or stop — it changes only if fuel deliberately adds
+//! variants, a visible change on their side. **Guarding it in CI would cost
+//! ~255 MiB/run to protect something that cannot quietly break.**
+//!
+//! **The AGREEMENT on the 15 shared codes is the real regression risk**:
+//! `mlmf-gguf` and `fuel-formats` are two independently-maintained codebases
+//! that have already demonstrably diverged once (this crate's 35-live-code
+//! table vs fuel's 15), so nothing guarantees their offset/shape/dtype
+//! arithmetic stays aligned on the codes they DO both claim to know. CI fetches
+//! `tinyllamas/stories15M-q4_0.gguf` + `stories15M-q8_0.gguf` (~43.6 MiB
+//! total, pinned by revision SHA) specifically because both exercise that
+//! agreement path meaningfully: 57 real tensors each, real names
+//! (`token_embd.weight`, `blk.N.attn_*`, …), byte ranges spanning the whole
+//! ~18–26 MB file — not one trivial tensor — and every ggml code in both
+//! files (`Q4_0`, `Q8_0`, `F32`) is inside fuel's known set.
+//!
+//! ⚠️ **Licence: `ggml-org/models-moved` has no `license:` tag, no `LICENSE`
+//! file, and no `general.license` in the GGUF metadata itself.** Its own
+//! README says *"Various models to be used in llama.cpp CI workflow. Do not
+//! use it in production"* — a fitness disclaimer, not a redistribution grant.
+//! Same shape as the two unlicensed safetensors fixtures in `#86`, and the
+//! same ruling applies: **fetched at CI time, never vendored.** Downloading a
+//! public artifact the way any user would redistributes nothing; committing
+//! it into this repository would. Record kept here rather than assumed away.
+//!
+//! ⚠️ **This source has already been renamed once** (`ggml-org/models` →
+//! `ggml-org/models-moved`) — the revision-SHA pin protects CONTENT, not the
+//! repo's continued existence at that name. **If the download step ever
+//! 404s, that is a fetch failure, not a differential failure, and the fix is
+//! to re-point the URL at the new location and record it here — not to
+//! delete the step.** A fetch-step failure and a comparison-logic failure
+//! must stay distinguishable in the CI log; see `.github/workflows/ci.yml`'s
+//! comment on the download step for how that's kept apparent.
+//!
+//! **A cheaper, licence-free alternative worth naming for later**: a
+//! self-authored synthetic GGUF fixture of a few KB would exercise the same
+//! offset/shape/dtype arithmetic with no upstream dependency at all. Not done
+//! here, and its weakness is real, not hypothetical: a fixture this crate
+//! writes encodes THIS crate's own reading of the format, so both sides could
+//! agree with it and still diverge on a real file written by someone else's
+//! encoder. That is why a real downloaded file remains the stronger choice
+//! today.
 
 #![cfg(feature = "fuel-differential")]
 
@@ -98,12 +147,27 @@ fn corpus_required() -> bool {
     armed::armed("MLMF_CORPUS_REQUIRED")
 }
 
+/// A SEPARATE flag from [`corpus_required`], deliberately, so the two
+/// absences stay distinguishable: CI sets `MLMF_CORPUS_REQUIRED=1` because
+/// [`CI_REQUIRED_FILES`] must be there, and never sets this one, because the
+/// v1 fixture is permanently absent there by design (see
+/// [`mlmf_refuses_v1_that_fuel_reads`]'s own doc). If this test read
+/// `corpus_required()` instead, CI's normal, expected v1 skip would look
+/// identical to a genuinely incomplete agreement-guard corpus, and the
+/// guard would have to choose which absence it was honest about.
+fn v1_fixture_required() -> bool {
+    armed::armed("MLMF_V1_FIXTURE_REQUIRED")
+}
+
 /// The same 28-file list `mlmf-gguf`'s own corpus test measures, reused
 /// rather than re-walking the directory (CLAUDE.md §5b: enumerate from an
 /// index, not the disk) so this file and that one can never silently drift
-/// to describing different corpora.
+/// to describing different corpora -- plus the two CI-fetched agreement-guard
+/// files (see [`CI_REQUIRED_FILES`]), which are not part of that independently-
+/// measured fixture and never will be: they carry no pre-measured expectation
+/// to compare against, only a live differential.
 fn corpus_files() -> Vec<String> {
-    include_str!("../../mlmf-gguf/tests/corpus-metadata.tsv")
+    let mut files: Vec<String> = include_str!("../../mlmf-gguf/tests/corpus-metadata.tsv")
         .lines()
         .filter(|l| !l.starts_with('#') && !l.starts_with("file\t") && !l.trim().is_empty())
         .map(|l| {
@@ -112,7 +176,26 @@ fn corpus_files() -> Vec<String> {
                 .expect("at least one column")
                 .to_string()
         })
-        .collect()
+        .collect();
+    files.extend(CI_REQUIRED_FILES.iter().map(|f| f.to_string()));
+    files
+}
+
+/// The two small files CI actually fetches — see this file's own module doc,
+/// "Running in CI" section, for why these two and not the 28-file corpus.
+/// Everything else `corpus_files()` returns is local-only: allowed to be
+/// absent without breaking completeness (see [`is_local_only`]), but walked
+/// and asserted like any other row when it IS present, so a full local run
+/// still gets the full 30-file result.
+const CI_REQUIRED_FILES: &[&str] = &[
+    "tinyllamas/stories15M-q4_0.gguf",
+    "tinyllamas/stories15M-q8_0.gguf",
+];
+
+/// Whether `file` is allowed to be absent without breaking corpus
+/// completeness — everything except [`CI_REQUIRED_FILES`].
+fn is_local_only(file: &str) -> bool {
+    !CI_REQUIRED_FILES.contains(&file)
 }
 
 /// One tensor's facts, on a common footing: an absolute, rebased byte range
@@ -251,17 +334,25 @@ fn metadata_key_sets_agree(
 fn corpus_or_skip(test_name: &str) -> Option<std::path::PathBuf> {
     let root_s = corpus_root();
     let root = std::path::PathBuf::from(&root_s);
-    if root.is_dir() {
+    // Complete means "every file that isn't allowed to be local-only is
+    // present" -- not "every file is present" and not merely "the directory
+    // exists". A CI run with the 28-file corpus entirely absent and only the
+    // two CI_REQUIRED_FILES fetched is COMPLETE by this definition.
+    let complete = root.is_dir()
+        && corpus_files()
+            .iter()
+            .all(|f| root.join(f).is_file() || is_local_only(f));
+    if complete {
         return Some(root);
     }
     assert!(
         !corpus_required(),
-        "MLMF_CORPUS_REQUIRED is set and there is no corpus at {root_s}. Refusing to pass by skipping."
+        "MLMF_CORPUS_REQUIRED is set and the GGUF corpus under {root_s} is incomplete (a non-local-only file is missing). Refusing to pass by skipping."
     );
     use std::io::Write as _;
     let _ = writeln!(
         std::io::stderr(),
-        "{}: SKIPPED ({test_name}): no corpus at {root_s}. AD-1 did NOT run here. Point MLMF_GGUF_CORPUS at one, or set MLMF_CORPUS_REQUIRED=1 to make this a failure.",
+        "{}: SKIPPED ({test_name}): GGUF corpus incomplete under {root_s}. AD-1 did NOT run here. Point MLMF_GGUF_CORPUS at one, or set MLMF_CORPUS_REQUIRED=1 to make this a failure.",
         mlmf_core::NOTICE_TOKEN
     );
     None
@@ -278,8 +369,8 @@ fn the_corpus_is_present_and_the_harness_resolves_it() {
     };
     assert_eq!(
         corpus_files().len(),
-        28,
-        "corpus-metadata.tsv's file list changed size"
+        30,
+        "corpus-metadata.tsv's file list, plus the two CI_REQUIRED_FILES, changed size"
     );
 }
 
@@ -411,20 +502,30 @@ fn descriptors_agree_over_the_corpus() {
     let files = corpus_files();
     let mut tally = Tally::default();
     let mut checked = 0usize;
+    let mut skipped_local_only = 0usize;
 
     for file in &files {
-        let bytes = std::fs::read(root.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
+        let path = root.join(file);
+        if is_local_only(file) && !path.is_file() {
+            skipped_local_only += 1;
+            continue;
+        }
+        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{file}: {e}"));
         let mlmf = mlmf_facts_sorted(&bytes, file);
         let fuel = fuel_facts(&bytes);
         tally.record(assess_file(file, &bytes, &mlmf, &fuel));
         checked += 1;
     }
 
-    assert_eq!(checked, files.len(), "corpus present but not fully walked");
+    assert_eq!(
+        checked + skipped_local_only,
+        files.len(),
+        "corpus present but not fully walked"
+    );
     use std::io::Write as _;
     let _ = writeln!(
         std::io::stderr(),
-        "{}: AD-1 ran on {checked} files: {} agreed, {} show the known ggml-coverage divergence, {} both refused.",
+        "{}: AD-1 ran on {checked} files ({skipped_local_only} local-only files not present here): {} agreed, {} show the known ggml-coverage divergence, {} both refused.",
         mlmf_core::NOTICE_TOKEN,
         tally.both_ok,
         tally.fuel_refused_known_divergence,
@@ -453,20 +554,41 @@ fn shapes_agree_once_the_known_reversal_is_undone() {
 /// in the corpus, which `corpus-metadata.tsv` excludes (see that file's own
 /// comment and `crates/mlmf-gguf/tests/corpus.rs`), so it is read by its
 /// known relative path rather than through the shared fixture.
+///
+/// ⚠️ **Verified LOCALLY ONLY, deliberately.** The file traces to
+/// `karpathy/tinyllamas` (MIT), but no currently-hosted copy is byte-identical
+/// to it: `ggml-org/models-moved`'s current `tinyllamas/stories260K*.gguf`
+/// files are 1,185,376 or 1,185,760 bytes, all **GGUF v3** — llama.cpp moved
+/// past v1 years ago, and nothing upstream still serves this exact file. An
+/// unpinnable file cannot be wired into CI's revision-SHA-pinned pattern, and
+/// substituting a v3 file would silently stop testing the v1-refusal
+/// asymmetry while *looking* like it still did — worse than not testing it at
+/// all.
+///
+/// **This test still RUNS in CI, and that is deliberate too** — it declines
+/// gracefully in its own body (below) rather than being excluded by name in
+/// CI config. A CI job that filters tests by name is a job where every
+/// FUTURE test added to this file silently does not run there unless
+/// someone remembers to update the filter; a test that skips itself, with a
+/// loud stderr reason, keeps that decision visible to anyone reading this
+/// file rather than hidden in `.github/workflows/ci.yml`. It uses its OWN
+/// flag, [`v1_fixture_required`], not [`corpus_required`] — see that
+/// function's doc for why the two must stay separate.
 #[test]
 fn mlmf_refuses_v1_that_fuel_reads() {
     let root_s = corpus_root();
     let path = std::path::Path::new(&root_s).join("legacy/tinyllamas-stories-260k-f32.gguf");
     if !path.is_file() {
         assert!(
-            !corpus_required(),
-            "MLMF_CORPUS_REQUIRED is set and {path:?} is missing. Refusing to pass by skipping."
+            !v1_fixture_required(),
+            "MLMF_V1_FIXTURE_REQUIRED is set and {path:?} is missing. Refusing to pass by skipping."
         );
         use std::io::Write as _;
         let _ = writeln!(
             std::io::stderr(),
-            "{}: SKIPPED: no v1 fixture at {path:?}.",
-            mlmf_core::NOTICE_TOKEN
+            "{}: SKIPPED ({}): no v1 fixture at {path:?}. Expected in CI -- no pinnable source exists, see this test's own doc.",
+            mlmf_core::NOTICE_TOKEN,
+            "mlmf_refuses_v1_that_fuel_reads"
         );
         return;
     }

@@ -234,16 +234,77 @@ jobs:
       # looking exactly like success (measured before this step existed: the
       # same harness merged in #83/#85 had never been seen to fail in CI).
       # `--test fuel_differential_safetensors` scopes this to the file above
-      # ALONE: the sibling GGUF/GGML differential in this same crate needs a
-      # 29-file, 1.1 GiB corpus this workflow does not fetch, and setting
-      # MLMF_CORPUS_REQUIRED globally would fail that skip too if the plain
-      # `--features fuel-differential` form below were used instead.
+      # ALONE: the sibling GGUF/GGML differential below fetches its own,
+      # much smaller, corpus and would fail this one's skip-check if the two
+      # ran under one shared `--features fuel-differential` invocation.
       - name: cargo test -p mlmf-conformance --features fuel-differential --test fuel_differential_safetensors
         shell: bash
         env:
           MLMF_SAFETENSORS_CORPUS: ${{ runner.temp }}/mlmf-safetensors-corpus
           MLMF_CORPUS_REQUIRED: "1"
         run: cargo test -p mlmf-conformance --features fuel-differential --test fuel_differential_safetensors
+
+      # AD-1-for-GGUF's agreement guard, actually running in CI. The 28-file
+      # local corpus (1.13 GiB) stays local-only: its own divergence
+      # (IQ4_NL/IQ3_S/IQ4_XS) is structurally guaranteed by fuel's own
+      # `GgmlDType` enum lacking those variants at compile time
+      # (`fuel-ir/src/quantized.rs:14`), so it cannot silently start or stop
+      # -- guarding it here would spend ~255 MiB/run protecting something
+      # that cannot quietly break. What CAN quietly break is the AGREEMENT on
+      # the 15 codes both `mlmf-gguf` and `fuel-formats` claim to know: two
+      # independently-maintained codebases that have already diverged once
+      # (this crate's 35-code table vs fuel's 15). `CI_REQUIRED_FILES` in
+      # `fuel_differential.rs` names the two small files fetched here and is
+      # the crux of the whole design -- see that file's own "Running in CI"
+      # doc section for the full reasoning, licence note, and the
+      # already-renamed-once risk on this source repo.
+      #
+      # If this download step ever 404s: that is a FETCH failure, not a
+      # differential failure -- `ggml-org/models` has already been renamed
+      # once to `ggml-org/models-moved` (used below), and could move again.
+      # The fix is to find the new location and re-point this URL, recording
+      # the change in both places (here and the test file's doc) -- NOT to
+      # delete the step. A failure here shows up as `curl: (22)` from THIS
+      # step, distinguishable in the log from a `descriptors_agree_over_the_
+      # corpus` assertion failure in the step below it.
+      #
+      # Neither file is committed to this repository. `ggml-org/models-moved`
+      # has no `license:` tag, no LICENSE file, and no `general.license` in
+      # the GGUF metadata itself -- its own README says "Various models to be
+      # used in llama.cpp CI workflow. Do not use it in production", which is
+      # a fitness disclaimer, not a redistribution grant. Same ruling as the
+      # two unlicensed safetensors fixtures above: fetched at CI time, never
+      # vendored.
+      - name: download the small AD-1-for-GGUF agreement-guard corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="${{ runner.temp }}/mlmf-gguf-corpus/tinyllamas"
+          mkdir -p "$root"
+          sha="499bc8821c6b12b4e53c5bffcb21ec206f212d81"
+          base="https://huggingface.co/ggml-org/models-moved/resolve/$sha/tinyllamas"
+          curl -sL --fail -o "$root/stories15M-q4_0.gguf" "$base/stories15M-q4_0.gguf"
+          curl -sL --fail -o "$root/stories15M-q8_0.gguf" "$base/stories15M-q8_0.gguf"
+
+      # Runs the WHOLE file, no test-name filter -- unlike an earlier version
+      # of this step, deliberately reverted (see #89's history): a filter
+      # here would make every FUTURE test added to fuel_differential.rs
+      # silently not run in CI unless someone remembered to update this
+      # line, and it would hide the exclusion reasoning in workflow config
+      # instead of in the test file a reader actually opens.
+      # `mlmf_refuses_v1_that_fuel_reads` skips itself gracefully (it always
+      # has, for the local-corpus-absent case) using its OWN flag,
+      # `MLMF_V1_FIXTURE_REQUIRED` -- never set here, deliberately, so its
+      # expected CI skip cannot be confused with `MLMF_CORPUS_REQUIRED`
+      # catching a genuinely incomplete agreement-guard corpus. See that
+      # test's own doc and `v1_fixture_required`'s doc in the test file for
+      # why the two flags must stay separate.
+      - name: cargo test -p mlmf-conformance --features fuel-differential --test fuel_differential (GGUF agreement guard)
+        shell: bash
+        env:
+          MLMF_GGUF_CORPUS: ${{ runner.temp }}/mlmf-gguf-corpus
+          MLMF_CORPUS_REQUIRED: "1"
+        run: cargo test -p mlmf-conformance --features fuel-differential --test fuel_differential
 
       # mlmf-meta sits above mlmf-core and below every format crate: it holds
       # the spec §5 canonical key vocabulary as DATA and reads a
