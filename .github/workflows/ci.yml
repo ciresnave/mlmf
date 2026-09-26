@@ -286,21 +286,25 @@ jobs:
           curl -sL --fail -o "$root/stories15M-q4_0.gguf" "$base/stories15M-q4_0.gguf"
           curl -sL --fail -o "$root/stories15M-q8_0.gguf" "$base/stories15M-q8_0.gguf"
 
-      # `-- descriptors_agree_over_the_corpus the_corpus_is_present_and_the_
-      # harness_resolves_it` (Rust's substring test filter, both names
-      # passed) is the GGUF-side equivalent of `--test
-      # fuel_differential_safetensors` above: it excludes
-      # `mlmf_refuses_v1_that_fuel_reads`, which checks `MLMF_CORPUS_REQUIRED`
-      # against the ONE v1 file this workflow deliberately does not fetch
-      # (no pinnable source exists -- see that test's own doc) and would
-      # fail the same way `fuel_differential_safetensors` would have if run
-      # unscoped under a shared required-corpus variable.
+      # Runs the WHOLE file, no test-name filter -- unlike an earlier version
+      # of this step, deliberately reverted (see #89's history): a filter
+      # here would make every FUTURE test added to fuel_differential.rs
+      # silently not run in CI unless someone remembered to update this
+      # line, and it would hide the exclusion reasoning in workflow config
+      # instead of in the test file a reader actually opens.
+      # `mlmf_refuses_v1_that_fuel_reads` skips itself gracefully (it always
+      # has, for the local-corpus-absent case) using its OWN flag,
+      # `MLMF_V1_FIXTURE_REQUIRED` -- never set here, deliberately, so its
+      # expected CI skip cannot be confused with `MLMF_CORPUS_REQUIRED`
+      # catching a genuinely incomplete agreement-guard corpus. See that
+      # test's own doc and `v1_fixture_required`'s doc in the test file for
+      # why the two flags must stay separate.
       - name: cargo test -p mlmf-conformance --features fuel-differential --test fuel_differential (GGUF agreement guard)
         shell: bash
         env:
           MLMF_GGUF_CORPUS: ${{ runner.temp }}/mlmf-gguf-corpus
           MLMF_CORPUS_REQUIRED: "1"
-        run: cargo test -p mlmf-conformance --features fuel-differential --test fuel_differential -- descriptors_agree_over_the_corpus the_corpus_is_present_and_the_harness_resolves_it
+        run: cargo test -p mlmf-conformance --features fuel-differential --test fuel_differential
 
       # mlmf-meta sits above mlmf-core and below every format crate: it holds
       # the spec §5 canonical key vocabulary as DATA and reads a

@@ -147,6 +147,18 @@ fn corpus_required() -> bool {
     armed::armed("MLMF_CORPUS_REQUIRED")
 }
 
+/// A SEPARATE flag from [`corpus_required`], deliberately, so the two
+/// absences stay distinguishable: CI sets `MLMF_CORPUS_REQUIRED=1` because
+/// [`CI_REQUIRED_FILES`] must be there, and never sets this one, because the
+/// v1 fixture is permanently absent there by design (see
+/// [`mlmf_refuses_v1_that_fuel_reads`]'s own doc). If this test read
+/// `corpus_required()` instead, CI's normal, expected v1 skip would look
+/// identical to a genuinely incomplete agreement-guard corpus, and the
+/// guard would have to choose which absence it was honest about.
+fn v1_fixture_required() -> bool {
+    armed::armed("MLMF_V1_FIXTURE_REQUIRED")
+}
+
 /// The same 28-file list `mlmf-gguf`'s own corpus test measures, reused
 /// rather than re-walking the directory (CLAUDE.md §5b: enumerate from an
 /// index, not the disk) so this file and that one can never silently drift
@@ -543,7 +555,7 @@ fn shapes_agree_once_the_known_reversal_is_undone() {
 /// comment and `crates/mlmf-gguf/tests/corpus.rs`), so it is read by its
 /// known relative path rather than through the shared fixture.
 ///
-/// ⚠️ **Verified LOCALLY ONLY, deliberately, not in CI.** The file traces to
+/// ⚠️ **Verified LOCALLY ONLY, deliberately.** The file traces to
 /// `karpathy/tinyllamas` (MIT), but no currently-hosted copy is byte-identical
 /// to it: `ggml-org/models-moved`'s current `tinyllamas/stories260K*.gguf`
 /// files are 1,185,376 or 1,185,760 bytes, all **GGUF v3** — llama.cpp moved
@@ -551,21 +563,32 @@ fn shapes_agree_once_the_known_reversal_is_undone() {
 /// unpinnable file cannot be wired into CI's revision-SHA-pinned pattern, and
 /// substituting a v3 file would silently stop testing the v1-refusal
 /// asymmetry while *looking* like it still did — worse than not testing it at
-/// all. Left local-only rather than faked.
+/// all.
+///
+/// **This test still RUNS in CI, and that is deliberate too** — it declines
+/// gracefully in its own body (below) rather than being excluded by name in
+/// CI config. A CI job that filters tests by name is a job where every
+/// FUTURE test added to this file silently does not run there unless
+/// someone remembers to update the filter; a test that skips itself, with a
+/// loud stderr reason, keeps that decision visible to anyone reading this
+/// file rather than hidden in `.github/workflows/ci.yml`. It uses its OWN
+/// flag, [`v1_fixture_required`], not [`corpus_required`] — see that
+/// function's doc for why the two must stay separate.
 #[test]
 fn mlmf_refuses_v1_that_fuel_reads() {
     let root_s = corpus_root();
     let path = std::path::Path::new(&root_s).join("legacy/tinyllamas-stories-260k-f32.gguf");
     if !path.is_file() {
         assert!(
-            !corpus_required(),
-            "MLMF_CORPUS_REQUIRED is set and {path:?} is missing. Refusing to pass by skipping."
+            !v1_fixture_required(),
+            "MLMF_V1_FIXTURE_REQUIRED is set and {path:?} is missing. Refusing to pass by skipping."
         );
         use std::io::Write as _;
         let _ = writeln!(
             std::io::stderr(),
-            "{}: SKIPPED: no v1 fixture at {path:?}.",
-            mlmf_core::NOTICE_TOKEN
+            "{}: SKIPPED ({}): no v1 fixture at {path:?}. Expected in CI -- no pinnable source exists, see this test's own doc.",
+            mlmf_core::NOTICE_TOKEN,
+            "mlmf_refuses_v1_that_fuel_reads"
         );
         return;
     }
