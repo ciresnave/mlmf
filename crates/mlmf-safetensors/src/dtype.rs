@@ -6,11 +6,18 @@
 //! `MetaValue`: is [`mlmf_core::DType`] a neutral vocabulary, or is it
 //! ggml's type table wearing a neutral name?
 //!
-//! Measured rather than argued: the fifteen dtype strings safetensors
-//! defines map **one to one, onto and into**, the fifteen variants of
-//! `DType::ALL`. Nothing had to be widened and nothing goes unused. That is
-//! a stronger fit than `MetaValue` gets from this format, where thirteen
-//! of its fourteen variants never appear.
+//! Measured 2026-08-26: the fifteen dtype strings safetensors defined at the
+//! time mapped **one to one, onto and into** `DType::ALL`'s fifteen
+//! variants then. **No longer exactly one-to-one, deliberately, as of
+//! `mlmf_core::DType` gaining `C64`/`C128`** (KISS-Classify §6.1 cosign,
+//! 2026-09-26): `C64` is safetensors' own `"C64"` string (`Dtype::C64` in
+//! the upstream `safetensors` crate, "Complex (32-bit parts)" — the same
+//! pair-of-`F32`, 64-bit-total layout KISS-Classify's sk4 `c64` names), so
+//! it gets a real [`dtype_of`] arm. `C128` has **no safetensors spelling at
+//! all** — the upstream crate's `Dtype` enum has no such variant, checked
+//! directly, not assumed — so it is the first real row in [`tests::
+//! UNSPELLED`], which until now existed only to prove the coverage gate
+//! forces a decision rather than a policy. It has made that decision once.
 //!
 //! # Every safetensors tensor is [`mlmf_core::Encoding::Dense`]
 //!
@@ -64,6 +71,12 @@ pub fn dtype_of(declared: &str) -> Option<DType> {
         // other name here, which is why it is written out rather than
         // derived from the variant name.
         "BOOL" => DType::Bool,
+        // KISS-Classify §6.1 cosign (2026-09-26). Upstream `safetensors`
+        // names this variant's doc "Complex (32-bit parts)" -- pair of
+        // `F32`, 64 bits total, exactly KISS's sk4 `c64`. Deliberately NOT
+        // spelled `Complex64` anywhere in this crate or in `mlmf_core`: see
+        // `DType::C64`'s own doc for why that identifier is retired.
+        "C64" => DType::C64,
         _ => return None,
     })
 }
@@ -85,7 +98,7 @@ mod tests {
     /// So every arm here could have been wrong, and the two that matter most
     /// could have been wrong in the way nothing notices — see
     /// [`f8_e4m3_and_f8_e5m2_are_pinned_apart_because_width_cannot_tell_them_apart`].
-    const SPELLINGS: [(&str, DType); 15] = [
+    const SPELLINGS: [(&str, DType); 16] = [
         ("F64", DType::F64),
         ("F32", DType::F32),
         ("F16", DType::F16),
@@ -103,14 +116,20 @@ mod tests {
         ("U16", DType::U16),
         ("U8", DType::U8),
         ("BOOL", DType::Bool),
+        ("C64", DType::C64),
     ];
 
     /// [`DType`]s this format has **no spelling for**, each with the reason.
     ///
-    /// **Empty today, and the emptiness is a measurement rather than an
-    /// assumption**: safetensors' fifteen strings map one-to-one onto
-    /// `DType::ALL`'s fifteen variants, so nothing is left over in either
-    /// direction. This module's header records that fit.
+    /// **Was empty from 2026-08-26 to 2026-09-26, and the emptiness was a
+    /// measurement rather than an assumption**: until `mlmf_core::DType`
+    /// gained `C64`/`C128` (the KISS-Classify §6.1 cosign), safetensors'
+    /// fifteen strings mapped one-to-one onto `DType::ALL`'s fifteen
+    /// variants. **Its first real row, added with that cosign**: `C128`
+    /// (KISS's `c128`, a pair of `F64`, 128 bits total) has no safetensors
+    /// spelling — checked directly against the upstream `safetensors`
+    /// crate's `Dtype` enum, which defines `C64` (pair of `F32`) and
+    /// nothing wider.
     ///
     /// It exists because the coverage gate below must force a DECISION and
     /// not a policy. "Every `DType` must have a safetensors spelling" is a
@@ -124,11 +143,18 @@ mod tests {
     /// be load-bearing.** Whether safetensors spells `F16` is a fact about
     /// that format's specification, not about this repository, so nothing
     /// here can check that a reason is true — only that somebody wrote one.
-    /// The two cheap guards below are what that buys: a reason must be
-    /// non-empty, and this table must be EMPTY today. Adding a row therefore
-    /// costs an edit in a second place a reviewer has to see, which is the
-    /// whole mechanism.
-    const UNSPELLED: [(DType, &str); 0] = [];
+    /// The guards below are what that buys: every reason must be non-empty,
+    /// and the table's exact CONTENT is pinned, not just its length —
+    /// pinning length alone would let a future row silently replace this
+    /// one's `DType` or its text with the count unchanged. Adding a row
+    /// therefore costs an edit in a second place a reviewer has to see,
+    /// which is the whole mechanism.
+    const UNSPELLED: [(DType, &str); 1] = [(
+        DType::C128,
+        "KISS-Classify c128 (pair of F64, 128 bits total); the upstream \
+         safetensors crate's Dtype enum has no variant this wide -- only \
+         C64 (pair of F32). Measured 2026-09-26 against safetensors 0.8.0.",
+    )];
 
     #[test]
     fn every_declared_spelling_maps_to_its_own_dtype() {
@@ -227,14 +253,25 @@ mod tests {
                  the only part of this table a person can check."
             );
         }
-        assert!(
-            UNSPELLED.is_empty(),
-            "UNSPELLED is no longer empty. Measured 2026-08-26: safetensors' \
-             fifteen dtype strings map one-to-one onto `DType::ALL`'s fifteen \
-             variants, so nothing was left over in either direction. If that \
-             changed, change this assertion deliberately and say what was \
-             measured — a row appearing here silently is a working dtype arm \
-             being retired with the suite green. Currently: {UNSPELLED:?}"
+        // Pinned to the exact CONTENT, not just `UNSPELLED.is_empty()` --
+        // that boolean was true for a year and stopped being true exactly
+        // once, deliberately, on 2026-09-26 (the KISS-Classify §6.1 cosign
+        // adding `C64`/`C128` to `mlmf_core::DType`). A length-only check
+        // would let a future silent swap (a different `DType`, or a
+        // rewritten reason) through with the count unchanged; comparing the
+        // whole array catches that too.
+        assert_eq!(
+            UNSPELLED,
+            [(
+                DType::C128,
+                "KISS-Classify c128 (pair of F64, 128 bits total); the upstream \
+                 safetensors crate's Dtype enum has no variant this wide -- only \
+                 C64 (pair of F32). Measured 2026-09-26 against safetensors 0.8.0.",
+            )],
+            "UNSPELLED changed. If that's deliberate, update this assertion and \
+             say what was measured -- a row appearing or changing here silently \
+             is a working dtype arm being retired, or a decision being rewritten \
+             quietly, with the suite green either way."
         );
 
         for dt in DType::ALL {
