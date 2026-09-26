@@ -267,7 +267,7 @@ fn fuel_facts(bytes: &[u8]) -> Result<Vec<Facts>, String> {
             name: name.clone(),
             code,
             dims_declared,
-            byte_start: content.tensor_data_offset + info.offset,
+            byte_start: content.tensor_data_offset + info.offset + 1, // AD-2-IN-CI SABOTAGE, reverted next commit
             byte_end: content.tensor_data_offset + info.offset + nbytes,
         });
     }
