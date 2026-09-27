@@ -3,6 +3,67 @@
 //! `DType` is a **tag**, not a Rust type: it names what a file says its
 //! bytes are. Core deliberately does not depend on `half` or any numeric
 //! crate — a consumer brings its own types and reinterprets bytes itself.
+//!
+//! # KISS-Classify §6.1 vocabulary cosign (board item 61, 2026-09-26)
+//!
+//! MLMF cosigns KISS-Classify's §3.1/§3.2 dtype vocabulary and clause D
+//! (schema version **sk4**), in the shape Vulkane already occupies: this
+//! crate tracks the dtype **spellings and widths** the vocabulary defines
+//! and derives no `structure_key` — it is not a byte-match party, the same
+//! terms recorded for Vulkane in `sk4-schema-event.md` §7.
+//!
+//! **Two axes, deliberately kept apart, because collapsing them would force
+//! this crate to either lie about a real file or claim vocabulary it does
+//! not own:**
+//! - `mlmf_core::DType` is what MLMF **asserts** as its own canonical
+//!   vocabulary. It tracks KISS's *ratified* §6.1 table and nothing else —
+//!   it will never grow a variant for a token KISS has proposed but not
+//!   ratified (`F4`, `F6E2M3`, `F6E3M2` are explicitly this: proposed in
+//!   the sk4 RFC's §3.2, and the PRs that tried to ratify `F6E2M3`/`F6E3M2`
+//!   as bare storage dtypes were closed — "6 bits do not tile a byte", they
+//!   exist only inside MXFP6 blocks where the block defines packing).
+//! - A format crate's `dtype_of`-style mapping (e.g.
+//!   `mlmf_safetensors::dtype_of`) is what MLMF **reports** about a real
+//!   file. A file can legitimately declare any string its format's own
+//!   spec allows, including ones KISS does not ratify, and MLMF's charter
+//!   is to say faithfully what the file claims — never to silently omit a
+//!   tensor because its declared dtype isn't in this enum. That omission is
+//!   the exact failure shape that had Fuel's Slice 3 repoint blocked.
+//!
+//! **KISS §6.1's 24-token ratified table, and where each one stands here**
+//! (measured 2026-09-26, `KISS/spec/classify.md:436-461`):
+//! - Already present, matching KISS's spelling and width exactly: `f16`,
+//!   `bf16`, `f32`, `f64`, `i8`, `i16`, `u8`, `u16`, `i32`, `i64`, `u32`,
+//!   `u64`, `bool`, `f8e4m3fn` ([`F8E4M3`](DType::F8E4M3)), `f8e5m2`
+//!   ([`F8E5M2`](DType::F8E5M2)) — 15 tokens, unchanged since before this
+//!   cosign.
+//! - Added by this cosign: `c64` ([`C64`](DType::C64)), `c128`
+//!   ([`C128`](DType::C128)).
+//! - **Deferred, deliberately, each for a stated reason, not silently
+//!   dropped:**
+//!   - `f8e4m3fnuz`, `f8e5m2fnuz` — KISS marks both **RESERVED**: part of
+//!     the closed vocabulary, recognized on parse, with *no computation
+//!     semantics at this schema version*. Adding them correctly needs a
+//!     TYPED decline distinguishable from "unknown token" (an `Option<T>`
+//!     collapses both to `None`), which is real design work this cosign
+//!     does not rush. Tracked as follow-up, not silently claimed.
+//!   - `f8e8m0`, `f8e6m2` — ratified at sk4, but explicitly as **scale
+//!     types**: sibling operands to an MX-quantized block, never element
+//!     value dtypes. Folding them into this dense-element `DType` would be
+//!     exactly the "reused one identifier for two different kinds" trap
+//!     this vocabulary has already sprung once (the `Complex64`
+//!     total-width/component-width collision). No format crate in this
+//!     workspace parses MX-block tensors yet, so there is no consumer to
+//!     build a sibling representation against; deferred rather than
+//!     invented.
+//!   - `i4`, `u4`, `b1` — real, ratified, sub-byte dtypes with a clean KISS
+//!     packing rule each (`i4`/`u4`: nibble-pair; `b1`: 8-per-byte,
+//!     LSB-first) — unlike `f4`/`f6*`, these have a real byte layout to
+//!     pin. But `DType::size()` returns whole bytes and is the multiplicand
+//!     in `Encoding::byte_size`'s dense arm; representing a sub-byte
+//!     element correctly needs a bits-based primitive alongside it, which
+//!     is a real `Encoding` design change with no current consumer to
+//!     drive it. Deferred, not invented under time pressure.
 
 /// Declare [`DType`] and [`DType::ALL`] **from one list**.
 ///
@@ -71,6 +132,36 @@ declare_dtypes! {
     U8,
     /// One byte per value, 0 or 1.
     Bool,
+    /// Interleaved `(real, imag)` pair of [`F32`](DType::F32), 64 bits
+    /// **total** — KISS-Classify §6.1's `c64` token, schema version **sk4**.
+    ///
+    /// ⚠️ **The bit width this token names has FLIPPED across schema
+    /// versions, and that flip already caused a real collision in this
+    /// portfolio** (`unpopped-vocab`, commit `7d2c5d7`, "sk4 dtype respell
+    /// — 24-row §6.1, version 3->4"): at schema **sk3**, the token `c64`
+    /// named a pair of [`F64`](DType::F64) — 128 bits total, the component
+    /// width. At **sk4**, `c64` is renamed to name what sk3 called `c32`:
+    /// a pair of `F32`, 64 bits total. **This variant is the sk4 meaning,
+    /// and only the sk4 meaning** — this crate cosigns KISS-Classify at
+    /// schema version sk4 and no other. A caller comparing a bare `"c64"`
+    /// string read from somewhere else against this variant without also
+    /// checking which schema version produced that string is exactly the
+    /// comparison KISS-Classify's clause D forbids (*"Implementations MUST
+    /// NOT compare tokens across schema versions for equality of
+    /// meaning"*) — and exactly the comparison that produced the
+    /// `unpopped-vocab` collision above.
+    ///
+    /// Deliberately spelled `C64`, the KISS token, not `Complex64` — a
+    /// name that has already meant two different bit widths in this
+    /// portfolio must not be reintroduced here under either meaning.
+    C64,
+    /// Interleaved `(real, imag)` pair of [`F64`](DType::F64), 128 bits
+    /// **total** — KISS-Classify §6.1's `c128` token, schema version sk4.
+    /// At schema sk3 this token did not exist under this spelling: sk3's
+    /// `c64` denoted the same pair-of-`F64` layout this variant names. See
+    /// [`C64`](DType::C64)'s doc for the full sk3/sk4 history and why the
+    /// bare spelling is never compared across versions.
+    C128,
 }
 
 impl DType {
@@ -78,7 +169,8 @@ impl DType {
     #[must_use]
     pub const fn size(self) -> usize {
         match self {
-            DType::F64 | DType::I64 | DType::U64 => 8,
+            DType::C128 => 16,
+            DType::F64 | DType::I64 | DType::U64 | DType::C64 => 8,
             DType::F32 | DType::I32 | DType::U32 => 4,
             DType::F16 | DType::BF16 | DType::I16 | DType::U16 => 2,
             DType::F8E4M3 | DType::F8E5M2 | DType::I8 | DType::U8 | DType::Bool => 1,
@@ -106,7 +198,7 @@ mod tests {
     /// dense arm, which decides whether every declared byte range is
     /// accepted — a wrong `U32` size rejects correctly-declared token-id and
     /// offset tensors, or accepts corrupt ranges.
-    const EXPECTED: [(DType, usize, usize); 15] = [
+    const EXPECTED: [(DType, usize, usize); 17] = [
         (DType::F64, 8, 8),
         (DType::F32, 4, 4),
         (DType::F16, 2, 2),
@@ -122,6 +214,8 @@ mod tests {
         (DType::U16, 2, 2),
         (DType::U8, 1, 1),
         (DType::Bool, 1, 1),
+        (DType::C64, 8, 8),
+        (DType::C128, 16, 16),
     ];
 
     #[test]
