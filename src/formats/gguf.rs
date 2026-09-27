@@ -1357,6 +1357,138 @@ mod tests {
         );
     }
 
+    /// A minimal, byte-authored GGUF file declaring `qwen3` with a full
+    /// transformer block's tensors, including the two components
+    /// (`attn_q_norm`, `attn_k_norm`, qwen3's QK-Norm) that
+    /// `parse_llama_gguf_layer` does not recognize.
+    ///
+    /// #98: closes the COVERAGE gap for #96/#97's bug, not the CORPUS gap.
+    /// `C:/Models/gguf-corpus` still contains no tensor-bearing, non-llama
+    /// file — that population is untouched by this fixture, which is
+    /// deliberately kept out of it (byte-authored, versioned with this
+    /// test, never written to shared disk). Anything walking
+    /// `MLMF_GGUF_CORPUS` (`requirements.rs`, `key_census.rs`) remains
+    /// blind to this combination after this fixture exists.
+    ///
+    /// Only the tensor DIRECTORY matters here — no tensor data region is
+    /// written, because the test below reads tensor NAMES
+    /// (`mlmf_gguf::parse_tensors`), never tensor bytes.
+    fn gguf_qwen3_with_qk_norm() -> Vec<u8> {
+        fn push_str(out: &mut Vec<u8>, s: &str) {
+            out.extend_from_slice(&(s.len() as u64).to_le_bytes());
+            out.extend_from_slice(s.as_bytes());
+        }
+        const F32_TYPE: u32 = 0;
+        const STRING_TYPE: u32 = 8;
+        // The eleven per-block components a real qwen3 GGUF export
+        // declares, measured against `Qwen3-4B-Instruct-2507-Q4_K_M.gguf`
+        // (#96) -- nine `parse_llama_gguf_layer` already knows, two
+        // (`attn_q_norm`, `attn_k_norm`) it does not.
+        const BLOCK_COMPONENTS: [&str; 11] = [
+            "attn_norm",
+            "attn_q",
+            "attn_q_norm",
+            "attn_k",
+            "attn_k_norm",
+            "attn_v",
+            "attn_output",
+            "ffn_norm",
+            "ffn_gate",
+            "ffn_up",
+            "ffn_down",
+        ];
+        let non_block = ["token_embd.weight", "output_norm.weight"];
+        let tensor_count = (BLOCK_COMPONENTS.len() + non_block.len()) as u64;
+
+        let mut b = Vec::new();
+        b.extend_from_slice(b"GGUF");
+        b.extend_from_slice(&3u32.to_le_bytes()); // version
+        b.extend_from_slice(&tensor_count.to_le_bytes());
+        b.extend_from_slice(&1u64.to_le_bytes()); // kv_count
+
+        push_str(&mut b, "general.architecture");
+        b.extend_from_slice(&STRING_TYPE.to_le_bytes());
+        push_str(&mut b, "qwen3");
+
+        let mut offset = 0u64;
+        const TENSOR_BYTES: u64 = 16; // 4x f32, arbitrary and unread
+        for component in BLOCK_COMPONENTS {
+            push_str(&mut b, &format!("blk.0.{component}.weight"));
+            b.extend_from_slice(&1u32.to_le_bytes()); // n_dims
+            b.extend_from_slice(&4u64.to_le_bytes()); // dims[0]
+            b.extend_from_slice(&F32_TYPE.to_le_bytes());
+            b.extend_from_slice(&offset.to_le_bytes());
+            offset += TENSOR_BYTES;
+        }
+        for name in non_block {
+            push_str(&mut b, name);
+            b.extend_from_slice(&1u32.to_le_bytes());
+            b.extend_from_slice(&4u64.to_le_bytes());
+            b.extend_from_slice(&F32_TYPE.to_le_bytes());
+            b.extend_from_slice(&offset.to_le_bytes());
+            offset += TENSOR_BYTES;
+        }
+
+        // A real data region, so every declared range is honoured and the
+        // tensor-directory report is empty -- this test is about name
+        // mapping, not about a deliberately incomplete file.
+        const ALIGNMENT: usize = 32;
+        let pad = (ALIGNMENT - b.len() % ALIGNMENT) % ALIGNMENT;
+        b.extend(std::iter::repeat_n(0u8, pad));
+        b.extend(std::iter::repeat_n(0u8, offset as usize));
+        b
+    }
+
+    /// ⚠️ THE COVERAGE GAP #96 FOUND, closed for real bytes rather than
+    /// hand-typed strings: this reads tensor names out of a byte-authored
+    /// GGUF file through `mlmf-gguf`'s actual parser, then feeds those
+    /// names into `TensorNameMapper::from_tensor_names` exactly as
+    /// `load_gguf` would -- so the parsing path and the name-mapping path
+    /// are exercised TOGETHER, not as two separately-trusted halves.
+    ///
+    /// Asserts the BEHAVIOUR (#97's named refusal, naming both
+    /// unrecognized components), not merely that the file parses. A test
+    /// that only checked "this does not panic" would pass on a
+    /// first-error-only implementation, exactly the property #97's own
+    /// sabotage test guards -- now checked against a realistic file
+    /// rather than a synthetic diagnostic.
+    #[test]
+    fn a_real_shaped_qwen3_file_is_refused_naming_both_qk_norm_components() {
+        let bytes = gguf_qwen3_with_qk_norm();
+        let (meta, kv_report) = mlmf_gguf::GgufMetadata::parse(&bytes, "qwen3-fixture")
+            .expect("the fixture's header and KV block are well formed");
+        assert!(
+            kv_report.is_empty(),
+            "one ordinary KV pair is not a finding"
+        );
+
+        let (tensors, t_report) = mlmf_gguf::parse_tensors(&bytes, &meta, "qwen3-fixture")
+            .expect("the fixture's tensor directory is well formed");
+        assert!(
+            t_report.is_empty(),
+            "an ordinary tensor directory is not a finding"
+        );
+
+        let names: Vec<String> = mlmf_core::TensorContainer::tensors(&tensors)
+            .iter()
+            .map(|d| d.name.clone())
+            .collect();
+        assert_eq!(
+            names.len(),
+            13,
+            "the fixture declares 11 block tensors plus 2 non-block ones"
+        );
+
+        let err = crate::name_mapping::TensorNameMapper::from_tensor_names(&names)
+            .expect_err("attn_q_norm/attn_k_norm are not in parse_llama_gguf_layer's known list");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("attn_q_norm.weight") && msg.contains("attn_k_norm.weight"),
+            "both unrecognized components must be named, from a REAL parsed file's tensor \
+             names, not just from a hand-typed test vector: {msg}"
+        );
+    }
+
     /// ⚠️ AN ARCHITECTURE WITH NO VARIANT IS `Unknown`, NEVER A DIFFERENT ONE.
     ///
     /// Eleven of the corpus's fourteen architectures have no enum variant.
