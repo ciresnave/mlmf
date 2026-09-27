@@ -65,6 +65,12 @@
 //! distinct failure modes, and getting them right needs knowledge of the
 //! ecosystem that MLMF deliberately does not hold.
 //!
+//! [`imatrix`] is not an exception to this: it performs no key
+//! interpretation either, only a literal type-string check and a naming
+//! convention's pairing, and hands out [`mlmf_core::TensorDescriptor`]s,
+//! never decoded values. See that module's doc for why it earns a place
+//! here anyway (board item 63a).
+//!
 //! # Cost of opening a file
 //!
 //! Measured on the reference corpus. The largest key-value block is 15.78 MB
@@ -109,6 +115,7 @@
 pub mod cursor;
 pub mod error;
 pub mod header;
+pub mod imatrix;
 pub mod metadata;
 pub mod requirements;
 pub mod tensors;
