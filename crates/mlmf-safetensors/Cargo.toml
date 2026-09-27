@@ -7,7 +7,7 @@
     version.workspace    = true
 
 [dependencies]
-    mlmf-core = { path = "../mlmf-core", version = "0.4.0" }
+    mlmf-core = { path = "../mlmf-core", version = "0.5.0" }
     # D3: the header is JSON a real serialiser produced, so it may legally
     # carry \uXXXX escapes, surrogate pairs and exponential-form numbers. A
     # tensor name is a lookup key and must be byte-exact, so a hand-rolled

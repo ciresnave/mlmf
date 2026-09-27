@@ -62,14 +62,14 @@
     # differential's target does not move out from under it silently --
     # re-pin deliberately when Fuel's GGUF/GGML parser changes.
     fuel-formats     = { git = "https://github.com/CireSnave/fuel", rev = "6609d1598939b90e4ca49528f735987eb69b3895", package = "fuel-formats", optional = true }
-    mlmf-core        = { path = "../mlmf-core", version = "0.4.0" }
+    mlmf-core        = { path = "../mlmf-core", version = "0.5.0" }
     # For tests/fuel_differential.rs: round-tripping fuel's raw ggml type
     # code through mlmf's own geometry table (GgmlType::from_code/nbytes),
     # which is not re-exported through mlmf-gguf.
-    mlmf-ggml        = { path = "../mlmf-ggml", version = "0.4.0" }
-    mlmf-gguf        = { path = "../mlmf-gguf", version = "0.4.0" }
-    mlmf-meta        = { path = "../mlmf-meta", version = "0.4.0" }
-    mlmf-safetensors = { path = "../mlmf-safetensors", version = "0.4.0" }
+    mlmf-ggml        = { path = "../mlmf-ggml", version = "0.5.0" }
+    mlmf-gguf        = { path = "../mlmf-gguf", version = "0.5.0" }
+    mlmf-meta        = { path = "../mlmf-meta", version = "0.5.0" }
+    mlmf-safetensors = { path = "../mlmf-safetensors", version = "0.5.0" }
 
     # For the cross-project disagreement harness (examples/dump_gguf_meta.rs).
     # lightbulb and mlmf each dump to a stable artifact and a comparator reads
