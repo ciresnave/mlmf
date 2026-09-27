@@ -605,3 +605,73 @@ fn a_tensor_name_that_is_not_utf8_is_malformed_rather_than_lossy() {
         "{err:?}",
     );
 }
+
+/// Board item 63a's imatrix ruling: MLMF takes the file-format half, and
+/// the modern default container is an ordinary GGUF file. This test is the
+/// evidence for "covers the structural half nearly free" — it builds a
+/// file shaped exactly like `llama-imatrix`'s GGUF output (three
+/// `imatrix.*` KV keys, per-tensor `.in_sum2`/`.counts` statistics as plain
+/// F32 tensors — llama.cpp `common/imatrix-loader.h`,
+/// `9d57ce456c94d241dde672b2db9cf18879766568`) through the reader as it
+/// stands today, with **zero imatrix-specific code anywhere in this
+/// crate**. No module here is named `imatrix`; nothing here recognizes the
+/// key prefix `imatrix.` or the name suffixes `.in_sum2`/`.counts` — the
+/// generic KV index and the generic tensor directory carry them exactly as
+/// they would carry any other file's keys and tensors. MLMF asserts
+/// nothing about what `in_sum2` or `counts` MEAN; that is Fuel's half of
+/// the line (see the crate-level boundary note above `mod fixture`).
+///
+/// The local GGUF corpus (`C:/Models/gguf-corpus`, 29 files, none of them
+/// imatrix output — see `mlmf-conformance`'s corpus doc) cannot exercise
+/// this path, which is exactly why it needs an authored fixture rather
+/// than a corpus assertion.
+#[test]
+fn imatrix_kv_and_per_tensor_statistics_need_no_special_casing() {
+    let bytes = GgufBuilder::new()
+        .string_array(
+            "imatrix.datasets",
+            &[b"wikitext-2-raw-v1" as &[u8], b"c4-en"],
+        )
+        .u32("imatrix.chunk_count", 128)
+        .u32("imatrix.chunk_size", 512)
+        .tensor("blk.0.attn_q.weight.in_sum2", &[4096], 0, 0)
+        .tensor("blk.0.attn_q.weight.counts", &[4096], 0, 16384)
+        .data(&[0u8; 32768])
+        .build();
+
+    let (m, kv_report) = GgufMetadata::parse(&bytes, "authored").expect("opens");
+    assert!(
+        kv_report.is_empty(),
+        "an ordinary KV block is not a finding"
+    );
+
+    // The KV block, read with the same `MetadataSource::get` every other
+    // consumer of this crate uses — no imatrix-aware accessor exists to
+    // call instead.
+    assert_eq!(
+        m.get("imatrix.datasets"),
+        Some(&MetaValue::Array(vec![
+            MetaValue::String("wikitext-2-raw-v1".into()),
+            MetaValue::String("c4-en".into()),
+        ])),
+    );
+    assert_eq!(m.get("imatrix.chunk_count"), Some(&MetaValue::U32(128)));
+    assert_eq!(m.get("imatrix.chunk_size"), Some(&MetaValue::U32(512)));
+
+    let (t, tensor_report) = parse_tensors(&bytes, &m, "authored").expect("opens");
+    assert!(
+        tensor_report.is_empty(),
+        "an ordinary tensor directory is not a finding"
+    );
+    // The whole list, by the same `TensorContainer::tensors` every other
+    // GGUF tensor goes through — these two are not routed anywhere special.
+    assert_eq!(
+        t.tensors()
+            .iter()
+            .map(|d| d.name.as_str())
+            .collect::<Vec<_>>(),
+        ["blk.0.attn_q.weight.in_sum2", "blk.0.attn_q.weight.counts"],
+    );
+    assert!(t.tensor("blk.0.attn_q.weight.in_sum2").is_some());
+    assert!(t.tensor("blk.0.attn_q.weight.counts").is_some());
+}
