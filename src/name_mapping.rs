@@ -8,6 +8,18 @@ use crate::error::{Error, Result};
 
 use std::collections::HashMap;
 
+/// The part of a `N.component` layer section after the layer number, for
+/// both `model.layers.N.component` and `blk.N.component` conventions.
+///
+/// Used only to name a component in an error message when it was NOT
+/// recognized, so a missing dot (itself a malformed name) falls back to
+/// the whole section rather than panicking on an error path.
+fn component_suffix(layer_section: &str) -> &str {
+    layer_section
+        .find('.')
+        .map_or(layer_section, |i| &layer_section[i + 1..])
+}
+
 /// Detected model architecture from tensor names
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Architecture {
@@ -195,7 +207,50 @@ impl TensorNameMapper {
     ///
     /// Supports both SafeTensors format (model.layers.N.self_attn.q_proj.weight)
     /// and GGUF format (blk.N.attn_q.weight)
+    ///
+    /// ⚠️ **A component this map does not recognize is a hard error naming
+    /// EVERY unrecognized component, not the first.** The previous shape
+    /// used `?` per tensor, so the FIRST unknown component aborted the
+    /// whole loop and discarded whatever had already been mapped — and the
+    /// only caller of this function (`SmartTensorNameMapper::from_tensor_names`)
+    /// wraps that `Err` in `.ok()`, so the entire file silently lost name
+    /// translation for **every** tensor, not just the unrecognized one.
+    ///
+    /// Measured against a real file (`Qwen3-4B-Instruct-2507-Q4_K_M.gguf`,
+    /// `general.architecture = qwen3`, 398 tensors): its `attn_q_norm.weight`
+    /// / `attn_k_norm.weight` (QK-Norm) are not in [`Self::parse_llama_gguf_layer`]'s
+    /// known list, and under the old shape this silently discarded
+    /// translation for all 398 tensors, not just the two unrecognized
+    /// components — the first one encountered poisoned the whole result.
+    ///
+    /// A partial map — translate what is recognized, drop the rest under
+    /// their raw names — was considered and rejected: `attn_q_norm` /
+    /// `attn_k_norm` have no canonical slot in this map's target schema, so
+    /// a partial map would leave them silently untranslated with no
+    /// signal, and a caller building a model from the result would run it
+    /// as ordinary LLaMA-style attention, silently omitting the
+    /// QK-normalization qwen3 actually needs — wrong numerics with no
+    /// error, which is worse than today's uniform, at least visible, total
+    /// failure. Refusing loudly and naming every unrecognized component in
+    /// one message is what a caller can act on without a second round
+    /// trip per component.
+    ///
+    /// ⚠️ **This is a breaking behaviour change**, and deliberately so: a
+    /// file with an unrecognized component used to silently fall back to
+    /// unmapped raw-name lookups (see `LoadedModel::get_tensor`) with no
+    /// error at all; it now refuses. Checked before making this change:
+    /// zero corpus files and zero existing tests exercise that fallback
+    /// for a tensor-bearing file (the reference corpus's 9 tensor-bearing
+    /// files all declare `llama` with the original nine components; the
+    /// other 19 declare non-llama architectures but carry zero tensors).
     fn build_llama_map(map: &mut HashMap<String, String>, tensor_names: &[String]) -> Result<()> {
+        // Components, not raw tensor names: the same unrecognized component
+        // recurs once per layer, and a caller needs to know WHICH
+        // components are missing, not a wall of near-duplicate tensor
+        // names differing only by layer number.
+        let mut unrecognized: std::collections::BTreeSet<String> =
+            std::collections::BTreeSet::new();
+
         for name in tensor_names {
             let target_name = if name == "model.embed_tokens.weight" || name == "token_embd.weight"
             {
@@ -206,15 +261,36 @@ impl TensorNameMapper {
                 "lm_head.weight".to_string()
             } else if let Some(layer_section) = name.strip_prefix("model.layers.") {
                 // SafeTensors format: model.layers.N.component
-                Self::parse_llama_safetensors_layer(layer_section)?
+                match Self::parse_llama_safetensors_layer(layer_section) {
+                    Ok(t) => t,
+                    Err(_) => {
+                        unrecognized.insert(component_suffix(layer_section).to_string());
+                        continue;
+                    }
+                }
             } else if let Some(layer_section) = name.strip_prefix("blk.") {
                 // GGUF format: blk.N.component
-                Self::parse_llama_gguf_layer(layer_section)?
+                match Self::parse_llama_gguf_layer(layer_section) {
+                    Ok(t) => t,
+                    Err(_) => {
+                        unrecognized.insert(component_suffix(layer_section).to_string());
+                        continue;
+                    }
+                }
             } else {
                 continue; // Skip unknown tensors
             };
 
             map.insert(name.clone(), target_name);
+        }
+
+        if !unrecognized.is_empty() {
+            return Err(Error::tensor_name_mapping(format!(
+                "{} unrecognized layer component(s), refusing rather than silently \
+                 dropping translation for the whole file or guessing a partial map: {}",
+                unrecognized.len(),
+                unrecognized.into_iter().collect::<Vec<_>>().join(", ")
+            )));
         }
 
         Ok(())
@@ -453,6 +529,76 @@ mod tests {
             Some("h.0.ln_1.weight")
         );
         assert_eq!(mapper.map_name("output_norm.weight"), Some("ln_f.weight"));
+    }
+
+    /// ⚠️ THE DEFECT THIS FIX REPLACES: an unrecognized component used to
+    /// silently discard translation for the WHOLE file (`.ok()` in
+    /// `SmartTensorNameMapper::from_tensor_names`), not just itself. It now
+    /// refuses instead, by name.
+    ///
+    /// Real-file shape: qwen3's QK-Norm (`attn_q_norm.weight`,
+    /// `attn_k_norm.weight`), measured against
+    /// `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` (398 tensors, `general.architecture
+    /// = qwen3`). Not run against that file directly here — it is 2.5 GB and
+    /// not a fixture — but this reproduces the exact component names that
+    /// file declares.
+    #[test]
+    fn an_unrecognized_gguf_component_is_a_named_refusal() {
+        let names = vec![
+            "blk.0.attn_q.weight".to_string(),
+            "blk.0.attn_q_norm.weight".to_string(),
+            "blk.0.attn_k_norm.weight".to_string(),
+        ];
+
+        let err = TensorNameMapper::from_tensor_names(&names).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("attn_q_norm.weight") && msg.contains("attn_k_norm.weight"),
+            "both unrecognized components must be named, not just the first: {msg}"
+        );
+    }
+
+    /// ⚠️ THE CONTROL for the test above: naming BOTH is not naming
+    /// everything regardless of what was asked. A recognized-components-only
+    /// file must still succeed exactly as before this fix.
+    #[test]
+    fn a_file_using_only_recognized_components_still_succeeds() {
+        let names = vec![
+            "token_embd.weight".to_string(),
+            "blk.0.attn_q.weight".to_string(),
+            "blk.0.attn_k.weight".to_string(),
+            "blk.0.attn_v.weight".to_string(),
+            "blk.0.attn_output.weight".to_string(),
+            "blk.0.attn_norm.weight".to_string(),
+            "blk.0.ffn_gate.weight".to_string(),
+            "blk.0.ffn_up.weight".to_string(),
+            "blk.0.ffn_down.weight".to_string(),
+            "blk.0.ffn_norm.weight".to_string(),
+            "output_norm.weight".to_string(),
+        ];
+        assert!(TensorNameMapper::from_tensor_names(&names).is_ok());
+    }
+
+    /// ⚠️ ACROSS MULTIPLE LAYERS, THE SAME COMPONENT IS NAMED ONCE, NOT
+    /// ONCE PER LAYER. A caller needs to know WHICH components are
+    /// missing, not read a wall of near-duplicate tensor names differing
+    /// only by layer number — a real file has one unrecognized-component
+    /// message per layer count, which for a 30-layer model would otherwise
+    /// bury the two actual components inside dozens of repeats.
+    #[test]
+    fn the_same_unrecognized_component_across_layers_is_named_once() {
+        let names = vec![
+            "blk.0.attn_q_norm.weight".to_string(),
+            "blk.1.attn_q_norm.weight".to_string(),
+            "blk.2.attn_q_norm.weight".to_string(),
+        ];
+        let err = TensorNameMapper::from_tensor_names(&names).unwrap_err();
+        let msg = err.to_string();
+        assert_eq!(
+            msg.matches("attn_q_norm.weight").count(),
+            1,
+            "one component, named once, regardless of how many layers repeat it: {msg}"
+        );
     }
 
     #[test]
