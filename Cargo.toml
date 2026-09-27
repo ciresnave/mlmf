@@ -36,7 +36,7 @@ default-members = [
 edition    = "2024"
 license    = "MIT OR Apache-2.0"
 repository = "https://github.com/CireSnave/mlmf"
-version    = "0.4.4"
+version    = "0.5.0"
 
 [package]
     authors = ["Eric Evans <CireSnave@gmail.com>"]
@@ -86,7 +86,7 @@ version    = "0.4.4"
     # is why the fix routes through it rather than through
     # `candlelight::quantized::gguf_file` (already a dependency, and the thing
     # the shim already uses).
-    mlmf-gguf = { path = "crates/mlmf-gguf", version = "0.4.0" }
+    mlmf-gguf = { path = "crates/mlmf-gguf", version = "0.5.0" }
 
     # Required BY the gguf config reader, not ahead of it: `mlmf-gguf` returns
     # `Option<&MetaValue>` and the `MetadataSource` trait supplies `get` and
@@ -94,7 +94,7 @@ version    = "0.4.4"
     # Unlike the `mlmf-gguf` edge in #36, this one lands WITH its consumer
     # because it has one -- a one-line manifest change the diff beside it
     # demonstrably uses is not a separate review burden.
-    mlmf-core = { path = "crates/mlmf-core", version = "0.4.0" }
+    mlmf-core = { path = "crates/mlmf-core", version = "0.5.0" }
 
     # Serialization and file handling
     safetensors = "0.8"
