@@ -256,20 +256,7 @@ pub fn read(
         });
     }
 
-    // A `.counts` tensor with no matching `.in_sum2` is the same defect
-    // from the other side, and the loop above never visits it because it
-    // only starts from `.in_sum2` names.
-    for d in tensors.tensors() {
-        if let Some(base) = d.name.strip_suffix(COUNTS_SUFFIX) {
-            let in_sum2_name = format!("{base}{IN_SUM2_SUFFIX}");
-            if tensors.tensor(&in_sum2_name).is_none() {
-                return Err(ImatrixError::UnpairedStatistic {
-                    name: d.name.clone(),
-                    in_sum2_present: false,
-                });
-            }
-        }
-    }
+    refuse_orphaned_counts(tensors)?;
 
     if entries.is_empty() {
         return Err(ImatrixError::NoEntries);
@@ -281,6 +268,24 @@ pub fn read(
         chunk_size: u32_value(metadata, "imatrix.chunk_size"),
         entries,
     })
+}
+
+/// A `.counts` tensor with no matching `.in_sum2` is the same defect as an
+/// orphaned `.in_sum2`, from the other side — [`read`]'s main loop starts
+/// only from `.in_sum2` names, so it never visits this direction.
+fn refuse_orphaned_counts(tensors: &GgufTensors<'_>) -> Result<(), ImatrixError> {
+    for d in tensors.tensors() {
+        if let Some(base) = d.name.strip_suffix(COUNTS_SUFFIX) {
+            let in_sum2_name = format!("{base}{IN_SUM2_SUFFIX}");
+            if tensors.tensor(&in_sum2_name).is_none() {
+                return Err(ImatrixError::UnpairedStatistic {
+                    name: d.name.clone(),
+                    in_sum2_present: false,
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 // Tests live in `tests/imatrix.rs`, alongside this crate's other domain
