@@ -30,6 +30,7 @@ default-members = [
     "crates/mlmf-meta",
     "crates/mlmf-safetensors",
     "crates/mlmf-source-file",
+    "crates/mlmf-source-hub",
 ]
 
 [workspace.package]

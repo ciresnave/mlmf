@@ -1,0 +1,16 @@
+# C3: the std submodules mlmf-source-hub may name. Grows one commit at a
+# time, each entry landing beside the code that forced it.
+#
+# `error` -- `impl std::error::Error for HubError`.
+# `fmt`   -- `impl std::fmt::Display for HubError`, hand-written rather than
+#   derived because the message is free text the caller should see as-is.
+# `fs`    -- `fs::create_dir_all`/`File::create`/`rename` in `download`: the
+#   on-disk cache this crate exists to maintain.
+# `io`    -- `io::copy` streaming a download into the cache file without
+#   materializing the whole response in memory first.
+# `path`  -- `Path`/`PathBuf`, the cache key and `FetchedFile::path`'s type.
+error
+fmt
+fs
+io
+path

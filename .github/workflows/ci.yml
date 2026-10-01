@@ -412,6 +412,34 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc -p mlmf-source-file --no-deps --no-default-features
 
+      # mlmf-source-hub: the second crate on the SOURCE axis, and the only
+      # crate in the workspace with a TLS edge (spec §3.2, §9 §6 HUB-1/
+      # HUB-2). `default = []`, same as mlmf-core, so this gets the plain
+      # four steps -- not mlmf-source-file's extra pair, which exist only
+      # because THAT crate's `default` is non-empty.
+      #
+      # `tests/live_hub.rs` is NOT run by the plain step below:
+      # `required-features = ["live-hub"]` in this crate's Cargo.toml keeps
+      # it from even being BUILT without that flag, so CI (and any
+      # contributor without Hub access) gets a clean, network-free pass.
+      # That test exists and was run manually against the real Hub before
+      # this crate was proposed for merge; it is not wired into CI because
+      # this repo has no other job that assumes network egress, matching
+      # how `mlmf-conformance --features fuel-differential` is handled.
+      - name: cargo test -p mlmf-source-hub
+        run: cargo test -p mlmf-source-hub
+
+      - name: cargo test -p mlmf-source-hub --no-default-features
+        run: cargo test -p mlmf-source-hub --no-default-features
+
+      - name: cargo doc -p mlmf-source-hub --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-source-hub --no-deps
+
+      - name: cargo clippy -p mlmf-source-hub
+        run: cargo clippy -p mlmf-source-hub --all-targets -- -D warnings
+
   # ⚠️ THE LEGACY ROOT `mlmf` PACKAGE: TESTED HERE, BUT NOT LINTED OR DOCUMENTED.
   #
   # Until this job existed, CI never compiled or ran the root crate. Every PR

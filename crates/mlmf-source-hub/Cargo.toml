@@ -1,0 +1,57 @@
+[package]
+    description          = "HuggingFace Hub fetch + cache. I/O only, no format knowledge. The only crate in this workspace with a TLS edge (spec §3.2)."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-source-hub"
+    repository.workspace = true
+    version.workspace    = true
+
+# Spec §3.1: a source crate depends on mlmf-core alone PLUS whatever I/O its
+# own job needs -- unlike a format crate, which may depend on NO I/O crate at
+# all. This crate's whole reason to exist is the one network+TLS edge spec
+# §3.2/§9 HUB-1/HUB-2 names it for, so `ureq` here is not an exception to
+# C3, it is the thing C3's axis split was drawn to allow in exactly one
+# place. `crates/mlmf-core/tests/{purity,deps}.rs` both carry a relaxation
+# scoped to this crate's name and this one dependency -- not to the source
+# axis generally, so `mlmf-source-file` does not inherit it.
+[dependencies]
+    mlmf-core = { path = "../mlmf-core", version = "0.5.2" }
+
+    # Minimal, synchronous HTTP client. NOT `hf-hub`: as of hf-hub 1.0.0 that
+    # crate is a full Hub SDK (buckets, spaces, kernels, commits, uploads --
+    # dozens of builder types), most of which this crate has no use for and
+    # none of which spec §6 HUB-1/HUB-2 asks for. Pulling it in would mean
+    # depending on surface this crate cannot review or keep current, for a
+    # job that is two HTTP requests: resolve a revision, fetch a file. `ureq`
+    # is synchronous by construction (no tokio, matching every other crate
+    # in this tree, all of which are synchronous top to bottom) and TLS via
+    # its default `rustls` feature.
+    ureq = "3.4"
+
+    # Manual `serde_json::Value` parsing of the Hub API's revision-resolve
+    # response, matching the house style `mlmf-hf-layout::shards` and
+    # `mlmf-hf-layout::generation_config` already use: no `serde_json` type
+    # reaches this crate's public API.
+    serde_json = { version = "1.0", default-features = false, features = ["std"] }
+
+# `live-hub` gates the one test file that makes a real network call against
+# the real Hub (`tests/live_hub.rs`). Library code carries no `#[cfg]` on
+# this feature at all -- it exists only so `cargo test -p mlmf-source-hub`
+# (the command every other crate's CI step uses, and the one a contributor
+# without Hub access runs) does not require network access, matching this
+# repo's existing `--features fuel-differential` pattern for the same
+# reason (`mlmf-conformance`).
+[features]
+    default  = []
+    live-hub = []
+
+# Without `required-features`, `cargo test -p mlmf-source-hub` (no flags)
+# would still COMPILE and RUN `tests/live_hub.rs`, which only reads
+# `#[cfg(feature = "live-hub")]` if the test body itself checked it -- it
+# does not; it checks reachability at runtime instead, which is a behaviour
+# decision, not a compile gate. This is the actual gate: the test binary is
+# not built at all without the feature, so a contributor's plain
+# `cargo test` never attempts a network call in the first place.
+[[test]]
+    name              = "live_hub"
+    required-features = ["live-hub"]
