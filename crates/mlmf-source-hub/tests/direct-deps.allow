@@ -1,0 +1,5 @@
+# C2 allow-list for mlmf-source-hub. One entry per direct dependency,
+# sorted, matching crates/mlmf-core/tests/deps.rs::allow_list.
+mlmf-core
+serde_json
+ureq

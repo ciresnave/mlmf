@@ -66,15 +66,32 @@ const FORBIDDEN_CRATES: &[&str] = &[
 /// `prost-build`/`protobuf-codegen` are here alone because C5 is about a
 /// build-dependency edge and not about a `use` line. Anything the two lists
 /// must agree on -- the relaxation below -- has to be changed in both.
-fn is_forbidden(crate_name: &str, axis: Axis) -> bool {
+/// `mlmf-source-hub`'s own name. See `purity.rs`'s identical constant --
+/// this file's manifest-level scan and that one's source-level scan must
+/// agree on which crate the TLS-edge relaxation names, so it is declared
+/// once per file rather than shared, matching how `FORBIDDEN_CRATES` itself
+/// is deliberately two separate lists (doc comment above).
+const HUB_CRATE: &str = "mlmf-source-hub";
+
+fn is_forbidden(crate_name: &str, axis: Axis, gated_crate: &str) -> bool {
     if !FORBIDDEN_CRATES.contains(&crate_name) {
         return false;
     }
     // The relaxation, and it is one name. §3.4: "`memmap2` is a **default**
     // feature of `mlmf-source-file`." Because this scan is `line.contains()`
     // over every non-comment line, this is also what lets the `[features]`
-    // table spell `mmap = ["dep:memmap2"]`.
+    // table spell `mmap = ["dep:memmap2"]`. Scoped to the whole axis,
+    // deliberately: any source crate may map a file.
     if axis == Axis::Source && crate_name == "memmap2" {
+        return false;
+    }
+    // §3.1 gives `mlmf-source-hub` the only TLS edge in the workspace --
+    // scoped to that ONE crate and the ONE dependency it declares
+    // (`ureq`), not to the axis: `mlmf-source-file` is also `Axis::Source`
+    // and must stay network-free, so an axis-wide relaxation here would
+    // silently un-gate it too, the same mistake the memmap2 relaxation's
+    // own history already made once.
+    if axis == Axis::Source && gated_crate == HUB_CRATE && crate_name == "ureq" {
         return false;
     }
     true
@@ -89,7 +106,7 @@ fn is_forbidden(crate_name: &str, axis: Axis) -> bool {
 /// line is in** -- which is deliberate, and is why a `[features]` entry
 /// naming a forbidden crate is reported exactly as a `[dependencies]` entry
 /// is.
-fn scan_manifest(label: &str, text: &str, axis: Axis) -> Vec<String> {
+fn scan_manifest(label: &str, text: &str, axis: Axis, gated_crate: &str) -> Vec<String> {
     let mut found = Vec::new();
     for line in text.lines() {
         let line = line.trim();
@@ -97,7 +114,7 @@ fn scan_manifest(label: &str, text: &str, axis: Axis) -> Vec<String> {
             continue;
         }
         for c in FORBIDDEN_CRATES {
-            if line.contains(c) && is_forbidden(c, axis) {
+            if line.contains(c) && is_forbidden(c, axis, gated_crate) {
                 found.push(format!("{label}: {line}  (names `{c}`)"));
             }
         }
@@ -278,7 +295,7 @@ fn the_manifest_names_no_io_crate_anywhere() {
     for dir in gated_members() {
         let name = crate_name(&dir);
         let manifest = read_manifest(&dir);
-        let found = scan_manifest(&name, &manifest, axis(&dir));
+        let found = scan_manifest(&name, &manifest, axis(&dir), &name);
         assert!(
             found.is_empty(),
             "a gated crate's manifest names an I/O or codegen crate (C3/C5):\n  {}",
@@ -300,13 +317,13 @@ fn the_axis_scopes_the_relaxation_to_memmap2() {
          memmap2 = { version = \"0.9\", optional = true }\n\n\
          [features]\ndefault = [\"mmap\"]\nmmap = [\"dep:memmap2\"]\n";
 
-    let on_source = scan_manifest("fixture", source_manifest, Axis::Source);
+    let on_source = scan_manifest("fixture", source_manifest, Axis::Source, "fixture");
     assert!(
         on_source.is_empty(),
         "a source-axis manifest must be allowed to declare memmap2: {on_source:?}"
     );
 
-    let on_format = scan_manifest("fixture", source_manifest, Axis::Format);
+    let on_format = scan_manifest("fixture", source_manifest, Axis::Format, "fixture");
     assert_eq!(
         on_format.len(),
         2,
@@ -324,9 +341,10 @@ fn the_axis_scopes_the_relaxation_to_memmap2() {
         }
         let manifest = format!("[dependencies]\n{name} = \"1\"\n");
         assert!(
-            !scan_manifest("fixture", &manifest, Axis::Source).is_empty(),
-            "`{name}` was accepted in a source-axis manifest; the axis \
-             relaxes `memmap2` and nothing else"
+            !scan_manifest("fixture", &manifest, Axis::Source, "fixture").is_empty(),
+            "`{name}` was accepted in a source-axis manifest for a crate \
+             that is not mlmf-source-hub; the axis alone relaxes `memmap2` \
+             and nothing else"
         );
     }
 
@@ -334,8 +352,42 @@ fn the_axis_scopes_the_relaxation_to_memmap2() {
     // out of the `#[test]` body to take an axis; this is the control that
     // the move carried the comment skip with it.
     assert!(
-        scan_manifest("fixture", "# memmap2 = \"0.9\"\n", Axis::Format).is_empty(),
+        scan_manifest("fixture", "# memmap2 = \"0.9\"\n", Axis::Format, "fixture").is_empty(),
         "a commented-out dependency is not a declaration"
+    );
+}
+
+#[test]
+fn the_hub_relaxation_is_scoped_to_one_crate_and_one_dependency() {
+    // The manifest half of `purity.rs`'s identically-named test. Same three
+    // dimensions, same reason: `is_forbidden` here scopes on (axis, crate
+    // name, dependency name), not axis alone, and each dimension needs its
+    // own falsifiable case or a narrowing could hide behind the others.
+    let hub_manifest = "[dependencies]\nureq = \"3\"\n";
+
+    assert!(
+        scan_manifest("fixture", hub_manifest, Axis::Source, "mlmf-source-hub").is_empty(),
+        "mlmf-source-hub's manifest must be allowed to declare ureq"
+    );
+    assert!(
+        !scan_manifest("fixture", hub_manifest, Axis::Source, "mlmf-source-file").is_empty(),
+        "mlmf-source-file's manifest must NOT be allowed to declare ureq; \
+         the TLS edge is mlmf-source-hub's alone (§3.1)"
+    );
+    assert!(
+        !scan_manifest("fixture", hub_manifest, Axis::Format, "mlmf-source-hub").is_empty(),
+        "mlmf-source-hub must not be exempted on the format axis"
+    );
+    assert!(
+        !scan_manifest(
+            "fixture",
+            "[dependencies]\ntokio = \"1\"\n",
+            Axis::Source,
+            "mlmf-source-hub"
+        )
+        .is_empty(),
+        "mlmf-source-hub must not get a blanket exemption from every \
+         forbidden crate -- only `ureq` is relaxed for it"
     );
 }
 
