@@ -1,0 +1,17 @@
+[package]
+    description          = "EXL2 detection and refusal. Not a geometry crate -- see docs/superpowers/specs/2026-10-01-quantized-safetensors-formats-design.md §1.3/§3.3 for why."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-exl2"
+    repository.workspace = true
+    version.workspace    = true
+
+# NO [features] SECTION, matching mlmf-gptq/mlmf-ggml/mlmf-meta: there is
+# no second configuration to lint or document.
+
+[dependencies]
+    # No mlmf-core: this crate does not touch TensorContainer or any other
+    # seam type. It reads config.json bytes and says one thing -- "this is
+    # EXL2, which is unsupported" -- and that needs nothing from the
+    # format-agnostic trait layer.
+    serde_json = { version = "1.0", default-features = false, features = ["std"] }

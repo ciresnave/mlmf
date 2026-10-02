@@ -1107,6 +1107,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mlmf-exl2"
+version = "0.5.4"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "mlmf-ggml"
 version = "0.5.4"
 dependencies = [

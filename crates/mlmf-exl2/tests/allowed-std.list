@@ -1,0 +1,9 @@
+# C3: the std submodules mlmf-exl2 may name. Grows one commit at a time,
+# each entry landing beside the code that forced it.
+#
+# `error` -- `impl std::error::Error for DetectError`/`Unsupported`.
+# `fmt`   -- `impl std::fmt::Display for DetectError`/`Unsupported`,
+#   hand-written rather than derived because the message is free text the
+#   caller should see as-is.
+error
+fmt

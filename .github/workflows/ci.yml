@@ -126,6 +126,25 @@ jobs:
       - name: cargo clippy -p mlmf-core
         run: cargo clippy -p mlmf-core --all-targets -- -D warnings
 
+      # mlmf-exl2 detects EXL2 quantization and refuses with a named,
+      # typed error -- it is NOT a geometry crate (see the design spec
+      # §1.3/§3.3 for why real verification ruled that out). Format axis,
+      # no mlmf-core dependency at all, `default = []`, so the plain four
+      # steps.
+      - name: cargo test -p mlmf-exl2
+        run: cargo test -p mlmf-exl2
+
+      - name: cargo test -p mlmf-exl2 --no-default-features
+        run: cargo test -p mlmf-exl2 --no-default-features
+
+      - name: cargo doc -p mlmf-exl2 --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-exl2 --no-deps
+
+      - name: cargo clippy -p mlmf-exl2
+        run: cargo clippy -p mlmf-exl2 --all-targets -- -D warnings
+
       - name: cargo test -p mlmf-ggml
         run: cargo test -p mlmf-ggml
 
