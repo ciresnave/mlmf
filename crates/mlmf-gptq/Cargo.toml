@@ -1,0 +1,14 @@
+[package]
+    description          = "GPTQ quantization geometry: locate packed linear layers in a safetensors container and parse quantize_config.json. No I/O, no dequantization."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-gptq"
+    repository.workspace = true
+    version.workspace    = true
+
+# NO [features] SECTION, matching mlmf-ggml and mlmf-meta: there is no
+# second configuration to lint or document.
+
+[dependencies]
+    mlmf-core  = { path = "../mlmf-core", version = "0.5.3" }
+    serde_json = { version = "1.0", default-features = false, features = ["std"] }

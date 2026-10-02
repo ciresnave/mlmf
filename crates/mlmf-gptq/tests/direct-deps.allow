@@ -1,0 +1,3 @@
+# C2 allow-list for mlmf-gptq. Sorted.
+mlmf-core
+serde_json
