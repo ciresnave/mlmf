@@ -12,6 +12,8 @@ use std::fmt;
 
 use mlmf_core::TensorContainer;
 
+use crate::GptqGroupSize;
+
 /// Why `locate_layers` refused to run at all.
 ///
 /// Exists only for bad CALL-TIME parameters (`bits`/`group_size`). A
@@ -64,7 +66,8 @@ pub struct PackedLinearLayer {
     pub in_features: u64,
     /// Logical output features.
     pub out_features: u64,
-    /// `in_features / group_size`.
+    /// `in_features / group_size`, or `1` for [`GptqGroupSize::NoGrouping`]
+    /// (one group spans the whole input dimension).
     pub group_count: u64,
 }
 
@@ -88,18 +91,18 @@ pub struct LocateReport {
 /// # Errors
 ///
 /// `bits == 0`, `bits` does not evenly divide 32 (so there is no whole
-/// pack factor), or `group_size == 0`. These are properties of the CALL,
-/// not of the container — a bad file never reaches this error; see
-/// [`LocateError`]'s own doc.
+/// pack factor), or `group_size` is [`GptqGroupSize::PerGroup`] of `0`.
+/// These are properties of the CALL, not of the container — a bad file
+/// never reaches this error; see [`LocateError`]'s own doc.
 pub fn locate_layers(
     container: &dyn TensorContainer,
     bits: u64,
-    group_size: u64,
+    group_size: GptqGroupSize,
 ) -> Result<LocateReport, LocateError> {
     if bits == 0 {
         return Err(LocateError::new("bits must be nonzero"));
     }
-    if group_size == 0 {
+    if group_size == GptqGroupSize::PerGroup(0) {
         return Err(LocateError::new("group_size must be nonzero"));
     }
     if !32u64.is_multiple_of(bits) {
@@ -144,18 +147,39 @@ pub fn locate_layers(
         }
         let packed_rows = dims[0] as u64;
         let out_features = dims[1] as u64;
-        let in_features = packed_rows * pack_factor;
 
-        if !in_features.is_multiple_of(group_size) {
+        if packed_rows == 0 || out_features == 0 {
             report.malformed.push((
                 prefix.to_string(),
-                format!(
-                    "in_features {in_features} is not a whole number of groups of {group_size}"
-                ),
+                format!("qweight shape [{packed_rows}, {out_features}] has a zero dimension"),
             ));
             continue;
         }
-        let group_count = in_features / group_size;
+        let Some(in_features) = packed_rows.checked_mul(pack_factor) else {
+            report.malformed.push((
+                prefix.to_string(),
+                format!(
+                    "qweight's packed row count {packed_rows} * pack factor {pack_factor} overflows u64"
+                ),
+            ));
+            continue;
+        };
+
+        let group_count = match group_size {
+            GptqGroupSize::NoGrouping => 1,
+            GptqGroupSize::PerGroup(gs) => {
+                if !in_features.is_multiple_of(gs) {
+                    report.malformed.push((
+                        prefix.to_string(),
+                        format!(
+                            "in_features {in_features} is not a whole number of groups of {gs}"
+                        ),
+                    ));
+                    continue;
+                }
+                in_features / gs
+            }
+        };
 
         if scales.shape.dims() != [group_count as usize, out_features as usize] {
             report.malformed.push((
@@ -251,7 +275,8 @@ mod tests {
     #[test]
     fn finds_the_real_q_proj_layer_with_correct_geometry() {
         let container = FakeContainer(real_q_proj_layer());
-        let report = locate_layers(&container, 4, 128).expect("valid parameters");
+        let report =
+            locate_layers(&container, 4, GptqGroupSize::PerGroup(128)).expect("valid parameters");
 
         assert_eq!(report.incomplete, Vec::<String>::new());
         assert_eq!(report.malformed, Vec::<(String, String)>::new());
@@ -280,7 +305,8 @@ mod tests {
             descriptor(&format!("{p}.qzeros"), &[32, 512], DType::I32),
             // scales deliberately omitted
         ]);
-        let report = locate_layers(&container, 4, 128).expect("valid parameters");
+        let report =
+            locate_layers(&container, 4, GptqGroupSize::PerGroup(128)).expect("valid parameters");
         assert!(report.layers.is_empty());
         assert_eq!(report.incomplete, vec![p.to_string()]);
     }
@@ -288,20 +314,20 @@ mod tests {
     #[test]
     fn bits_that_does_not_divide_32_is_a_call_error_not_a_panic() {
         let container = FakeContainer(Vec::new());
-        let err = locate_layers(&container, 5, 128).unwrap_err();
+        let err = locate_layers(&container, 5, GptqGroupSize::PerGroup(128)).unwrap_err();
         assert!(err.to_string().contains("5"));
     }
 
     #[test]
     fn zero_bits_is_a_call_error() {
         let container = FakeContainer(Vec::new());
-        locate_layers(&container, 0, 128).unwrap_err();
+        locate_layers(&container, 0, GptqGroupSize::PerGroup(128)).unwrap_err();
     }
 
     #[test]
     fn zero_group_size_is_a_call_error() {
         let container = FakeContainer(Vec::new());
-        locate_layers(&container, 4, 0).unwrap_err();
+        locate_layers(&container, 4, GptqGroupSize::PerGroup(0)).unwrap_err();
     }
 
     #[test]
@@ -324,10 +350,158 @@ mod tests {
             descriptor(&format!("{good}.qzeros"), &[8, 512], DType::I32),
             descriptor(&format!("{good}.scales"), &[8, 4096], DType::F16),
         ]);
-        let report = locate_layers(&container, 4, 127).expect("valid parameters");
+        let report =
+            locate_layers(&container, 4, GptqGroupSize::PerGroup(127)).expect("valid parameters");
         assert_eq!(report.layers.len(), 1);
         assert_eq!(report.layers[0].prefix, good);
         assert_eq!(report.malformed.len(), 1);
         assert_eq!(report.malformed[0].0, "bad");
+    }
+
+    #[test]
+    fn a_qweight_shape_that_would_overflow_in_features_is_malformed_not_a_panic() {
+        // Final-review finding I1: packed_rows * pack_factor on an
+        // attacker-controlled shape (a downloaded file's declared
+        // dimensions) must not panic in debug or silently wrap in
+        // release. out_features is nonzero here specifically so the
+        // zero-dimension guard does not short-circuit before the
+        // multiplication is reached -- this exercises checked_mul's
+        // overflow path on its own, distinct from the zero-dimension case
+        // covered below.
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[1 << 62, 4096], DType::I32),
+            // Shapes irrelevant: the overflow guard must fire before
+            // these are ever consulted.
+            descriptor(&format!("{p}.qzeros"), &[1, 1], DType::I32),
+            descriptor(&format!("{p}.scales"), &[1, 1], DType::F16),
+        ]);
+        let report =
+            locate_layers(&container, 4, GptqGroupSize::PerGroup(128)).expect("valid parameters");
+        assert!(
+            report.layers.is_empty(),
+            "an overflowing qweight must never be reported as a valid layer: {:?}",
+            report.layers
+        );
+        assert_eq!(report.malformed.len(), 1);
+        assert_eq!(report.malformed[0].0, p);
+        assert!(report.malformed[0].1.contains("overflow"));
+    }
+
+    #[test]
+    fn a_zero_sized_qweight_dimension_is_malformed_not_a_wrong_but_valid_layer() {
+        // mlmf-safetensors admits a [N, 0] or [0, N] shape because its own
+        // element-count*dtype-size check (count 0 => span 0) is satisfied
+        // by zero elements, so this shape genuinely reaches locate_layers
+        // from a real container. Without the zero-dimension guard this
+        // cascades to in_features=0, group_count=0, and scales/qzeros
+        // shapes of [0, 0] "matching" -- reporting a bogus but internally
+        // "consistent" zero-size layer as valid.
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[512, 0], DType::I32),
+            descriptor(&format!("{p}.qzeros"), &[0, 0], DType::I32),
+            descriptor(&format!("{p}.scales"), &[0, 0], DType::F16),
+        ]);
+        let report =
+            locate_layers(&container, 4, GptqGroupSize::PerGroup(128)).expect("valid parameters");
+        assert!(
+            report.layers.is_empty(),
+            "a zero-sized qweight dimension must never be reported as a valid layer: {:?}",
+            report.layers
+        );
+        assert_eq!(report.malformed.len(), 1);
+        assert_eq!(report.malformed[0].0, p);
+        assert!(report.malformed[0].1.contains("zero dimension"));
+    }
+
+    #[test]
+    fn a_rank_1_qweight_is_malformed_not_an_index_panic() {
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[4096], DType::I32),
+            descriptor(&format!("{p}.qzeros"), &[32, 512], DType::I32),
+            descriptor(&format!("{p}.scales"), &[32, 4096], DType::F16),
+        ]);
+        let report =
+            locate_layers(&container, 4, GptqGroupSize::PerGroup(128)).expect("valid parameters");
+        assert!(report.layers.is_empty());
+        assert_eq!(report.malformed.len(), 1);
+        assert_eq!(report.malformed[0].0, p);
+        assert!(report.malformed[0].1.contains("rank"));
+    }
+
+    #[test]
+    fn a_scales_shape_mismatch_is_malformed() {
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[512, 4096], DType::I32),
+            descriptor(&format!("{p}.qzeros"), &[32, 512], DType::I32),
+            // Half the expected group count: [16, 4096] instead of [32, 4096].
+            descriptor(&format!("{p}.scales"), &[16, 4096], DType::F16),
+        ]);
+        let report =
+            locate_layers(&container, 4, GptqGroupSize::PerGroup(128)).expect("valid parameters");
+        assert!(report.layers.is_empty());
+        assert_eq!(report.malformed.len(), 1);
+        assert_eq!(report.malformed[0].0, p);
+        assert!(report.malformed[0].1.contains("scales"));
+    }
+
+    #[test]
+    fn an_out_features_not_a_whole_number_of_packs_is_malformed() {
+        let p = "model.layers.0.self_attn.q_proj";
+        // out_features = 4095 is not a multiple of pack_factor (8).
+        // scales must match [group_count, out_features] = [32, 4095] to
+        // reach the out_features%pack_factor check rather than failing
+        // the scales-shape check first.
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[512, 4095], DType::I32),
+            descriptor(&format!("{p}.qzeros"), &[32, 512], DType::I32),
+            descriptor(&format!("{p}.scales"), &[32, 4095], DType::F16),
+        ]);
+        let report =
+            locate_layers(&container, 4, GptqGroupSize::PerGroup(128)).expect("valid parameters");
+        assert!(report.layers.is_empty());
+        assert_eq!(report.malformed.len(), 1);
+        assert_eq!(report.malformed[0].0, p);
+        assert!(report.malformed[0].1.contains("out_features"));
+    }
+
+    #[test]
+    fn a_qzeros_shape_mismatch_is_malformed() {
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[512, 4096], DType::I32),
+            // Half the expected column count: [32, 256] instead of [32, 512].
+            descriptor(&format!("{p}.qzeros"), &[32, 256], DType::I32),
+            descriptor(&format!("{p}.scales"), &[32, 4096], DType::F16),
+        ]);
+        let report =
+            locate_layers(&container, 4, GptqGroupSize::PerGroup(128)).expect("valid parameters");
+        assert!(report.layers.is_empty());
+        assert_eq!(report.malformed.len(), 1);
+        assert_eq!(report.malformed[0].0, p);
+        assert!(report.malformed[0].1.contains("qzeros"));
+    }
+
+    #[test]
+    fn no_grouping_reports_one_group_spanning_the_whole_input_dimension() {
+        // Final-review finding I3: locate_layers must be able to express
+        // AutoGPTQ's "-1 means no grouping" convention, not just read it
+        // out of GptqConfig. With no grouping, group_count is always 1
+        // regardless of in_features, and scales/qzeros carry one row.
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[512, 4096], DType::I32),
+            descriptor(&format!("{p}.qzeros"), &[1, 512], DType::I32),
+            descriptor(&format!("{p}.scales"), &[1, 4096], DType::F16),
+        ]);
+        let report =
+            locate_layers(&container, 4, GptqGroupSize::NoGrouping).expect("valid parameters");
+        assert_eq!(report.malformed, Vec::<(String, String)>::new());
+        assert_eq!(report.layers.len(), 1);
+        assert_eq!(report.layers[0].group_count, 1);
+        assert_eq!(report.layers[0].in_features, 4096);
     }
 }

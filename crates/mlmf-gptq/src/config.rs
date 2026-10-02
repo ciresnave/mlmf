@@ -30,14 +30,33 @@ impl GptqConfigError {
     }
 }
 
+/// GPTQ's declared `group_size`.
+///
+/// AutoGPTQ overloads this field: a positive integer is an ordinary group
+/// size, but `-1` is a documented convention meaning "no grouping" — one
+/// group spans the entire input dimension, which varies per layer and so
+/// cannot be represented as a single number the way an ordinary group size
+/// can. Real exported checkpoints use both forms (final-review finding
+/// I3), so this reader represents both rather than reporting `-1` as a
+/// malformed field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GptqGroupSize {
+    /// An ordinary, positive group size in weights.
+    PerGroup(u64),
+    /// AutoGPTQ's `-1`: no grouping. Equivalent to one group spanning the
+    /// whole input dimension of whichever layer is being described.
+    NoGrouping,
+}
+
 /// GPTQ's declared quantization parameters, as many as this reader
 /// extracts. Every field `Option`: a real exporter may omit any of them.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct GptqConfig {
     /// Bit width per weight (GPTQ commonly uses 4, also 2/3/8).
     pub bits: Option<u64>,
-    /// Weights per quantization group.
-    pub group_size: Option<u64>,
+    /// Weights per quantization group, or "no grouping" (see
+    /// [`GptqGroupSize`]).
+    pub group_size: Option<GptqGroupSize>,
     /// Dampening percent used during calibration.
     pub damp_percent: Option<f64>,
     /// Whether activation-order reordering was used.
@@ -93,6 +112,24 @@ impl GptqConfig {
         let section = section.as_object().ok_or_else(|| {
             GptqConfigError::new("`quantization_config` is present but is not a JSON object")
         })?;
+        // Final-review finding I4: `quantization_config` is a key AWQ,
+        // bitsandbytes, EXL2 and MLX all also use, with overlapping field
+        // names (`bits`, `group_size`). An explicit `quant_method` that
+        // names a different scheme must not be read as a confident GPTQ
+        // answer -- a declared "awq" config returning six GPTQ fields
+        // (several of which really would parse, since the names overlap)
+        // is a wrong answer, not a best-effort one. A config with NO
+        // `quant_method` at all is given the benefit of the doubt, since
+        // GPTQ's own standalone `quantize_config.json` never carries this
+        // key either (confirmed against the real file in this crate's own
+        // `REAL_QUANTIZE_CONFIG` fixture).
+        if let Some(method) = section
+            .get("quant_method")
+            .and_then(serde_json::Value::as_str)
+            && method != "gptq"
+        {
+            return Ok(None);
+        }
         Ok(Some(parse_fields(section)))
     }
 }
@@ -112,7 +149,20 @@ fn parse_fields(obj: &serde_json::Map<String, serde_json::Value>) -> GptqConfig 
         };
     }
     as_u64!(bits, "bits");
-    as_u64!(group_size, "group_size");
+
+    if let Some(v) = obj.get("group_size") {
+        match (v.as_u64(), v.as_i64()) {
+            // A positive value: ordinary `serde_json::Value::as_u64` path.
+            (Some(n), _) if n > 0 => out.group_size = Some(GptqGroupSize::PerGroup(n)),
+            // AutoGPTQ's documented "-1 means no grouping" convention.
+            // `as_u64` returns `None` for a negative JSON number, so this
+            // is read through `as_i64` instead.
+            (_, Some(-1)) => out.group_size = Some(GptqGroupSize::NoGrouping),
+            // 0, any other negative integer, or a non-integer: declared,
+            // but not a group size this reader can use.
+            _ => out.malformed.push("group_size".to_string()),
+        }
+    }
 
     if let Some(v) = obj.get("damp_percent") {
         match v.as_f64() {
@@ -158,7 +208,7 @@ mod tests {
     fn parses_a_real_quantize_config_json() {
         let cfg = GptqConfig::parse_standalone(REAL_QUANTIZE_CONFIG.as_bytes()).expect("parses");
         assert_eq!(cfg.bits, Some(4));
-        assert_eq!(cfg.group_size, Some(128));
+        assert_eq!(cfg.group_size, Some(GptqGroupSize::PerGroup(128)));
         assert_eq!(cfg.damp_percent, Some(0.01));
         assert_eq!(cfg.desc_act, Some(true));
         assert_eq!(cfg.sym, Some(true));
@@ -205,7 +255,7 @@ mod tests {
                 .expect("parses")
                 .expect("this config.json declares quantization_config");
         assert_eq!(cfg.bits, Some(4));
-        assert_eq!(cfg.group_size, Some(128));
+        assert_eq!(cfg.group_size, Some(GptqGroupSize::PerGroup(128)));
         // quant_method is not one of the six fields this reader extracts;
         // its presence must not be reported as malformed -- it was never
         // promised, so absence of a field FOR it is not loss.
@@ -224,5 +274,63 @@ mod tests {
         let bad = br#"{"quantization_config": "oops"}"#;
         let err = GptqConfig::parse_from_model_config(bad).unwrap_err();
         assert!(err.to_string().contains("quantization_config"));
+    }
+
+    // Final-review finding I4: a non-GPTQ quantization_config (AWQ,
+    // bitsandbytes, ...) must not be reported as a confident GPTQ answer.
+    #[test]
+    fn an_awq_quantization_config_is_none_not_misread_as_gptq() {
+        let awq = br#"{"quantization_config": {
+            "quant_method": "awq",
+            "bits": 4,
+            "group_size": 128,
+            "version": "gemm",
+            "zero_point": true
+        }}"#;
+        let cfg = GptqConfig::parse_from_model_config(awq).expect("parses");
+        assert_eq!(
+            cfg, None,
+            "an AWQ quantization_config must not be read as a GPTQ one just \
+             because the field names happen to overlap"
+        );
+    }
+
+    #[test]
+    fn a_gptq_quantization_config_with_an_explicit_quant_method_still_reads() {
+        // Regression guard: fixing I4 must not break the already-passing
+        // reads_quantization_config_out_of_a_model_config_json case, which
+        // already carries "quant_method": "gptq".
+        let cfg =
+            GptqConfig::parse_from_model_config(REAL_CONFIG_JSON_QUANTIZATION_SECTION.as_bytes())
+                .expect("parses")
+                .expect("quant_method is \"gptq\", this must still read");
+        assert_eq!(cfg.bits, Some(4));
+    }
+
+    // Final-review finding I3: AutoGPTQ's `-1` is a real, documented value
+    // meaning "no grouping" (one group spans the whole input dimension),
+    // not a malformed field.
+    #[test]
+    fn group_size_negative_one_is_no_grouping_not_malformed() {
+        let cfg = GptqConfig::parse_standalone(br#"{"group_size": -1}"#).unwrap();
+        assert_eq!(cfg.group_size, Some(GptqGroupSize::NoGrouping));
+        assert!(cfg.malformed.is_empty());
+    }
+
+    #[test]
+    fn a_positive_group_size_is_per_group() {
+        let cfg = GptqConfig::parse_standalone(br#"{"group_size": 128}"#).unwrap();
+        assert_eq!(cfg.group_size, Some(GptqGroupSize::PerGroup(128)));
+    }
+
+    #[test]
+    fn a_group_size_of_zero_or_other_negative_is_malformed() {
+        let zero = GptqConfig::parse_standalone(br#"{"group_size": 0}"#).unwrap();
+        assert_eq!(zero.group_size, None);
+        assert_eq!(zero.malformed, vec!["group_size".to_string()]);
+
+        let other_negative = GptqConfig::parse_standalone(br#"{"group_size": -2}"#).unwrap();
+        assert_eq!(other_negative.group_size, None);
+        assert_eq!(other_negative.malformed, vec!["group_size".to_string()]);
     }
 }

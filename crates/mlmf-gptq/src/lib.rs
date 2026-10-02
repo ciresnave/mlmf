@@ -18,5 +18,5 @@
 pub mod config;
 pub mod layer;
 
-pub use config::{GptqConfig, GptqConfigError};
+pub use config::{GptqConfig, GptqConfigError, GptqGroupSize};
 pub use layer::{LocateError, LocateReport, PackedLinearLayer, locate_layers};
