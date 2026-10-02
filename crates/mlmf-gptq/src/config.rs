@@ -67,6 +67,34 @@ impl GptqConfig {
             .ok_or_else(|| GptqConfigError::new("the top level is not a JSON object"))?;
         Ok(parse_fields(root))
     }
+
+    /// Parse `config.json`'s embedded `quantization_config`, if present.
+    ///
+    /// Returns `Ok(None)` when the file declares no `quantization_config`
+    /// at all — a plain, non-quantized HF config is a normal, valid file,
+    /// not an error and not a [`GptqConfig`] whose six fields all happen
+    /// to be absent (a different, stronger claim this reader must not
+    /// make from silence alone).
+    ///
+    /// # Errors
+    ///
+    /// The bytes are not valid JSON, the top level is not a JSON object,
+    /// or `quantization_config` is present but is not itself a JSON
+    /// object.
+    pub fn parse_from_model_config(bytes: &[u8]) -> Result<Option<Self>, GptqConfigError> {
+        let root: serde_json::Value = serde_json::from_slice(bytes)
+            .map_err(|e| GptqConfigError::new(format!("not valid JSON: {e}")))?;
+        let root = root
+            .as_object()
+            .ok_or_else(|| GptqConfigError::new("the top level is not a JSON object"))?;
+        let Some(section) = root.get("quantization_config") else {
+            return Ok(None);
+        };
+        let section = section.as_object().ok_or_else(|| {
+            GptqConfigError::new("`quantization_config` is present but is not a JSON object")
+        })?;
+        Ok(Some(parse_fields(section)))
+    }
 }
 
 /// Read the known fields out of a flat JSON object, permissively.
@@ -155,5 +183,46 @@ mod tests {
     fn a_top_level_array_is_rejected_not_silently_empty() {
         let err = GptqConfig::parse_standalone(b"[1,2,3]").unwrap_err();
         assert!(err.to_string().contains("not a JSON object"));
+    }
+
+    const REAL_CONFIG_JSON_QUANTIZATION_SECTION: &str = r#"{
+        "model_type": "mistral",
+        "quantization_config": {
+            "bits": 4,
+            "group_size": 128,
+            "damp_percent": 0.01,
+            "desc_act": true,
+            "sym": true,
+            "true_sequential": true,
+            "quant_method": "gptq"
+        }
+    }"#;
+
+    #[test]
+    fn reads_quantization_config_out_of_a_model_config_json() {
+        let cfg =
+            GptqConfig::parse_from_model_config(REAL_CONFIG_JSON_QUANTIZATION_SECTION.as_bytes())
+                .expect("parses")
+                .expect("this config.json declares quantization_config");
+        assert_eq!(cfg.bits, Some(4));
+        assert_eq!(cfg.group_size, Some(128));
+        // quant_method is not one of the six fields this reader extracts;
+        // its presence must not be reported as malformed -- it was never
+        // promised, so absence of a field FOR it is not loss.
+        assert!(cfg.malformed.is_empty());
+    }
+
+    #[test]
+    fn a_plain_non_quantized_config_json_is_none_not_an_error() {
+        let plain = br#"{"model_type": "mistral", "hidden_size": 4096}"#;
+        let cfg = GptqConfig::parse_from_model_config(plain).expect("parses");
+        assert_eq!(cfg, None);
+    }
+
+    #[test]
+    fn a_quantization_config_that_is_not_an_object_is_an_error() {
+        let bad = br#"{"quantization_config": "oops"}"#;
+        let err = GptqConfig::parse_from_model_config(bad).unwrap_err();
+        assert!(err.to_string().contains("quantization_config"));
     }
 }
