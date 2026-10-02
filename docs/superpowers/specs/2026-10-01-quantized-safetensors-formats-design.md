@@ -1,12 +1,16 @@
-# GPTQ, AWQ, EXL2 (EXL3 deferred), and MLX — design
+# GPTQ, AWQ (EXL2/EXL3 deferred), and MLX — design
 
-Written 2026-10-01. Answers the PM's task relaying CireSnave's survey: add
-GPTQ, finish AWQ, add EXL2/EXL3, add MLX, and give fuel a shared
-abstraction so it stops per-format-branching. Classified **architectural**
-per `superpowers:brainstorming` (new crates, touches how consumers code
+Written 2026-10-01, EXL2 section corrected 2026-10-02 (see §1.3). Answers
+the PM's task relaying CireSnave's survey: add GPTQ, finish AWQ, add
+EXL2/EXL3, add MLX, and give fuel a shared abstraction so it stops
+per-format-branching. Classified **architectural** per
+`superpowers:brainstorming` (new crates, touches how consumers code
 against multiple formats). Approaches and this design were reviewed and
 approved by the PM before this file was written; see the mlmf lane's
-session transcript for that exchange — not re-litigated here.
+session transcript for that exchange — not re-litigated here. **EXL2
+was approved into scope on 2026-10-01 and moved to deferred on
+2026-10-02** once the verification §1.3 itself called for was actually
+done — see that section for the corrected finding and the PM's ruling.
 
 ## 0. The corrected premise
 
@@ -87,16 +91,70 @@ is out of this task's scope by the PM's own ruling (§0) — but `mlmf-awq`
 (§3.2) must read both conventions from its first commit, or it inherits
 the identical gap in a crate with no excuse for it.
 
-### 1.3 EXL2
+### 1.3 EXL2 — deferred, not designed (corrected 2026-10-02)
 
-Standard `.safetensors`, sharded via `model.safetensors.index.json` —
-`mlmf-hf-layout::ShardIndex` already reads this exact file, built this
-session for an unrelated reason (#101's migration inventory) and reusable
-here unchanged. `config.json`'s `quantization_config`: `{quant_method:
-"exl2", version, bits: 8.0, head_bits, calibration:{rows,length,
-dataset}}`. **`bits` is a real float in a real file** — 8.0, not a round
-number dressed up — confirming the PM's survey on fractional bit-width
-without needing to take it on faith.
+⚠️ **This section originally said EXL2 "fits the geometry-crate model"
+(§3.1's mlmf-gptq/mlmf-awq shape, just with fractional bits) and that
+`mlmf-hf-layout::ShardIndex` was "reusable here unchanged". Both claims
+were measured false** when `mlmf-awq`'s plan work went on to do the
+verification this section had deferred as a first implementation task
+(three independent real repos: `hearsid/DarkIdol-Llama-3.1-8B-Instruct
+-1.3-Uncensored-EXL2`, `bartowski/magnum-12b-v2.5-kto-exl2`,
+`LoneStriker/Mistral-7B-Instruct-v0.1-4.0bpw-exl2`). The original text
+is struck through rather than deleted, because deleting a wrong claim
+leaves no trace that it was ever believed:
+
+~~Standard `.safetensors`, sharded via `model.safetensors.index.json` —
+`mlmf-hf-layout::ShardIndex` already reads this exact file... and
+reusable here unchanged.~~
+
+**What is actually true, confirmed by `curl -I` and a ranged `GET` of
+each repo's real safetensors header, not assumed from `config.json`
+fields alone**:
+
+- **The shard index is vestigial and actively misleading.** All three
+  repos' real weights live in one fixed-name file, `output.safetensors`
+  — but their `model.safetensors.index.json` (one repo's copy is even
+  still named `pytorch_model.bin.index.json`, a leftover from the
+  ORIGINAL unquantized model's directory) references shard filenames
+  like `model-00001-of-00005.safetensors` that return a literal HTTP 404.
+  `mlmf-hf-layout::ShardIndex` would parse this file without error and
+  then send a caller to a file that does not exist. **A consumer must
+  ignore the index for EXL2 and open `output.safetensors` by its fixed
+  name instead** — the opposite of "reusable unchanged".
+- **The per-layer tensor set is not "GPTQ/AWQ with fractional bits" — it
+  is a structurally different, more complex scheme.** Real shapes
+  (`LoneStriker/Mistral-7B-Instruct-v0.1-4.0bpw-exl2`,
+  `model.layers.0.self_attn.q_proj`): **five** cooperating tensors, not
+  three or four — `q_weight` (I32, `[264, 4096]`), `q_scale` (I32,
+  `[128, 512]` — the scale itself is packed/quantized, not a plain float
+  the way GPTQ's and AWQ's `scales` are), `q_scale_max` (F16, `[128]`),
+  `q_groups` (I16, `[256]`), `q_invperm` (I32, `[4096]`, an activation
+  -reorder inverse permutation). `q_weight`'s packed row count (264)
+  is not a whole-number ratio of `in_features` (4096) under any single
+  fixed pack factor — `4096 / 264 ≈ 15.5` — because EXL2 mixes bit
+  -widths **per group** to hit a target average bitrate; `config.json`'s
+  `bits: 4.25` is that resulting average, not a parameter a geometry
+  formula can take as input the way GPTQ's/AWQ's integer `bits` can.
+  `q_groups`' own encoding (presumably a per-group bit-width assignment
+  table) was **not** decoded from source in this pass — recovering
+  correct geometry needs it, and this doc does not claim bytes it has
+  not read, the same rule §1.4 already applies to EXL3.
+
+Per this repo's own standing discipline (never design against bytes not
+seen, applied to EXL3 below and now applied here too): **EXL2 moves from
+"in scope, lower confidence" to deferred, alongside EXL3.** Ruled by the
+PM, 2026-10-02: build a small, separate `mlmf-exl2` crate that
+**detects** an EXL2 `quantization_config` (`quant_method: "exl2"`) and
+returns a clear, typed `Unsupported` error naming the format — no
+`locate_layers`, no geometry, nothing claiming to read what has not been
+verified. "Unsupported means say so loudly," not silently mis-load.
+
+**Named trigger to pick geometry support back up**: `q_groups`' encoding
+read from ExLlamaV2's own source (not just Hub files), confirming how a
+per-group bit-width assignment maps to `q_weight`'s packed layout. Until
+then this stays a scheduling item, the same posture already in force for
+EXL3 and for #52.
 
 ### 1.4 EXL3 — deferred, not designed
 
@@ -108,7 +166,14 @@ so it doesn't ship as if quoted from the source.
 **Distribution shape is a genuine forcing example for `mlmf-source-hub`**:
 confirmed on three `turboderp` repos, EXL3 ships as **one repo per base
 model with per-bpw git branches** (`2.05bpw_h4_ng4`, `3.05bpw_h5_ng5`, …),
-`main` holding only a README. This is unlike EXL2 (separate repo per bpw)
+`main` holding only a README. **Corrected 2026-10-02**: this was
+originally contrasted against "EXL2 (separate repo per bpw)" as if that
+were EXL2's one convention; measured against a second EXL2 uploader
+(`bartowski`), EXL2 uses the SAME per-branch convention on a single repo
+(branches `3_5`, `4_25`, `5_0`, `6_5`, `8_0` on
+`bartowski/magnum-12b-v2.5-kto-exl2`) while a different uploader
+(`LoneStriker`) instead publishes one repo per bpw. Both conventions are
+real for EXL2; it is not "unlike EXL2", it is the same forcing example
 and makes `Revision::Ref` branch-pinning (HUB-1) load-bearing rather than
 a safety net — there is no way to fetch a specific EXL3 variant without
 naming its branch.
@@ -217,16 +282,18 @@ field names) and reports which it found, rather than silently preferring
 one. This is the fix for §1.2's live gap, landing in new code rather than
 patched into the legacy crate.
 
-### 3.3 `mlmf-exl2`
+### 3.3 `mlmf-exl2` — detect-and-refuse only (scope cut 2026-10-02)
 
-Same shape again; the geometry math differs because `bits` is a float
-(average bitrate across a per-layer calibration-driven mix, not one fixed
-width) rather than GPTQ/AWQ's fixed integer bit-width. The group+scale
-structure is still inter-tensor the same way. Lower confidence than §3.1/
-§3.2: no hand-verification of a real tensor's byte layout was done this
-pass (config-level fields only) — the implementation plan's first task
-should be exactly that verification, the same way GPTQ/AWQ's bit orders
-were confirmed from kernel source before this doc asserted them.
+**Not a geometry crate, per §1.3's correction.** The verification §1.3
+itself called for was done, and found EXL2's real tensor set (five
+cooperating tensors, mixed per-group bit-widths, a vestigial shard index)
+too different from GPTQ/AWQ's shape to design against safely, the same
+posture already applied to EXL3. Ruled by the PM, 2026-10-02: build a
+small `mlmf-exl2` that **detects** an EXL2 `quantization_config`
+(`quant_method: "exl2"`) and returns a clear, typed `Unsupported` error
+naming the format — no `locate_layers`, no geometry claimed. "Unsupported
+means say so loudly," not a silent mis-load from a consumer that assumed
+a `mlmf-gptq`-shaped reader would also work here.
 
 ### 3.4 MLX — crate shape undecided, resolve at implementation time
 
@@ -245,25 +312,30 @@ design second.
 
 ## 4. What fuel actually gets
 
-Nothing new to learn. A consumer that already composes `mlmf-gguf`/
-`mlmf-safetensors` with `TensorContainer`/`MetadataSource` gets GPTQ/
-AWQ/EXL2 support by adding `mlmf-gptq`/`mlmf-awq`/`mlmf-exl2` as
-*companions* to its existing `mlmf-safetensors` dependency — same
-container reader, same trait calls, a new crate supplying the
-"which tensors form one quantized layer, and how is it packed" question
-that `mlmf-safetensors` alone cannot answer (correctly: it isn't a
-safetensors-container fact, it's format-on-top-of-a-container knowledge,
-same layering `mlmf-ggml` already proves out). This is the sense in which
-the task's "shared abstraction" framing was right about the *goal* and
-wrong about the *gap*: the abstraction fuel needs already exists; what
-was missing is formats that produce data shaped to use it.
+Nothing new to learn, for the two formats that actually get geometry
+support. A consumer that already composes `mlmf-gguf`/`mlmf-safetensors`
+with `TensorContainer`/`MetadataSource` gets GPTQ/AWQ support by adding
+`mlmf-gptq`/`mlmf-awq` as *companions* to its existing `mlmf-safetensors`
+dependency — same container reader, same trait calls, a new crate
+supplying the "which tensors form one quantized layer, and how is it
+packed" question that `mlmf-safetensors` alone cannot answer (correctly:
+it isn't a safetensors-container fact, it's format-on-top-of-a-container
+knowledge, same layering `mlmf-ggml` already proves out). This is the
+sense in which the task's "shared abstraction" framing was right about
+the *goal* and wrong about the *gap*: the abstraction fuel needs already
+exists; what was missing is formats that produce data shaped to use it.
+For EXL2, what fuel gets instead is a clear refusal naming the format
+(§3.3) — which is still strictly better than what existed before this
+task (nothing, and no error saying why).
 
 ## 5. Non-goals (recorded so they aren't relitigated)
 
 - **Dequantization/decode kernels.** Same line `mlmf-ggml` already draws.
   These crates report where the bytes are and how they're grouped; turning
   them into floats is an inference engine's job.
-- **EXL3 implementation**, until §1.4's trigger fires.
+- **EXL2 and EXL3 geometry implementation**, until §1.3's and §1.4's
+  triggers fire respectively. `mlmf-exl2` ships detection-and-refusal
+  only (§3.3); EXL3 ships nothing at all.
 - **`.npz` support for MLX.** Not what real distributions use (§1.5).
 - **Retrofitting the legacy crate's `onnx_import.rs`/`pytorch_loader.rs`/
   `awq.rs`.** Ruled out of scope by the PM (§0); already sequenced
@@ -277,13 +349,16 @@ was missing is formats that produce data shaped to use it.
 
 ## 6. Open questions for the implementation plan, not this doc
 
-- EXL2's real tensor byte order (§3.3) — first verification task before
-  any code.
+- EXL2's real tensor byte order — **answered 2026-10-02, see §1.3**:
+  verified, and the answer moved EXL2 to deferred rather than resolving
+  into a geometry design.
 - MLX's packing order vs. GPTQ/AWQ (§3.4) — decides whether MLX gets its
   own crate.
-- Whether `mlmf-hf-layout` is the right home for the three new
-  `quantize_config.json`/`quant_config.json`/`quantization_config`-section
-  readers, or whether each format crate should own its own — leaning
-  `mlmf-hf-layout` for consistency with this session's `generation_config`/
-  `special_tokens_map` precedent, not yet decided against a concrete
-  second data point.
+- Where the config readers live — **decided during `mlmf-gptq`'s and
+  `mlmf-awq`'s actual plan-writing**: each format crate owns its own
+  (`config.rs` inside `mlmf-gptq`/`mlmf-awq`), not `mlmf-hf-layout`. The
+  standalone files (`quantize_config.json`, `quant_config.json`) are
+  specific to one quantization scheme each, unlike `generation_config
+  .json`/`special_tokens_map.json`, which apply to every HF checkpoint
+  regardless of quantization — `mlmf-hf-layout` stays the home for the
+  latter kind, not the former.
