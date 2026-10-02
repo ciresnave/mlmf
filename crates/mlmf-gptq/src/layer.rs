@@ -271,4 +271,63 @@ mod tests {
             Some("model.layers.0.self_attn.q_proj.bias")
         );
     }
+
+    #[test]
+    fn a_layer_missing_scales_is_incomplete_not_dropped_or_panicking() {
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[512, 4096], DType::I32),
+            descriptor(&format!("{p}.qzeros"), &[32, 512], DType::I32),
+            // scales deliberately omitted
+        ]);
+        let report = locate_layers(&container, 4, 128).expect("valid parameters");
+        assert!(report.layers.is_empty());
+        assert_eq!(report.incomplete, vec![p.to_string()]);
+    }
+
+    #[test]
+    fn bits_that_does_not_divide_32_is_a_call_error_not_a_panic() {
+        let container = FakeContainer(Vec::new());
+        let err = locate_layers(&container, 5, 128).unwrap_err();
+        assert!(err.to_string().contains("5"));
+    }
+
+    #[test]
+    fn zero_bits_is_a_call_error() {
+        let container = FakeContainer(Vec::new());
+        locate_layers(&container, 0, 128).unwrap_err();
+    }
+
+    #[test]
+    fn zero_group_size_is_a_call_error() {
+        let container = FakeContainer(Vec::new());
+        locate_layers(&container, 4, 0).unwrap_err();
+    }
+
+    #[test]
+    fn an_in_features_not_a_whole_number_of_groups_is_malformed_not_an_abort() {
+        // "bad": 512 packed rows * 8 = 4096 in_features; group_size 127
+        // does not divide it evenly (4096 % 127 == 32).
+        //
+        // "good": 127 packed rows * 8 = 1016 in_features; 1016 % 127 == 0
+        // (group_count 8), so it IS well-formed under the same
+        // group_size=127 this test applies to both layers in one call.
+        // A SECOND, well-formed layer in the same container must still be
+        // found -- one bad layer must not abort the rest (the #97 lesson,
+        // exercised directly).
+        let good = "model.layers.1.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor("bad.qweight", &[512, 4096], DType::I32),
+            descriptor("bad.qzeros", &[32, 512], DType::I32),
+            descriptor("bad.scales", &[32, 4096], DType::F16),
+            descriptor(&format!("{good}.qweight"), &[127, 4096], DType::I32),
+            descriptor(&format!("{good}.qzeros"), &[8, 512], DType::I32),
+            descriptor(&format!("{good}.scales"), &[8, 4096], DType::F16),
+        ]);
+        let report = locate_layers(&container, 4, 127).expect("valid parameters");
+        assert_eq!(report.layers.len(), 1);
+        assert_eq!(report.layers[0].prefix, good);
+        assert_eq!(report.malformed.len(), 1);
+        assert_eq!(report.malformed[0].0, "bad");
+    }
 }
