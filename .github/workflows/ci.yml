@@ -154,6 +154,24 @@ jobs:
       - name: cargo clippy -p mlmf-gguf
         run: cargo clippy -p mlmf-gguf --all-targets -- -D warnings
 
+      # mlmf-gptq locates GPTQ-packed linear layers in an already-open
+      # TensorContainer and parses quantize_config.json / config.json's
+      # embedded quantization_config. Format axis: no I/O, `default = []`
+      # same as mlmf-core, so the plain four steps.
+      - name: cargo test -p mlmf-gptq
+        run: cargo test -p mlmf-gptq
+
+      - name: cargo test -p mlmf-gptq --no-default-features
+        run: cargo test -p mlmf-gptq --no-default-features
+
+      - name: cargo doc -p mlmf-gptq --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-gptq --no-deps
+
+      - name: cargo clippy -p mlmf-gptq
+        run: cargo clippy -p mlmf-gptq --all-targets -- -D warnings
+
       - name: cargo test -p mlmf-safetensors
         run: cargo test -p mlmf-safetensors
 

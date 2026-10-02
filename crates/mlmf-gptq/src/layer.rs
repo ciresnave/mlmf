@@ -102,7 +102,7 @@ pub fn locate_layers(
     if group_size == 0 {
         return Err(LocateError::new("group_size must be nonzero"));
     }
-    if 32 % bits != 0 {
+    if !32u64.is_multiple_of(bits) {
         return Err(LocateError::new(format!(
             "bits={bits} does not evenly divide a 32-bit pack word"
         )));
@@ -146,7 +146,7 @@ pub fn locate_layers(
         let out_features = dims[1] as u64;
         let in_features = packed_rows * pack_factor;
 
-        if in_features % group_size != 0 {
+        if !in_features.is_multiple_of(group_size) {
             report.malformed.push((
                 prefix.to_string(),
                 format!(
@@ -167,7 +167,7 @@ pub fn locate_layers(
             ));
             continue;
         }
-        if out_features % pack_factor != 0 {
+        if !out_features.is_multiple_of(pack_factor) {
             report.malformed.push((
                 prefix.to_string(),
                 format!("out_features {out_features} is not a whole number of {pack_factor}-packs"),
