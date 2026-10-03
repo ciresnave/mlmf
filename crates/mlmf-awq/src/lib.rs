@@ -16,5 +16,7 @@
 #![warn(missing_docs)]
 
 pub mod config;
+pub mod layer;
 
 pub use config::{AwqConfig, AwqConfigError};
+pub use layer::{LocateError, LocateReport, PackedLinearLayer, locate_layers};
