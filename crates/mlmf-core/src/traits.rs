@@ -336,6 +336,35 @@ pub trait MetadataSource {
             .and_then(|i| items.get(i))
             .cloned()
     }
+
+    /// Every key this source declares, paired with its value.
+    ///
+    /// Additive, with a default built from [`Self::keys`] and
+    /// [`Self::get`] so no existing implementor breaks: `keys().len()`
+    /// calls to `get`, each independently re-resolving a key — correct,
+    /// and the honest cost for a source with no cheaper path. A format
+    /// crate whose index already holds every entry in one structure (GGUF
+    /// walks its key-value block once at open; see
+    /// `mlmf_gguf::GgufMetadata`'s override) should override this with a
+    /// single pass instead.
+    ///
+    /// Reflects exactly the keys [`Self::keys`] returns -- this method
+    /// changes how a caller WALKS what is already known, not what is
+    /// known. When [`Self::index_complete`] is `false`, `entries()` is the
+    /// same partial view every other method on this trait already gives;
+    /// it does not widen or narrow it.
+    ///
+    /// A key present in [`Self::keys`] whose [`Self::get`] nonetheless
+    /// returns `None` (an implementor whose two methods disagree, which a
+    /// correct implementor never does) is silently omitted rather than
+    /// panicking — the same permissiveness [`Self::array_get`]'s default
+    /// already extends to a caller-supplied out-of-range index.
+    fn entries(&self) -> Vec<(&str, &MetaValue)> {
+        self.keys()
+            .into_iter()
+            .filter_map(|k| self.get(k).map(|v| (k, v)))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -762,5 +791,54 @@ mod tests {
         let f = fake();
         assert_eq!(f.array_len("general.architecture"), None);
         assert_eq!(f.array_get("general.architecture", 0), None);
+    }
+
+    #[test]
+    fn entries_default_is_exactly_a_zip_of_keys_and_get() {
+        struct Multi(HashMap<String, MetaValue>);
+        impl MetadataSource for Multi {
+            fn index_complete(&self) -> bool {
+                true
+            }
+            fn get(&self, key: &str) -> Option<&MetaValue> {
+                self.0.get(key)
+            }
+            fn keys(&self) -> Vec<&str> {
+                self.0.keys().map(String::as_str).collect()
+            }
+        }
+        let mut map = HashMap::new();
+        map.insert("a".to_string(), MetaValue::U32(1));
+        map.insert("b".to_string(), MetaValue::String("two".into()));
+        map.insert("c".to_string(), MetaValue::Bool(true));
+        let source = Multi(map);
+
+        let mut via_default = source.entries();
+        via_default.sort_by_key(|(k, _)| *k);
+
+        let mut via_manual: Vec<(&str, &MetaValue)> = source
+            .keys()
+            .into_iter()
+            .map(|k| {
+                (
+                    k,
+                    source
+                        .get(k)
+                        .expect("every key this source names has a value"),
+                )
+            })
+            .collect();
+        via_manual.sort_by_key(|(k, _)| *k);
+
+        assert_eq!(via_default, via_manual);
+        assert_eq!(via_default.len(), 3);
+    }
+
+    #[test]
+    fn entries_default_is_empty_when_keys_is_empty() {
+        let f = fake();
+        // `fake()` declares exactly one key -- this just confirms entries()
+        // never invents a pair keys() didn't name.
+        assert_eq!(f.entries().len(), f.keys().len());
     }
 }

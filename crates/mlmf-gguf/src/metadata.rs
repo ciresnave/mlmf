@@ -494,6 +494,25 @@ impl MetadataSource for GgufMetadata<'_> {
         // sits at exactly the depth where that slack runs out.
         decode_value(&mut c, elem).ok()
     }
+
+    /// Every declared key paired with its value, in ONE pass over the
+    /// index this type already built at open -- not the trait default's
+    /// `keys().len()` independent re-lookups through `entry`'s own
+    /// linear scan.
+    ///
+    /// An entry whose value could not be decoded (the same
+    /// [`Declaration::Unreadable`] case [`Self::declaration`] reports) is
+    /// omitted here exactly as it is from [`MetadataSource::get`] -- this
+    /// method answers "every key paired with its VALUE", and an
+    /// undecodable entry has none to pair. [`Self::keys`] is still the
+    /// complete key list including that entry; this is not a second source
+    /// of truth about which keys exist, only about which pair cleanly.
+    fn entries(&self) -> Vec<(&str, &MetaValue)> {
+        self.entries
+            .iter()
+            .filter_map(|e| self.value_of(e).map(|v| (e.key.as_str(), v)))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -1075,5 +1094,53 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn entries_override_equals_keys_and_get_on_several_real_shaped_kvs() {
+        let bytes = gguf(&[
+            ("general.architecture", 8, s("llama")),
+            ("general.alignment", 4, 32u32.to_le_bytes().to_vec()),
+            (
+                "tokenizer.ggml.bos_token_id",
+                4,
+                1u32.to_le_bytes().to_vec(),
+            ),
+        ]);
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+
+        let mut via_override = m.entries();
+        via_override.sort_by_key(|(k, _)| *k);
+
+        let mut via_manual: Vec<(&str, &MetaValue)> = m
+            .keys()
+            .into_iter()
+            .map(|k| (k, m.get(k).expect("every key here has a decodable value")))
+            .collect();
+        via_manual.sort_by_key(|(k, _)| *k);
+
+        assert_eq!(via_override, via_manual);
+        assert_eq!(
+            via_override,
+            vec![
+                ("general.alignment", &MetaValue::U32(32)),
+                ("general.architecture", &MetaValue::String("llama".into())),
+                ("tokenizer.ggml.bos_token_id", &MetaValue::U32(1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn entries_omits_an_undecodable_key_exactly_as_get_does() {
+        // An unknown value-type code: get() returns None for it (the key
+        // is Unreadable, not Declared), so entries() must omit it too --
+        // otherwise entries() and get() would disagree about which keys
+        // "pair cleanly", exactly the inconsistency this override's own
+        // doc says must not happen.
+        let bytes = gguf(&[("good", 8, s("x")), ("bad", 13, s("y"))]);
+        let (m, _) = GgufMetadata::parse(&bytes, "t.gguf").unwrap();
+        assert_eq!(m.get("bad"), None);
+        assert_eq!(m.keys(), ["good", "bad"]);
+        assert_eq!(m.entries(), vec![("good", &MetaValue::String("x".into()))]);
     }
 }
