@@ -259,4 +259,139 @@ mod tests {
         assert_eq!(layer.group_count, 32); // 4096 / 128
         assert_eq!(layer.bias, None); // this real layer has none
     }
+
+    #[test]
+    fn a_layer_missing_scales_is_incomplete_not_dropped_or_panicking() {
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[4096, 512], DType::I32),
+            descriptor(&format!("{p}.qzeros"), &[32, 512], DType::I32),
+            // scales deliberately omitted
+        ]);
+        let report = locate_layers(&container, 4, 128).expect("valid parameters");
+        assert!(report.layers.is_empty());
+        assert_eq!(report.incomplete, vec![p.to_string()]);
+    }
+
+    #[test]
+    fn bits_that_does_not_divide_32_is_a_call_error_not_a_panic() {
+        let container = FakeContainer(Vec::new());
+        let err = locate_layers(&container, 5, 128).unwrap_err();
+        assert!(err.to_string().contains('5'));
+    }
+
+    #[test]
+    fn zero_bits_is_a_call_error() {
+        let container = FakeContainer(Vec::new());
+        locate_layers(&container, 0, 128).unwrap_err();
+    }
+
+    #[test]
+    fn zero_group_size_is_a_call_error() {
+        let container = FakeContainer(Vec::new());
+        locate_layers(&container, 4, 0).unwrap_err();
+    }
+
+    #[test]
+    fn a_qweight_shape_that_would_overflow_out_features_is_malformed_not_a_panic() {
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[4096, 1 << 62], DType::I32),
+            descriptor(&format!("{p}.qzeros"), &[1, 1], DType::I32),
+            descriptor(&format!("{p}.scales"), &[1, 1], DType::F16),
+        ]);
+        let report = locate_layers(&container, 4, 128).expect("valid parameters");
+        assert!(report.layers.is_empty());
+        assert_eq!(report.malformed.len(), 1);
+        assert_eq!(report.malformed[0].0, p);
+        assert!(report.malformed[0].1.contains("overflow"));
+    }
+
+    #[test]
+    fn a_zero_sized_qweight_dimension_is_malformed_not_a_wrong_but_valid_layer() {
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[4096, 0], DType::I32),
+            descriptor(&format!("{p}.qzeros"), &[0, 0], DType::I32),
+            descriptor(&format!("{p}.scales"), &[0, 0], DType::F16),
+        ]);
+        let report = locate_layers(&container, 4, 128).expect("valid parameters");
+        assert!(report.layers.is_empty());
+        assert_eq!(report.malformed.len(), 1);
+        assert_eq!(report.malformed[0].0, p);
+        assert!(report.malformed[0].1.contains("zero dimension"));
+    }
+
+    #[test]
+    fn a_rank_1_qweight_is_malformed_not_an_index_panic() {
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[4096], DType::I32),
+            descriptor(&format!("{p}.qzeros"), &[32, 512], DType::I32),
+            descriptor(&format!("{p}.scales"), &[32, 4096], DType::F16),
+        ]);
+        let report = locate_layers(&container, 4, 128).expect("valid parameters");
+        assert!(report.layers.is_empty());
+        assert_eq!(report.malformed.len(), 1);
+        assert_eq!(report.malformed[0].0, p);
+        assert!(report.malformed[0].1.contains("rank"));
+    }
+
+    #[test]
+    fn an_in_features_not_a_whole_number_of_groups_is_malformed_not_an_abort() {
+        // "bad": in_features 4096, group_size 127 does not divide it
+        // (4096 % 127 == 32). "good": in_features 1016 (a DIFFERENT
+        // qweight row count, 127), 1016 % 127 == 0 (group_count 8) --
+        // a SECOND, well-formed layer in the same container must still
+        // be found. Shapes double-checked against the fixture-consistency
+        // mistake mlmf-gptq's Task 4 made and corrected (its ledger entry
+        // explains why both layers must NOT share one qweight shape under
+        // one group_size).
+        let good = "model.layers.1.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor("bad.qweight", &[4096, 512], DType::I32),
+            descriptor("bad.qzeros", &[32, 512], DType::I32),
+            descriptor("bad.scales", &[32, 4096], DType::F16),
+            descriptor(&format!("{good}.qweight"), &[1016, 512], DType::I32),
+            descriptor(&format!("{good}.qzeros"), &[8, 512], DType::I32),
+            descriptor(&format!("{good}.scales"), &[8, 4096], DType::F16),
+        ]);
+        let report = locate_layers(&container, 4, 127).expect("valid parameters");
+        assert_eq!(report.layers.len(), 1);
+        assert_eq!(report.layers[0].prefix, good);
+        assert_eq!(report.malformed.len(), 1);
+        assert_eq!(report.malformed[0].0, "bad");
+    }
+
+    #[test]
+    fn a_scales_shape_mismatch_is_malformed() {
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[4096, 512], DType::I32),
+            descriptor(&format!("{p}.qzeros"), &[32, 512], DType::I32),
+            // Half the expected group count: [16, 4096] instead of [32, 4096].
+            descriptor(&format!("{p}.scales"), &[16, 4096], DType::F16),
+        ]);
+        let report = locate_layers(&container, 4, 128).expect("valid parameters");
+        assert!(report.layers.is_empty());
+        assert_eq!(report.malformed.len(), 1);
+        assert_eq!(report.malformed[0].0, p);
+        assert!(report.malformed[0].1.contains("scales"));
+    }
+
+    #[test]
+    fn a_qzeros_shape_mismatch_is_malformed() {
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[4096, 512], DType::I32),
+            // Half the expected column count: [32, 256] instead of [32, 512].
+            descriptor(&format!("{p}.qzeros"), &[32, 256], DType::I32),
+            descriptor(&format!("{p}.scales"), &[32, 4096], DType::F16),
+        ]);
+        let report = locate_layers(&container, 4, 128).expect("valid parameters");
+        assert!(report.layers.is_empty());
+        assert_eq!(report.malformed.len(), 1);
+        assert_eq!(report.malformed[0].0, p);
+        assert!(report.malformed[0].1.contains("qzeros"));
+    }
 }
