@@ -30,6 +30,7 @@ default-members = [
     "crates/mlmf-gguf",
     "crates/mlmf-gptq",
     "crates/mlmf-hf-layout",
+    "crates/mlmf-hf-tokenizer",
     "crates/mlmf-meta",
     "crates/mlmf-safetensors",
     "crates/mlmf-source-file",
@@ -40,7 +41,7 @@ default-members = [
 edition    = "2024"
 license    = "MIT OR Apache-2.0"
 repository = "https://github.com/CireSnave/mlmf"
-version    = "0.5.8"
+version    = "0.5.9"
 
 [package]
     authors = ["Eric Evans <CireSnave@gmail.com>"]

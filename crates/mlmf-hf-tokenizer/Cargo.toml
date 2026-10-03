@@ -1,0 +1,17 @@
+[package]
+    description          = "tokenizer.json vocab+merges reader for the BPE model type. No I/O, no tokenization algorithm, no interpretation."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-hf-tokenizer"
+    repository.workspace = true
+    version.workspace    = true
+
+# NO [features] SECTION, matching mlmf-gguf-arch/mlmf-gptq/mlmf-awq: there
+# is no second configuration to lint or document.
+
+# No mlmf-core dependency: this crate is a standalone bytes-to-structure
+# reader (same shape as mlmf-gptq/mlmf-awq's config.rs modules) with no
+# TensorContainer/MetadataSource involvement -- tokenizer.json is read on
+# its own, not through the container seam.
+[dependencies]
+    serde_json = { version = "1.0", default-features = false, features = ["std"] }
