@@ -603,4 +603,36 @@ mod tests {
             )
         );
     }
+
+    /// `SafetensorsMetadata` does not override `entries()` -- this crate's
+    /// flat `HashMap` index already makes `keys()`+`get()` cheap, so the
+    /// trait's default is the right answer here, not a gap. This pins that
+    /// the default genuinely agrees with manual `keys()`+`get()`, on the
+    /// same `RICH` fixture `mlmf-gguf`'s own `entries()` override test uses
+    /// the GGUF equivalent of.
+    #[test]
+    fn entries_default_matches_keys_and_get_on_a_real_shaped_metadata_block() {
+        let (m, _) = metadata(&image(RICH, 100));
+
+        let mut via_default = m.entries();
+        via_default.sort_by_key(|(k, _)| *k);
+
+        let mut via_manual: Vec<(&str, &MetaValue)> = m
+            .keys()
+            .into_iter()
+            .map(|k| (k, m.get(k).expect("every RICH key has a decodable value")))
+            .collect();
+        via_manual.sort_by_key(|(k, _)| *k);
+
+        assert_eq!(via_default, via_manual);
+        assert_eq!(
+            via_default,
+            vec![
+                ("cfg", &MetaValue::String("{\"a\":1}".into())),
+                ("format", &MetaValue::String("pt".into())),
+                ("tied", &MetaValue::String("true".into())),
+                ("total_size", &MetaValue::String("32".into())),
+            ]
+        );
+    }
 }

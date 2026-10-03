@@ -41,7 +41,7 @@ default-members = [
 edition    = "2024"
 license    = "MIT OR Apache-2.0"
 repository = "https://github.com/CireSnave/mlmf"
-version    = "0.5.9"
+version    = "0.5.10"
 
 [package]
     authors = ["Eric Evans <CireSnave@gmail.com>"]
