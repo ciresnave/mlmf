@@ -1,2 +1,6 @@
 # C3: the std submodules mlmf-gguf-arch may name. Grows one commit at a
 # time, each entry landing beside the code that forced it.
+#
+# `fmt` -- `impl std::fmt::Display for Family`, added in the final-review
+#   fix pass so a caller can print the recognized architecture spelling.
+fmt
