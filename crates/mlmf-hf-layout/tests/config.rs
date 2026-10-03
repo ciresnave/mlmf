@@ -190,3 +190,97 @@ fn a_wrong_shaped_top_level_input_still_names_the_cause() {
     let err = ConfigJson::parse(b"\"just a string\"").expect_err("not an object");
     assert!(err.to_string().contains("not a JSON object"));
 }
+
+#[test]
+fn a_literal_dot_in_a_key_does_not_collide_with_a_nested_path() {
+    // Found by Opus review of PR #119: a key spelled with a literal "."
+    // (e.g. a HF field named "a.b") produced the SAME flattened path as an
+    // unrelated nested object two levels deep ("a": {"b": ...}) -- two
+    // different declarations landing on one `keys()` entry, with whichever
+    // value `binary_search_by` happened to return winning. The module doc's
+    // "loses nothing" claim is false if this collides.
+    //
+    // The fix escapes a literal "." within a raw key as "\.", so the
+    // UNESCAPED "a.b" always means "the nested object's b" -- the literal
+    // top-level key is reachable only as the escaped "a\.b". Both are real,
+    // distinct, and neither is silently dropped.
+    let cfg = ConfigJson::parse(br#"{"a.b": 1, "a": {"b": 2}}"#).expect("parses");
+    assert_eq!(cfg.get("a.b"), Some(&MetaValue::U64(2)));
+    assert_eq!(cfg.get(r"a\.b"), Some(&MetaValue::U64(1)));
+    assert_eq!(
+        cfg.keys().len(),
+        2,
+        "both declarations must survive, under distinct keys"
+    );
+}
+
+#[test]
+fn an_empty_string_key_does_not_collide_with_the_top_level_sentinel() {
+    // Same root cause as above, via a different real path: an object
+    // declared under the key "" (legal JSON) makes the recursive call's
+    // "no parent yet" prefix textually identical to the TOP-LEVEL call's
+    // "no parent yet" prefix, so a nested "b" and a top-level "b" produced
+    // the same flattened path.
+    let cfg = ConfigJson::parse(br#"{"": {"b": 1}, "b": 2}"#).expect("parses");
+    assert_eq!(cfg.get("b"), Some(&MetaValue::U64(2)));
+    assert_ne!(
+        cfg.keys()
+            .iter()
+            .filter(|k| cfg.get(k) == Some(&MetaValue::U64(1)))
+            .count(),
+        0,
+        "the nested \"\".b=1 must be reachable under some key distinct from \"b\""
+    );
+}
+
+#[test]
+fn an_empty_object_is_declared_and_unreadable_never_silently_absent() {
+    // Found by Opus review: config.json declaring "rope_scaling": {} had no
+    // leaves to flatten, so it vanished entirely -- declaration() then
+    // reported Absent, which is the exact false-positive the module doc's
+    // own "Unreadable, never Absent" rule exists to prevent (index_complete
+    // is true, so Absent is read as "the file does not have this key",
+    // which is false: it has the key, declared empty).
+    let cfg = ConfigJson::parse(br#"{"rope_scaling": {}, "x": 1}"#).expect("parses");
+    assert_eq!(cfg.get("rope_scaling"), None);
+    match cfg.declaration("rope_scaling") {
+        Declaration::Unreadable(_) => {}
+        other => panic!("expected Unreadable, got {other:?}"),
+    }
+    assert!(cfg.keys().contains(&"rope_scaling"));
+}
+
+#[test]
+fn an_integer_literal_too_large_for_u64_or_i64_is_unreadable_not_a_lossy_float() {
+    // Found by Opus review: serde_json (without arbitrary_precision) loses
+    // the original digits for an integer that overflows u64/i64 AT PARSE
+    // TIME, so `n.as_f64()` was the only path left and silently returned a
+    // rounded approximation (18446744073709551616 -> 1.8446744073709552e19)
+    // that looks exactly as plausible as a value the file actually declared
+    // as a float -- the §6 tell, applied to a single value rather than a
+    // whole field.
+    let cfg = ConfigJson::parse(br#"{"huge": 18446744073709551616}"#).expect("parses");
+    assert_eq!(cfg.get("huge"), None);
+    match cfg.declaration("huge") {
+        Declaration::Unreadable(_) => {}
+        other => panic!("expected Unreadable, got {other:?}"),
+    }
+
+    let neg = ConfigJson::parse(br#"{"huge": -9223372036854775809}"#).expect("parses");
+    assert_eq!(neg.get("huge"), None);
+    match neg.declaration("huge") {
+        Declaration::Unreadable(_) => {}
+        other => panic!("expected Unreadable, got {other:?}"),
+    }
+
+    // A float written as an integer-sized literal with a decimal point or
+    // exponent is NOT this case -- the file declared a float, so reporting
+    // it as one loses nothing.
+    let exp = ConfigJson::parse(br#"{"x": 1e2}"#).expect("parses");
+    assert_eq!(exp.get("x"), Some(&MetaValue::F64(100.0)));
+
+    // And an in-range integer must still read as an exact integer, not a
+    // float -- arbitrary_precision must not have changed this.
+    let ok = ConfigJson::parse(br#"{"x": 4096}"#).expect("parses");
+    assert_eq!(ok.get("x"), Some(&MetaValue::U64(4096)));
+}

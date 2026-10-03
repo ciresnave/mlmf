@@ -34,15 +34,46 @@
 //! have to know that grouping means something -- which is the
 //! interpretation this reader does not do.
 //!
-//! One shape genuinely has no representation: a JSON array containing an
-//! object or a null (an array of plain scalars, e.g. the real
-//! `"eos_token_id": [128001, 128008, 128009]"` three-id array
-//! `NousResearch/Meta-Llama-3.1-8B-Instruct` declares, maps cleanly to
-//! [`MetaValue::Array`]). That path is reported via
+//! Three shapes genuinely have no representation, each reported via
 //! [`MetadataSource::declaration`] as [`Declaration::Unreadable`] --
 //! declared, present, and unrepresentable -- never silently dropped and
 //! never [`Declaration::Absent`], which [`Declaration::Absent`]'s own doc
-//! says is a different claim.
+//! says is a different claim:
+//!
+//! - A JSON array containing an object or a null (an array of plain
+//!   scalars, e.g. the real `"eos_token_id": [128001, 128008, 128009]"`
+//!   three-id array `NousResearch/Meta-Llama-3.1-8B-Instruct` declares,
+//!   maps cleanly to [`MetaValue::Array`]).
+//! - An empty object (`{}`). It has no leaf to flatten, so without this
+//!   rule it would vanish and [`MetadataSource::declaration`] would report
+//!   [`Declaration::Absent`] -- a false claim that the key was never
+//!   declared, when the file in fact declared it as empty. Found by
+//!   review: `index_complete()` being `true` makes that `Absent` read as
+//!   a positive fact, which is exactly backwards.
+//! - An integer literal too large for `u64` or `i64`. `serde_json`
+//!   (without the `arbitrary_precision` feature this crate enables)
+//!   converts such a literal to a lossy `f64` at PARSE TIME, before this
+//!   module ever sees a `Value` -- the original digits are already gone,
+//!   and the rounded result is indistinguishable from a file that
+//!   genuinely declared that float. A private helper detects the shape
+//!   (digits only, no `.`/`e`/`E`) from `Number::as_str()`, which
+//!   `arbitrary_precision` keeps intact, and reports it as unreadable
+//!   instead of guessing.
+//!
+//! # Dotted paths are escaped, so flattening cannot collide
+//!
+//! A literal `.` inside a real JSON key (e.g. a field spelled `a.b`) would
+//! otherwise produce the SAME flattened path as an unrelated two-level
+//! nesting (`"a": {"b": ...}`) -- two different declarations landing on
+//! one key, with whichever value a lookup happened to return silently
+//! shadowing the other. A private helper escapes every raw key segment
+//! first (`.` -> `\.`, `\` -> `\\`) before joining with an unescaped `.`, so no
+//! two different (nesting, key) sequences can produce the same string --
+//! a key's own literal `.` or `\` is the only thing that is ever escaped,
+//! and a key made of neither round-trips unchanged. A key declared `""`
+//! is legal JSON and gets the same treatment: the join always inserts the
+//! separator when there IS a parent, even an empty-string one, so a
+//! nested `"".b` can never read back as the unrelated top-level `b`.
 //!
 //! # `index_complete`
 //!
@@ -99,7 +130,12 @@ impl ConfigJsonError {
 
 /// `config.json`'s declared key space, flattened and typed, with no
 /// alias recognition and no derived field (see the module doc).
-#[derive(Debug, Clone, PartialEq, Default)]
+///
+/// Deliberately no `Default`: a default instance would be a zero-key,
+/// `index_complete() == true` source nobody parsed any bytes to produce --
+/// a fabricated "the file declares nothing" fact of exactly the §6 shape
+/// this crate otherwise refuses.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ConfigJson {
     /// Dotted-path key -> its value, sorted by key.
     entries: Vec<(String, MetaValue)>,
@@ -126,7 +162,7 @@ impl ConfigJson {
 
         let mut entries = Vec::new();
         let mut unreadable = Vec::new();
-        flatten(root, String::new(), &mut entries, &mut unreadable);
+        flatten(root, None, &mut entries, &mut unreadable);
         entries.sort_by(|a, b| a.0.cmp(&b.0));
         unreadable.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -137,24 +173,69 @@ impl ConfigJson {
     }
 }
 
+/// Escape a single raw JSON key so it can be joined into a dotted path
+/// with no ambiguity: a literal `.` becomes `\.` and a literal `\`
+/// becomes `\\`, so the ONLY unescaped `.` characters in a finished path
+/// are the separators [`flatten`] itself inserted. Without this, a key
+/// spelled `"a.b"` and a nesting `"a": {"b": ...}` produce the identical
+/// string `"a.b"` -- found by review. A key with neither character
+/// round-trips unchanged.
+fn escape_segment(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
+    for c in key.chars() {
+        if c == '\\' || c == '.' {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Walk one JSON object, recursively, emitting one `(path, MetaValue)`
 /// entry per leaf and one `(path, Unrecognized)` per undecodable value.
 /// An object is never itself an entry -- only its leaves are, which is
 /// the whole of how nesting is represented (see the module doc).
+///
+/// `prefix` is `None` only at the root. Passing `Some("")` for a key
+/// literally spelled `""` (legal JSON, found by review) is NOT the same
+/// as `None` -- the join below always inserts a separator when there IS
+/// a parent, even an empty-string one, so a root-level `""` object's
+/// nested `b` cannot read back as an unrelated top-level `b`.
 fn flatten(
     obj: &serde_json::Map<String, serde_json::Value>,
-    prefix: String,
+    prefix: Option<&str>,
     entries: &mut Vec<(String, MetaValue)>,
     unreadable: &mut Vec<(String, Unrecognized)>,
 ) {
     for (key, value) in obj {
-        let path = if prefix.is_empty() {
-            key.clone()
-        } else {
-            format!("{prefix}.{key}")
+        let escaped = escape_segment(key);
+        let path = match prefix {
+            None => escaped,
+            Some(p) => format!("{p}.{escaped}"),
         };
         if let serde_json::Value::Object(nested) = value {
-            flatten(nested, path, entries, unreadable);
+            if nested.is_empty() {
+                // No leaf to flatten -- without reporting this, the key
+                // vanishes and declaration() falsely reports Absent for a
+                // key the file DID declare (see module doc).
+                unreadable.push((
+                    path.clone(),
+                    Unrecognized {
+                        kind: UnrecognizedKind::MetadataKey {
+                            key: path,
+                            value: None,
+                            reason: Some(
+                                "declared as an empty object, which MetaValue has no \
+                                 representation for"
+                                    .to_string(),
+                            ),
+                        },
+                        origin: "config.json".to_string(),
+                    },
+                ));
+                continue;
+            }
+            flatten(nested, Some(&path), entries, unreadable);
             continue;
         }
         match meta_value(value) {
@@ -166,8 +247,9 @@ fn flatten(
                         key: path,
                         value: None,
                         reason: Some(
-                            "declared as null, or an array containing a null or an object, \
-                             which MetaValue cannot represent"
+                            "declared as null, an array containing a null or an object, or an \
+                             integer literal too large for u64 or i64 (reporting it as a float \
+                             would silently round it), none of which MetaValue can represent"
                                 .to_string(),
                         ),
                     },
@@ -178,12 +260,24 @@ fn flatten(
     }
 }
 
+/// Whether `n`'s ORIGINAL text (kept intact by this crate's
+/// `arbitrary_precision` feature) is an integer literal -- digits only,
+/// no `.` and no `e`/`E` -- as opposed to a float written in integer or
+/// exponent form. Only meaningful for a number [`meta_value`] could not
+/// already represent exactly as `u64`/`i64`.
+fn is_integer_literal(n: &serde_json::Number) -> bool {
+    let s = n.as_str();
+    !s.contains('.') && !s.contains('e') && !s.contains('E')
+}
+
 /// A JSON scalar or array-of-scalars as a [`MetaValue`], without parsing
 /// strings (a format that did not declare a number did not declare a
 /// number). `None` for a null, an object (handled by [`flatten`] one
-/// level up, never reaching here directly), or an array containing
-/// either -- all-or-nothing, since a partially converted array reports a
-/// length the file never declared.
+/// level up, never reaching here directly), an integer literal too big
+/// for `u64`/`i64` (see the module doc -- reporting it as a lossy `f64`
+/// would silently round it), or an array containing any of those --
+/// all-or-nothing, since a partially converted array reports a length
+/// the file never declared.
 ///
 /// A near-duplicate of `crate::shards`'s own private `meta_value` --
 /// not shared, because sharing it would need a `pub(crate)` promotion
@@ -198,6 +292,8 @@ fn meta_value(v: &serde_json::Value) -> Option<MetaValue> {
                 MetaValue::U64(u)
             } else if let Some(i) = n.as_i64() {
                 MetaValue::I64(i)
+            } else if is_integer_literal(n) {
+                return None;
             } else {
                 MetaValue::F64(n.as_f64()?)
             }
