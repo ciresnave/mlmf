@@ -55,6 +55,17 @@ pub struct AwqConfig {
     /// The declared kernel version string (`"GEMM"`, `"gemm"`, ...),
     /// preserved exactly as declared -- never re-cased.
     pub version: Option<String>,
+    /// `quantization_config.quant_method`, exactly as declared, when
+    /// [`Self::parse_from_model_config`] found the section. `None` means
+    /// the section declared no `quant_method` at all (transformers always
+    /// writes `"awq"`, so this is a real AWQ file written by something
+    /// else, or an older convention) -- `parse_from_model_config` still
+    /// gives such a section the benefit of the doubt, but the caller can
+    /// see that the method was never actually confirmed, rather than
+    /// receiving output indistinguishable from a file that confirmed it.
+    /// Always `None` from [`Self::parse_standalone`], which has no such
+    /// key to read.
+    pub quant_method: Option<String>,
     /// Field names declared with a JSON shape this reader cannot use —
     /// distinct from a field the file never mentioned. Sorted.
     pub malformed: Vec<String>,
@@ -136,15 +147,20 @@ impl AwqConfig {
         let section = section.as_object().ok_or_else(|| {
             AwqConfigError::new("`quantization_config` is present but is not a JSON object")
         })?;
-        if let Some(method) = section
-            .get("quant_method")
-            .and_then(serde_json::Value::as_str)
-            && method != "awq"
-        {
-            return Ok(None);
-        }
 
         let mut out = AwqConfig::default();
+        match section.get("quant_method") {
+            None => {}
+            Some(v) => match v.as_str() {
+                Some(s) => {
+                    if s != "awq" {
+                        return Ok(None);
+                    }
+                    out.quant_method = Some(s.to_string());
+                }
+                None => out.malformed.push("quant_method".to_string()),
+            },
+        }
         if let Some(v) = section.get("bits") {
             match v.as_u64() {
                 Some(n) => out.bits = Some(n),
@@ -278,5 +294,74 @@ mod tests {
         let bad = br#"{"quantization_config": "oops"}"#;
         let err = AwqConfig::parse_from_model_config(bad).unwrap_err();
         assert!(err.to_string().contains("quantization_config"));
+    }
+
+    /// Final-review finding I2: transformers always serialises
+    /// `quant_method: "awq"` into a real AWQ `config.json`. A section with
+    /// NO `quant_method` key at all is still given the benefit of the
+    /// doubt (unlike a declared OTHER scheme, which returns `Ok(None)`),
+    /// but the caller must be able to tell "the file said awq" from
+    /// "MLMF assumed awq" -- that is what `quant_method: Option<String>`
+    /// on the output records.
+    #[test]
+    fn a_declared_quant_method_is_recorded_on_the_output() {
+        let section =
+            format!(r#"{{"quantization_config": {REAL_CONFIG_JSON_QUANTIZATION_SECTION}}}"#);
+        let cfg = AwqConfig::parse_from_model_config(section.as_bytes())
+            .expect("parses")
+            .expect("declares quantization_config");
+        assert_eq!(cfg.quant_method.as_deref(), Some("awq"));
+    }
+
+    #[test]
+    fn a_missing_quant_method_is_recorded_as_none_not_silently_assumed() {
+        let no_method = br#"{"quantization_config": {
+            "bits": 4,
+            "group_size": 128
+        }}"#;
+        let cfg = AwqConfig::parse_from_model_config(no_method)
+            .expect("parses")
+            .expect("quantization_config present, given benefit of the doubt");
+        assert_eq!(cfg.bits, Some(4));
+        assert_eq!(
+            cfg.quant_method, None,
+            "no quant_method was declared -- the caller must be able to see that, \
+             not get the same output as a file that declared awq"
+        );
+    }
+
+    /// Final-review finding I3: `parse_from_model_config`'s own
+    /// `bits`/`group_size`/`zero_point`/`version` parsing has no dedicated
+    /// test -- only `parse_standalone`'s identically-shaped `w_bit` case
+    /// was covered, and the two functions share no helper.
+    #[test]
+    fn a_wrong_shaped_field_in_model_config_quantization_section_is_malformed() {
+        let bad_shape = br#"{"quantization_config": {
+            "quant_method": "awq",
+            "bits": "four"
+        }}"#;
+        let cfg = AwqConfig::parse_from_model_config(bad_shape)
+            .expect("parses")
+            .expect("quantization_config present");
+        assert_eq!(cfg.bits, None);
+        assert_eq!(cfg.malformed, vec!["bits".to_string()]);
+    }
+
+    /// Final-review finding I1: a `quant_method` present but the wrong
+    /// JSON shape (not a string) was previously collapsed into the same
+    /// case as "absent", silently defaulting to AWQ. It must be reported
+    /// in `malformed` instead, same as any other wrong-shaped field.
+    #[test]
+    fn a_non_string_quant_method_is_malformed_not_silently_awq() {
+        let bad_shape = br#"{"quantization_config": {
+            "quant_method": 5,
+            "bits": 4,
+            "group_size": 128
+        }}"#;
+        let cfg = AwqConfig::parse_from_model_config(bad_shape)
+            .expect("parses")
+            .expect("quantization_config present");
+        assert_eq!(cfg.quant_method, None);
+        assert_eq!(cfg.malformed, vec!["quant_method".to_string()]);
     }
 }

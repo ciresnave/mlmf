@@ -273,6 +273,41 @@ mod tests {
         assert_eq!(report.incomplete, vec![p.to_string()]);
     }
 
+    /// Final-review finding I3: only the missing-`scales` case was tested.
+    /// The let-else at the top of the loop handles both tensors in one
+    /// branch, but nothing pinned the `qzeros`-missing half of it.
+    #[test]
+    fn a_layer_missing_qzeros_is_incomplete_not_dropped_or_panicking() {
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[4096, 512], DType::I32),
+            // qzeros deliberately omitted
+            descriptor(&format!("{p}.scales"), &[32, 4096], DType::F16),
+        ]);
+        let report = locate_layers(&container, 4, 128).expect("valid parameters");
+        assert!(report.layers.is_empty());
+        assert_eq!(report.incomplete, vec![p.to_string()]);
+    }
+
+    /// Final-review finding I3: the only assertion on `bias` anywhere
+    /// (`finds_the_real_q_proj_layer_with_correct_geometry`) is
+    /// `assert_eq!(layer.bias, None)` -- a constant expected value a
+    /// sabotage to always return `None` would not be caught by. This test
+    /// pins the other half: a layer that DOES carry `.bias`.
+    #[test]
+    fn a_layer_with_bias_records_its_tensor_name() {
+        let p = "model.layers.0.self_attn.q_proj";
+        let container = FakeContainer(vec![
+            descriptor(&format!("{p}.qweight"), &[4096, 512], DType::I32),
+            descriptor(&format!("{p}.qzeros"), &[32, 512], DType::I32),
+            descriptor(&format!("{p}.scales"), &[32, 4096], DType::F16),
+            descriptor(&format!("{p}.bias"), &[4096], DType::F16),
+        ]);
+        let report = locate_layers(&container, 4, 128).expect("valid parameters");
+        assert_eq!(report.layers.len(), 1);
+        assert_eq!(report.layers[0].bias, Some(format!("{p}.bias")));
+    }
+
     #[test]
     fn bits_that_does_not_divide_32_is_a_call_error_not_a_panic() {
         let container = FakeContainer(Vec::new());
