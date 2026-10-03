@@ -19,20 +19,22 @@
 //! declared type when it is not `"BPE"`, rather than guessing at a shape
 //! that does not apply.
 //!
-//! # Verified against a real file
+//! # Verified against two real files, two merge shapes
 //!
-//! Every field name and shape below was checked against
-//! `TheBloke/Llama-2-7B-Chat-AWQ`'s real `tokenizer.json` (1,842,767
-//! bytes, fetched 2026-10-03): `added_tokens` is a top-level array of
-//! objects; `model.vocab` is a JSON object (`token string -> id number`),
-//! not an array; `model.merges` is an array of STRINGS, each
-//! `"left right"` space-separated (confirmed real entries like
-//! `"▁t he"`), not the two-element-array-pair shape some other
-//! `tokenizers`-library versions emit. A merges ARRAY-PAIR entry is
-//! reported in [`TokenizerJson::malformed`] rather than silently
-//! accepted, since this crate has not verified that shape against a real
-//! file and `CLAUDE.md`'s own discipline is to name what it has not
-//! checked rather than assume.
+//! `added_tokens` (top-level array of objects) and `model.vocab` (a JSON
+//! object, `token string -> id number`, not an array) were checked
+//! against `TheBloke/Llama-2-7B-Chat-AWQ`'s real `tokenizer.json`
+//! (1,842,767 bytes, fetched 2026-10-03).
+//!
+//! `model.merges` has TWO real shapes in the wild, both verified here,
+//! not one: the same Llama-2 file declares it as an array of STRINGS,
+//! each `"left right"` space-separated (real entries like `"▁ t"`,
+//! `"▁t he"`); `Qwen/Qwen3-0.6B`'s real `tokenizer.json` (11,422,654
+//! bytes, fetched 2026-10-03) declares the SAME key as an array of
+//! two-element STRING ARRAYS instead, e.g. `["â°", "Ĥ"]` -- a final-review
+//! finding (mlmf#116) that overturned this crate's first draft, which
+//! declined the array-pair shape as unverified. Both are accepted now;
+//! see `parse_merges`'s source for exactly how each is validated.
 //!
 //! Format-axis (`tests/axis` = `format`): no I/O, no dependency beyond
 //! `serde_json`.
@@ -74,6 +76,24 @@ pub struct AddedToken {
 
 /// `tokenizer.json`'s declared vocabulary, merge rules, and added-token
 /// table, for the `"BPE"` model type only (see the module doc).
+///
+/// **Known limitation, not fixed (final review, mlmf#116): a duplicate
+/// JSON key collapses silently.** `serde_json::Value`'s object type keeps
+/// only the last value for a repeated key (matching Python's `json`
+/// module, which HuggingFace's own loader is built on) -- `{"vocab":
+/// {"a": 1, "a": 2}}` yields one `VocabEntry` for `"a"`, with no
+/// `malformed` entry recording that a declaration was overwritten.
+/// Detecting this would need a custom streaming deserializer rather than
+/// `serde_json::Value`; not implemented, since this reader's two real
+/// verification files (see module doc) have no duplicate keys to measure
+/// the fix against.
+///
+/// **No cross-field consistency checking.** Two `added_tokens` entries
+/// sharing one `id`, or an `added_tokens` id that also appears in
+/// `model.vocab` under a different token string, are both preserved as
+/// declared -- this is normal in real files (the verified Llama-2 file's
+/// ids 0-2 appear in both tables) and is not itself a defect signal, so
+/// this reader does not flag it.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TokenizerJson {
     /// `model.vocab`'s entries. Not guaranteed to preserve the file's
@@ -88,8 +108,11 @@ pub struct TokenizerJson {
     pub added_tokens: Vec<AddedToken>,
     /// Entries declared with a JSON shape this reader cannot use --
     /// distinct from a key the file never mentioned. Each is a short
-    /// path-like label (e.g. `"vocab.<unk>"`, `"merges[3]"`,
-    /// `"added_tokens[1]"`). Sorted.
+    /// path-like label (e.g. `"vocab.\"<unk>\""`, `"merges[3]"`,
+    /// `"added_tokens[1]"`) -- a vocab label's token is rendered with
+    /// `{:?}` rather than inlined raw, since a declared token may contain
+    /// newlines or control characters this label must not let inject into
+    /// whatever renders it. Sorted.
     pub malformed: Vec<String>,
 }
 
@@ -115,7 +138,13 @@ pub enum TokenizerJsonError {
     /// model type (see the module doc) and there is no safe default to
     /// assume.
     MissingModelType,
-    /// `model.type` is declared but is not `"BPE"`.
+    /// `model.type` is declared but is not a string -- distinct from
+    /// [`Self::UnsupportedModelType`] so `{"type": null}`, `{"type": 5}`,
+    /// and a file that genuinely declares the string `"<non-string
+    /// type>"` cannot produce the same error (a final-review finding,
+    /// mlmf#116: the two cases were conflated into one message).
+    ModelTypeNotAString,
+    /// `model.type` is declared as a string but is not `"BPE"`.
     UnsupportedModelType(String),
     /// `model.vocab` is absent.
     MissingVocab,
@@ -134,6 +163,9 @@ impl fmt::Display for TokenizerJsonError {
             }
             TokenizerJsonError::MissingModelType => {
                 f.write_str("\"model.type\" is absent -- an explicit \"BPE\" is required")
+            }
+            TokenizerJsonError::ModelTypeNotAString => {
+                f.write_str("\"model.type\" is present but is not a string")
             }
             TokenizerJsonError::UnsupportedModelType(t) => {
                 write!(f, "\"model.type\" is {t:?}, only \"BPE\" is supported")
@@ -171,7 +203,9 @@ impl TokenizerJson {
         let model_type = model
             .get("type")
             .ok_or(TokenizerJsonError::MissingModelType)?;
-        let model_type = model_type.as_str().unwrap_or("<non-string type>");
+        let model_type = model_type
+            .as_str()
+            .ok_or(TokenizerJsonError::ModelTypeNotAString)?;
         if model_type != "BPE" {
             return Err(TokenizerJsonError::UnsupportedModelType(
                 model_type.to_string(),
@@ -193,7 +227,11 @@ impl TokenizerJson {
                     token: token.clone(),
                     id,
                 }),
-                None => malformed.push(format!("vocab.{token}")),
+                // {token:?} not {token}: a declared token may contain
+                // newlines or control characters, and this label must
+                // not let that inject into whatever renders `malformed`
+                // (a final-review finding, mlmf#116).
+                None => malformed.push(format!("vocab.{token:?}")),
             }
         }
 
@@ -211,8 +249,8 @@ impl TokenizerJson {
 }
 
 /// `model.merges`: absent is an empty list; present-but-wrong-shaped is
-/// `malformed`; each element must be a `"left right"` string (see the
-/// module doc for the array-pair shape this does NOT yet accept).
+/// `malformed`; each element must be one of this key's two real shapes
+/// (see [`merge_rule_from_entry`]).
 fn parse_merges(value: Option<&serde_json::Value>, malformed: &mut Vec<String>) -> Vec<MergeRule> {
     let Some(value) = value else {
         return Vec::new();
@@ -223,19 +261,51 @@ fn parse_merges(value: Option<&serde_json::Value>, malformed: &mut Vec<String>) 
     };
     let mut out = Vec::with_capacity(array.len());
     for (i, entry) in array.iter().enumerate() {
-        let Some(s) = entry.as_str() else {
-            malformed.push(format!("merges[{i}]"));
-            continue;
-        };
-        match s.split_once(' ') {
-            Some((left, right)) => out.push(MergeRule {
-                left: left.to_string(),
-                right: right.to_string(),
-            }),
+        match merge_rule_from_entry(entry) {
+            Some(rule) => out.push(rule),
             None => malformed.push(format!("merges[{i}]")),
         }
     }
     out
+}
+
+/// One `model.merges` entry, in either of its two verified real shapes
+/// (see the module doc): a `"left right"` string with EXACTLY one space
+/// and two non-empty pieces, or a two-element array of two non-empty
+/// strings.
+///
+/// `None` for anything else -- no space, more than one space, an empty
+/// piece, a non-string array element, an array of the wrong length. A
+/// string like `"a b c"` could be read as `("a", "b c")` or `("a b",
+/// "c")`; the file declares neither reading, and picking one would be
+/// exactly the §6-fence violation (`CLAUDE.md` §1) a final review
+/// (mlmf#116) found in this function's first draft, which split on the
+/// first space unconditionally.
+fn merge_rule_from_entry(entry: &serde_json::Value) -> Option<MergeRule> {
+    if let Some(s) = entry.as_str() {
+        let mut parts = s.split(' ');
+        let left = parts.next()?;
+        let right = parts.next()?;
+        if parts.next().is_some() || left.is_empty() || right.is_empty() {
+            return None;
+        }
+        return Some(MergeRule {
+            left: left.to_string(),
+            right: right.to_string(),
+        });
+    }
+    if let Some(array) = entry.as_array()
+        && let [left, right] = array.as_slice()
+        && let (Some(left), Some(right)) = (left.as_str(), right.as_str())
+        && !left.is_empty()
+        && !right.is_empty()
+    {
+        return Some(MergeRule {
+            left: left.to_string(),
+            right: right.to_string(),
+        });
+    }
+    None
 }
 
 /// Top-level `added_tokens`: absent is an empty list; a per-entry
@@ -296,10 +366,18 @@ mod tests {
     use super::*;
 
     /// A trimmed-but-real excerpt of `TheBloke/Llama-2-7B-Chat-AWQ`'s
-    /// `tokenizer.json` (fetched 2026-10-03): the real `added_tokens`
-    /// entries verbatim, a small slice of `model.vocab`, and the first
-    /// several real `model.merges` entries (including a multi-character
-    /// pair, `"▁t he"`, confirming the split is on the FIRST space only).
+    /// `tokenizer.json` (fetched 2026-10-03, via the Hugging Face Hub
+    /// connector's file-reading API, read in chunks -- offsets cited in
+    /// mlmf PR #116's body). `added_tokens` is verbatim and contiguous
+    /// (ids 0-2). `model.vocab`'s four entries are the real file's first
+    /// four (ids 0-3). `model.merges`'s entries are NOT contiguous --
+    /// final-review finding (#8, mlmf#116) caught this doc comment
+    /// originally claiming "the first several" when it is not: the real
+    /// file's indices 0, 1, 2, then **18** (`"▁t he"`, chosen specifically
+    /// because it is a multi-character pair, skipping real indices 3-17).
+    /// Named here precisely so a reader auditing this fixture against the
+    /// live file can find each entry by its real position rather than
+    /// assume a prefix.
     const REAL_EXCERPT: &str = r#"{
         "version": "1.0",
         "added_tokens": [
@@ -383,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_the_real_merges_splitting_on_the_first_space_only() {
+    fn parses_the_real_merges_including_a_multi_character_pair() {
         let t = TokenizerJson::parse(REAL_EXCERPT.as_bytes()).expect("parses");
         assert_eq!(
             t.merges,
@@ -467,7 +545,7 @@ mod tests {
             TokenizerJson::parse(br#"{"model": {"type": "BPE", "vocab": {"a": "not a number"}}}"#)
                 .expect("parses");
         assert!(t.vocab.is_empty());
-        assert_eq!(t.malformed, vec!["vocab.a".to_string()]);
+        assert_eq!(t.malformed, vec!["vocab.\"a\"".to_string()]);
     }
 
     #[test]
@@ -489,23 +567,88 @@ mod tests {
         assert_eq!(t.malformed, vec!["merges[0]".to_string()]);
     }
 
-    /// Synthetic, not verified against a real file: confirms the split
-    /// point is the FIRST space, not the last. If a right-hand piece ever
-    /// legitimately contains an embedded space, splitting on the last
-    /// space would silently attribute it to the wrong side.
+    /// Final-review finding (Important #2, mlmf#116): a string with more
+    /// than one space is ambiguous -- `"a b c"` could mean `("a", "b c")`
+    /// or `("a b", "c")`, and the file declares neither reading. The
+    /// crate's first draft picked the first-space reading unconditionally,
+    /// which is exactly the §6-fence violation (`CLAUDE.md` §1) of
+    /// supplying a value the file didn't actually declare. Now malformed.
     #[test]
-    fn a_merge_entry_splits_on_the_first_space_not_the_last() {
+    fn a_merge_string_with_more_than_one_space_is_malformed_not_a_guessed_split() {
         let t = TokenizerJson::parse(
             br#"{"model": {"type": "BPE", "vocab": {}, "merges": ["a b c"]}}"#,
         )
         .expect("parses");
+        assert!(t.merges.is_empty());
+        assert_eq!(t.malformed, vec!["merges[0]".to_string()]);
+    }
+
+    /// Final-review finding (Important #3, mlmf#116): neither side of a
+    /// real BPE merge is ever empty. `" "`, `"a "`, and `" a"` each
+    /// produce an empty piece on one side and must not be accepted as a
+    /// valid rule.
+    #[test]
+    fn a_merge_string_with_an_empty_piece_is_malformed() {
+        for bad in [" ", "a ", " a"] {
+            let json =
+                format!(r#"{{"model": {{"type": "BPE", "vocab": {{}}, "merges": [{bad:?}]}}}}"#);
+            let t = TokenizerJson::parse(json.as_bytes()).expect("parses");
+            assert!(t.merges.is_empty(), "{bad:?} must not produce a MergeRule");
+            assert_eq!(
+                t.malformed,
+                vec!["merges[0]".to_string()],
+                "for input {bad:?}"
+            );
+        }
+    }
+
+    /// Final-review finding (Important #1, mlmf#116): `model.merges` has
+    /// a SECOND real shape this crate's first draft declined outright --
+    /// confirmed against `Qwen/Qwen3-0.6B`'s real `tokenizer.json`
+    /// (11,422,654 bytes, fetched 2026-10-03), whose `merges` is an array
+    /// of two-element string arrays, e.g. `["â°", "Ĥ"]`, not
+    /// space-separated strings. Both real entries below are verbatim.
+    #[test]
+    fn a_real_qwen3_array_pair_merge_is_accepted() {
+        let t = TokenizerJson::parse(
+            r#"{"model": {"type": "BPE", "vocab": {}, "merges": [["â°", "Ĥ"], ["ã«", "¥"]]}}"#
+                .as_bytes(),
+        )
+        .expect("parses");
         assert_eq!(
             t.merges,
-            vec![MergeRule {
-                left: "a".to_string(),
-                right: "b c".to_string()
-            }]
+            vec![
+                MergeRule {
+                    left: "â°".to_string(),
+                    right: "Ĥ".to_string(),
+                },
+                MergeRule {
+                    left: "ã«".to_string(),
+                    right: "¥".to_string(),
+                },
+            ]
         );
+        assert!(t.malformed.is_empty());
+    }
+
+    #[test]
+    fn an_array_pair_merge_with_a_non_string_element_is_malformed() {
+        let t = TokenizerJson::parse(
+            br#"{"model": {"type": "BPE", "vocab": {}, "merges": [["a", 5]]}}"#,
+        )
+        .expect("parses");
+        assert!(t.merges.is_empty());
+        assert_eq!(t.malformed, vec!["merges[0]".to_string()]);
+    }
+
+    #[test]
+    fn an_array_pair_merge_with_the_wrong_length_is_malformed() {
+        let t = TokenizerJson::parse(
+            br#"{"model": {"type": "BPE", "vocab": {}, "merges": [["a", "b", "c"]]}}"#,
+        )
+        .expect("parses");
+        assert!(t.merges.is_empty());
+        assert_eq!(t.malformed, vec!["merges[0]".to_string()]);
     }
 
     #[test]
@@ -570,5 +713,67 @@ mod tests {
         .expect("parses");
         assert!(t.added_tokens.is_empty());
         assert_eq!(t.malformed, vec!["added_tokens[0]".to_string()]);
+    }
+
+    #[test]
+    fn a_non_string_model_type_is_a_distinct_error_from_unsupported() {
+        let err = TokenizerJson::parse(br#"{"model": {"type": 5, "vocab": {}}}"#).unwrap_err();
+        assert_eq!(err, TokenizerJsonError::ModelTypeNotAString);
+    }
+
+    #[test]
+    fn an_empty_string_vocab_key_is_a_declared_token_not_an_error() {
+        // An empty token string is unusual but declared, same reasoning
+        // as mlmf-gguf's "an empty string is declared rather than absent".
+        let t = TokenizerJson::parse(br#"{"model": {"type": "BPE", "vocab": {"": 0}}}"#)
+            .expect("parses");
+        assert_eq!(
+            t.vocab,
+            vec![VocabEntry {
+                token: String::new(),
+                id: 0
+            }]
+        );
+        assert!(t.malformed.is_empty());
+    }
+
+    /// Final-review finding (#7, mlmf#116): `as_u64()` must reject
+    /// negative numbers, floats, and values above `u64::MAX` into
+    /// `malformed` rather than panicking or silently truncating.
+    #[test]
+    fn out_of_range_vocab_ids_are_malformed_not_a_panic() {
+        let t = TokenizerJson::parse(
+            br#"{"model": {"type": "BPE", "vocab": {"neg": -1, "flt": 1.5, "huge": 1e300}}}"#,
+        )
+        .expect("parses");
+        assert!(t.vocab.is_empty());
+        assert_eq!(
+            t.malformed,
+            vec![
+                "vocab.\"flt\"".to_string(),
+                "vocab.\"huge\"".to_string(),
+                "vocab.\"neg\"".to_string(),
+            ]
+        );
+    }
+
+    /// Documents the known limitation on `TokenizerJson`'s own doc
+    /// (final review, mlmf#116): a duplicate JSON key collapses to its
+    /// last value with no `malformed` trace. This test pins CURRENT
+    /// behavior, not a requirement -- if `serde_json` ever changed this,
+    /// the test failing is the signal to revisit the doc, not a bug in
+    /// this crate.
+    #[test]
+    fn a_duplicate_vocab_key_keeps_the_last_value_with_no_trace() {
+        let t = TokenizerJson::parse(br#"{"model": {"type": "BPE", "vocab": {"a": 1, "a": 2}}}"#)
+            .expect("parses");
+        assert_eq!(
+            t.vocab,
+            vec![VocabEntry {
+                token: "a".to_string(),
+                id: 2
+            }]
+        );
+        assert!(t.malformed.is_empty());
     }
 }
