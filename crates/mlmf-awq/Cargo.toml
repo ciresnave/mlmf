@@ -10,5 +10,5 @@
 # second configuration to lint or document.
 
 [dependencies]
-    mlmf-core  = { path = "../mlmf-core", version = "0.5.4" }
+    mlmf-core  = { path = "../mlmf-core", version = "0.5.5" }
     serde_json = { version = "1.0", default-features = false, features = ["std"] }
