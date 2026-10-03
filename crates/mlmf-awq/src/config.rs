@@ -104,6 +104,74 @@ impl AwqConfig {
         out.malformed.sort_unstable();
         Ok(out)
     }
+
+    /// Parse `config.json`'s embedded `quantization_config`, if present
+    /// AND if its `quant_method` (when declared) names AWQ.
+    ///
+    /// Returns `Ok(None)` when the file declares no `quantization_config`
+    /// at all, or when it declares one but an explicit `quant_method`
+    /// names a different scheme (GPTQ, bitsandbytes, ...) — the same key
+    /// is shared across formats with overlapping field names, so reading
+    /// any `quantization_config` as AWQ regardless of `quant_method`
+    /// would misreport a different format's config as a confident AWQ
+    /// answer (the exact gap `mlmf-gptq`'s final review found and fixed,
+    /// applied here from the first commit instead of a second review). A
+    /// config with no `quant_method` at all is given the benefit of the
+    /// doubt.
+    ///
+    /// # Errors
+    ///
+    /// The bytes are not valid JSON, the top level is not a JSON object,
+    /// or `quantization_config` is present but is not itself a JSON
+    /// object.
+    pub fn parse_from_model_config(bytes: &[u8]) -> Result<Option<Self>, AwqConfigError> {
+        let root: serde_json::Value = serde_json::from_slice(bytes)
+            .map_err(|e| AwqConfigError::new(format!("not valid JSON: {e}")))?;
+        let root = root
+            .as_object()
+            .ok_or_else(|| AwqConfigError::new("the top level is not a JSON object"))?;
+        let Some(section) = root.get("quantization_config") else {
+            return Ok(None);
+        };
+        let section = section.as_object().ok_or_else(|| {
+            AwqConfigError::new("`quantization_config` is present but is not a JSON object")
+        })?;
+        if let Some(method) = section
+            .get("quant_method")
+            .and_then(serde_json::Value::as_str)
+            && method != "awq"
+        {
+            return Ok(None);
+        }
+
+        let mut out = AwqConfig::default();
+        if let Some(v) = section.get("bits") {
+            match v.as_u64() {
+                Some(n) => out.bits = Some(n),
+                None => out.malformed.push("bits".to_string()),
+            }
+        }
+        if let Some(v) = section.get("group_size") {
+            match v.as_u64() {
+                Some(n) => out.group_size = Some(n),
+                None => out.malformed.push("group_size".to_string()),
+            }
+        }
+        if let Some(v) = section.get("zero_point") {
+            match v.as_bool() {
+                Some(b) => out.zero_point = Some(b),
+                None => out.malformed.push("zero_point".to_string()),
+            }
+        }
+        if let Some(v) = section.get("version") {
+            match v.as_str() {
+                Some(s) => out.version = Some(s.to_string()),
+                None => out.malformed.push("version".to_string()),
+            }
+        }
+        out.malformed.sort_unstable();
+        Ok(Some(out))
+    }
 }
 
 #[cfg(test)]
@@ -149,5 +217,66 @@ mod tests {
     fn a_top_level_array_is_rejected_not_silently_empty() {
         let err = AwqConfig::parse_standalone(b"[1,2,3]").unwrap_err();
         assert!(err.to_string().contains("not a JSON object"));
+    }
+
+    /// TheBloke/Llama-2-7B-Chat-AWQ's config.json's quantization_config
+    /// section, byte-for-byte (verified 2026-10-02). Note lowercase
+    /// "gemm" -- the SAME model's quant_config.json (above) spells it
+    /// "GEMM". Both are preserved as declared, neither re-cased.
+    const REAL_CONFIG_JSON_QUANTIZATION_SECTION: &str = r#"{
+        "quant_method": "awq",
+        "zero_point": true,
+        "group_size": 128,
+        "bits": 4,
+        "version": "gemm"
+    }"#;
+
+    #[test]
+    fn reads_quantization_config_out_of_a_model_config_json() {
+        let section = format!(
+            r#"{{"model_type": "llama", "quantization_config": {REAL_CONFIG_JSON_QUANTIZATION_SECTION}}}"#
+        );
+        let cfg = AwqConfig::parse_from_model_config(section.as_bytes())
+            .expect("parses")
+            .expect("this config.json declares quantization_config");
+        assert_eq!(cfg.bits, Some(4));
+        assert_eq!(cfg.group_size, Some(128));
+        assert_eq!(cfg.zero_point, Some(true));
+        assert_eq!(cfg.version.as_deref(), Some("gemm"));
+        assert!(cfg.malformed.is_empty());
+    }
+
+    #[test]
+    fn a_plain_non_quantized_config_json_is_none_not_an_error() {
+        let plain = br#"{"model_type": "llama", "hidden_size": 4096}"#;
+        let cfg = AwqConfig::parse_from_model_config(plain).expect("parses");
+        assert_eq!(cfg, None);
+    }
+
+    #[test]
+    fn a_gptq_quantization_config_is_none_not_misread_as_awq() {
+        // Built in from the first commit, per mlmf-gptq's final-review
+        // finding I4: the quantization_config key is shared across
+        // formats with overlapping field names (bits, group_size).
+        let gptq = br#"{"quantization_config": {
+            "quant_method": "gptq",
+            "bits": 4,
+            "group_size": 128,
+            "desc_act": true,
+            "sym": true
+        }}"#;
+        let cfg = AwqConfig::parse_from_model_config(gptq).expect("parses");
+        assert_eq!(
+            cfg, None,
+            "a GPTQ quantization_config must not be read as AWQ just \
+             because bits/group_size happen to overlap"
+        );
+    }
+
+    #[test]
+    fn a_quantization_config_that_is_not_an_object_is_an_error() {
+        let bad = br#"{"quantization_config": "oops"}"#;
+        let err = AwqConfig::parse_from_model_config(bad).unwrap_err();
+        assert!(err.to_string().contains("quantization_config"));
     }
 }
