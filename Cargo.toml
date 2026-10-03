@@ -28,6 +28,7 @@ default-members = [
     "crates/mlmf-exl2",
     "crates/mlmf-ggml",
     "crates/mlmf-gguf",
+    "crates/mlmf-gguf-arch",
     "crates/mlmf-gptq",
     "crates/mlmf-hf-layout",
     "crates/mlmf-meta",

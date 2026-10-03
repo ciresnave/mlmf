@@ -1137,6 +1137,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mlmf-gguf-arch"
+version = "0.5.7"
+dependencies = [
+ "mlmf-core",
+]
+
+[[package]]
 name = "mlmf-gptq"
 version = "0.5.7"
 dependencies = [

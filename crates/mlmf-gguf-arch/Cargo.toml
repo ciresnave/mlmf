@@ -1,0 +1,13 @@
+[package]
+    description          = "GGUF architecture-family classification: which loader family a file's declared metadata or tensor-name layout matches. No I/O, no per-tensor schema mapping."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-gguf-arch"
+    repository.workspace = true
+    version.workspace    = true
+
+# NO [features] SECTION, matching mlmf-gptq/mlmf-awq: there is no second
+# configuration to lint or document.
+
+[dependencies]
+    mlmf-core = { path = "../mlmf-core", version = "0.5.7" }

@@ -173,6 +173,24 @@ jobs:
       - name: cargo clippy -p mlmf-gguf
         run: cargo clippy -p mlmf-gguf --all-targets -- -D warnings
 
+      # mlmf-gguf-arch classifies a GGUF file's architecture family from
+      # its declared general.architecture metadata or, failing that,
+      # tensor-name patterns. Format axis: no I/O, `default = []` same as
+      # mlmf-core, so the plain four steps.
+      - name: cargo test -p mlmf-gguf-arch
+        run: cargo test -p mlmf-gguf-arch
+
+      - name: cargo test -p mlmf-gguf-arch --no-default-features
+        run: cargo test -p mlmf-gguf-arch --no-default-features
+
+      - name: cargo doc -p mlmf-gguf-arch --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-gguf-arch --no-deps
+
+      - name: cargo clippy -p mlmf-gguf-arch
+        run: cargo clippy -p mlmf-gguf-arch --all-targets -- -D warnings
+
       # mlmf-gptq locates GPTQ-packed linear layers in an already-open
       # TensorContainer and parses quantize_config.json / config.json's
       # embedded quantization_config. Format axis: no I/O, `default = []`
