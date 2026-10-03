@@ -30,6 +30,7 @@ mlmf-ggml
 mlmf-gguf
 mlmf-meta
 mlmf-safetensors
+mlmf-source-file
 
 # Both for examples/dump_gguf_meta.rs only -- the cross-project harness emit.
 # serde_json escapes; sha2 hashes. Sorted: serde_json before sha2 ("e" < "h"),

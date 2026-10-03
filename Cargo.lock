@@ -1101,6 +1101,7 @@ dependencies = [
  "mlmf-gguf",
  "mlmf-meta",
  "mlmf-safetensors",
+ "mlmf-source-file",
  "serde_json",
  "sha2",
 ]

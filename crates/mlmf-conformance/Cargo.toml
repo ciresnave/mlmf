@@ -70,6 +70,12 @@
     mlmf-gguf        = { path = "../mlmf-gguf", version = "0.5.0" }
     mlmf-meta        = { path = "../mlmf-meta", version = "0.5.0" }
     mlmf-safetensors = { path = "../mlmf-safetensors", version = "0.5.0" }
+    # For tests/mmap_zero_copy.rs: the real mmap primitive (ByteSource::as_bytes
+    # over a live memmap2::Mmap) that mlmf-gguf/mlmf-safetensors's own parse
+    # entry points can already borrow through -- same reasoning as mlmf-meta
+    # above, this is a cross-crate question ([dev-dependencies] is refused for
+    # every gated member) answered by the one crate shaped like a consumer.
+    mlmf-source-file = { path = "../mlmf-source-file", version = "0.5.0" }
 
     # For the cross-project disagreement harness (examples/dump_gguf_meta.rs).
     # lightbulb and mlmf each dump to a stable artifact and a comparator reads
