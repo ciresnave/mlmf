@@ -22,6 +22,7 @@ default-members = [
     # not fail it. Written here as well as there, because here is where the
     # deletion would be typed.
     ".",
+    "crates/mlmf-awq",
     "crates/mlmf-conformance",
     "crates/mlmf-core",
     "crates/mlmf-exl2",
