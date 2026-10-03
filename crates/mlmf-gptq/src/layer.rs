@@ -137,8 +137,7 @@ pub fn locate_layers(
             continue;
         };
 
-        match build_layer(
-            container,
+        let candidate = LayerCandidate {
             prefix,
             qweight_name,
             qzeros_name,
@@ -146,9 +145,8 @@ pub fn locate_layers(
             qweight,
             qzeros,
             scales,
-            pack_factor,
-            group_size,
-        ) {
+        };
+        match build_layer(container, candidate, pack_factor, group_size) {
             Ok(layer) => report.layers.push(layer),
             Err(reason) => report.malformed.push((prefix.to_string(), reason)),
         }
@@ -157,24 +155,42 @@ pub fn locate_layers(
     Ok(report)
 }
 
+/// One `.qweight`-suffixed prefix with its sibling `.qzeros`/`.scales`
+/// tensors already found, bundled so [`build_layer`] takes one argument
+/// for "the candidate" rather than seven -- a Codacy finding on
+/// `build_layer`'s own parameter count (the extraction that split
+/// `locate_layers` moved its complexity into a parameter list instead of
+/// removing it).
+struct LayerCandidate<'a> {
+    prefix: &'a str,
+    qweight_name: String,
+    qzeros_name: String,
+    scales_name: String,
+    qweight: &'a TensorDescriptor,
+    qzeros: &'a TensorDescriptor,
+    scales: &'a TensorDescriptor,
+}
+
 /// Validate one candidate's geometry and build its [`PackedLinearLayer`],
 /// or name the first guard it fails. Each guard is its own function so
 /// this one stays a straight-line sequence of checks rather than one long
 /// nest of `if`s (none of the guards themselves, or their messages,
 /// changed).
-#[allow(clippy::too_many_arguments)]
 fn build_layer(
     container: &dyn TensorContainer,
-    prefix: &str,
-    qweight_name: String,
-    qzeros_name: String,
-    scales_name: String,
-    qweight: &TensorDescriptor,
-    qzeros: &TensorDescriptor,
-    scales: &TensorDescriptor,
+    candidate: LayerCandidate<'_>,
     pack_factor: u64,
     group_size: GptqGroupSize,
 ) -> Result<PackedLinearLayer, String> {
+    let LayerCandidate {
+        prefix,
+        qweight_name,
+        qzeros_name,
+        scales_name,
+        qweight,
+        qzeros,
+        scales,
+    } = candidate;
     let (packed_rows, out_features) = qweight_rank_guard(qweight)?;
     zero_dimension_guard(packed_rows, out_features)?;
     let in_features = in_features_guard(packed_rows, pack_factor)?;
