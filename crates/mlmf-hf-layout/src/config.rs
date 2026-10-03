@@ -218,20 +218,9 @@ fn flatten(
                 // No leaf to flatten -- without reporting this, the key
                 // vanishes and declaration() falsely reports Absent for a
                 // key the file DID declare (see module doc).
-                unreadable.push((
-                    path.clone(),
-                    Unrecognized {
-                        kind: UnrecognizedKind::MetadataKey {
-                            key: path,
-                            value: None,
-                            reason: Some(
-                                "declared as an empty object, which MetaValue has no \
-                                 representation for"
-                                    .to_string(),
-                            ),
-                        },
-                        origin: "config.json".to_string(),
-                    },
+                unreadable.push(unreadable_entry(
+                    path,
+                    "declared as an empty object, which MetaValue has no representation for",
                 ));
                 continue;
             }
@@ -240,24 +229,32 @@ fn flatten(
         }
         match meta_value(value) {
             Some(v) => entries.push((path, v)),
-            None => unreadable.push((
-                path.clone(),
-                Unrecognized {
-                    kind: UnrecognizedKind::MetadataKey {
-                        key: path,
-                        value: None,
-                        reason: Some(
-                            "declared as null, an array containing a null or an object, or an \
-                             integer literal too large for u64 or i64 (reporting it as a float \
-                             would silently round it), none of which MetaValue can represent"
-                                .to_string(),
-                        ),
-                    },
-                    origin: "config.json".to_string(),
-                },
+            None => unreadable.push(unreadable_entry(
+                path,
+                "declared as null, an array containing a null or an object, or an integer \
+                 literal too large for u64 or i64 (reporting it as a float would silently \
+                 round it), none of which MetaValue can represent",
             )),
         }
     }
+}
+
+/// Build one `(path, Unrecognized)` entry naming why `path` could not be
+/// represented. Shared by both unrepresentable-value cases in [`flatten`]
+/// so each stays a single call rather than repeating the `Unrecognized`
+/// construction inline.
+fn unreadable_entry(path: String, reason: &str) -> (String, Unrecognized) {
+    (
+        path.clone(),
+        Unrecognized {
+            kind: UnrecognizedKind::MetadataKey {
+                key: path,
+                value: None,
+                reason: Some(reason.to_string()),
+            },
+            origin: "config.json".to_string(),
+        },
+    )
 }
 
 /// Whether `n`'s ORIGINAL text (kept intact by this crate's
