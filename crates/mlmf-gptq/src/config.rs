@@ -123,12 +123,27 @@ impl GptqConfig {
         // GPTQ's own standalone `quantize_config.json` never carries this
         // key either (confirmed against the real file in this crate's own
         // `REAL_QUANTIZE_CONFIG` fixture).
-        if let Some(method) = section
-            .get("quant_method")
-            .and_then(serde_json::Value::as_str)
-            && method != "gptq"
-        {
-            return Ok(None);
+        //
+        // A `quant_method` present but the WRONG shape (not a string) is
+        // neither of those cases: it is evidence this section was written
+        // by something that doesn't follow the convention this reader
+        // relies on to tell GPTQ apart from AWQ/bitsandbytes/EXL2/MLX, so
+        // silently defaulting to "benefit of the doubt" would produce a
+        // confidently-populated GptqConfig indistinguishable from a
+        // verified one (found against mlmf-awq's identical pattern in
+        // mlmf-awq#110's final review; PM ruling: this one case is an
+        // `Err`, not a malformed field or a silent `Ok(None)`).
+        match section.get("quant_method") {
+            None => {}
+            Some(v) => match v.as_str() {
+                Some(method) if method != "gptq" => return Ok(None),
+                Some(_) => {}
+                None => {
+                    return Err(GptqConfigError::new(
+                        "quant_method is present but is not a string",
+                    ));
+                }
+            },
         }
         Ok(Some(parse_fields(section)))
     }
@@ -293,6 +308,27 @@ mod tests {
             "an AWQ quantization_config must not be read as a GPTQ one just \
              because the field names happen to overlap"
         );
+    }
+
+    /// Final-review finding (filed against mlmf-gptq from mlmf-awq#110's
+    /// own final review, which found the identical pattern there): a
+    /// `quant_method` present but the wrong JSON shape (not a string) was
+    /// silently collapsed into the same case as "absent", so a
+    /// confidently-populated `GptqConfig` was indistinguishable from an
+    /// unverified guess. PM ruling: this must be an `Err`, not a
+    /// benefit-of-the-doubt `Ok(Some(..))` -- unlike a declared OTHER
+    /// scheme (which correctly stays `Ok(None)`), a malformed
+    /// `quant_method` is evidence this section is not reliably readable
+    /// at all.
+    #[test]
+    fn a_non_string_quant_method_is_an_error_not_silently_absent() {
+        let bad_shape = br#"{"quantization_config": {
+            "quant_method": 5,
+            "bits": 4,
+            "group_size": 128
+        }}"#;
+        let err = GptqConfig::parse_from_model_config(bad_shape).unwrap_err();
+        assert!(err.to_string().contains("quant_method"));
     }
 
     #[test]
