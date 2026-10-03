@@ -1054,7 +1054,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -1085,7 +1085,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-awq"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -1093,7 +1093,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-conformance"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "fuel-formats",
  "mlmf-core",
@@ -1107,7 +1107,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-core"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "bytemuck",
  "smallvec",
@@ -1116,21 +1116,21 @@ dependencies = [
 
 [[package]]
 name = "mlmf-exl2"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "mlmf-ggml"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "mlmf-core",
 ]
 
 [[package]]
 name = "mlmf-gguf"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "mlmf-core",
  "mlmf-ggml",
@@ -1138,7 +1138,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-gptq"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -1146,7 +1146,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-hf-layout"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -1154,14 +1154,14 @@ dependencies = [
 
 [[package]]
 name = "mlmf-meta"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "mlmf-core",
 ]
 
 [[package]]
 name = "mlmf-safetensors"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -1169,7 +1169,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-source-file"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "memmap2",
  "mlmf-core",
@@ -1177,7 +1177,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-source-hub"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "mlmf-core",
  "serde_json",
