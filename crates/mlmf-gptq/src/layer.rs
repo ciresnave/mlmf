@@ -10,7 +10,7 @@
 
 use std::fmt;
 
-use mlmf_core::TensorContainer;
+use mlmf_core::{TensorContainer, TensorDescriptor};
 
 use crate::GptqGroupSize;
 
@@ -137,95 +137,174 @@ pub fn locate_layers(
             continue;
         };
 
-        let dims = qweight.shape.dims();
-        if dims.len() != 2 {
-            report.malformed.push((
-                prefix.to_string(),
-                format!("qweight has rank {}, expected 2", dims.len()),
-            ));
-            continue;
-        }
-        let packed_rows = dims[0] as u64;
-        let out_features = dims[1] as u64;
-
-        if packed_rows == 0 || out_features == 0 {
-            report.malformed.push((
-                prefix.to_string(),
-                format!("qweight shape [{packed_rows}, {out_features}] has a zero dimension"),
-            ));
-            continue;
-        }
-        let Some(in_features) = packed_rows.checked_mul(pack_factor) else {
-            report.malformed.push((
-                prefix.to_string(),
-                format!(
-                    "qweight's packed row count {packed_rows} * pack factor {pack_factor} overflows u64"
-                ),
-            ));
-            continue;
+        let candidate = LayerCandidate {
+            prefix,
+            qweight_name,
+            qzeros_name,
+            scales_name,
+            qweight,
+            qzeros,
+            scales,
         };
-
-        let group_count = match group_size {
-            GptqGroupSize::NoGrouping => 1,
-            GptqGroupSize::PerGroup(gs) => {
-                if !in_features.is_multiple_of(gs) {
-                    report.malformed.push((
-                        prefix.to_string(),
-                        format!(
-                            "in_features {in_features} is not a whole number of groups of {gs}"
-                        ),
-                    ));
-                    continue;
-                }
-                in_features / gs
-            }
-        };
-
-        if scales.shape.dims() != [group_count as usize, out_features as usize] {
-            report.malformed.push((
-                prefix.to_string(),
-                format!(
-                    "scales shape {:?} does not match the expected [{group_count}, {out_features}]",
-                    scales.shape.dims()
-                ),
-            ));
-            continue;
+        match build_layer(container, candidate, pack_factor, group_size) {
+            Ok(layer) => report.layers.push(layer),
+            Err(reason) => report.malformed.push((prefix.to_string(), reason)),
         }
-        if !out_features.is_multiple_of(pack_factor) {
-            report.malformed.push((
-                prefix.to_string(),
-                format!("out_features {out_features} is not a whole number of {pack_factor}-packs"),
-            ));
-            continue;
-        }
-        let expected_qzeros_cols = out_features / pack_factor;
-        if qzeros.shape.dims() != [group_count as usize, expected_qzeros_cols as usize] {
-            report.malformed.push((
-                prefix.to_string(),
-                format!(
-                    "qzeros shape {:?} does not match the expected [{group_count}, {expected_qzeros_cols}]",
-                    qzeros.shape.dims()
-                ),
-            ));
-            continue;
-        }
-
-        let g_idx_name = format!("{prefix}.g_idx");
-        let bias_name = format!("{prefix}.bias");
-        report.layers.push(PackedLinearLayer {
-            prefix: prefix.to_string(),
-            qweight: qweight_name,
-            qzeros: qzeros_name,
-            scales: scales_name,
-            g_idx: container.tensor(&g_idx_name).map(|_| g_idx_name),
-            bias: container.tensor(&bias_name).map(|_| bias_name),
-            in_features,
-            out_features,
-            group_count,
-        });
     }
 
     Ok(report)
+}
+
+/// One `.qweight`-suffixed prefix with its sibling `.qzeros`/`.scales`
+/// tensors already found, bundled so [`build_layer`] takes one argument
+/// for "the candidate" rather than seven -- a Codacy finding on
+/// `build_layer`'s own parameter count (the extraction that split
+/// `locate_layers` moved its complexity into a parameter list instead of
+/// removing it).
+struct LayerCandidate<'a> {
+    prefix: &'a str,
+    qweight_name: String,
+    qzeros_name: String,
+    scales_name: String,
+    qweight: &'a TensorDescriptor,
+    qzeros: &'a TensorDescriptor,
+    scales: &'a TensorDescriptor,
+}
+
+/// Validate one candidate's geometry and build its [`PackedLinearLayer`],
+/// or name the first guard it fails. Each guard is its own function so
+/// this one stays a straight-line sequence of checks rather than one long
+/// nest of `if`s (none of the guards themselves, or their messages,
+/// changed).
+fn build_layer(
+    container: &dyn TensorContainer,
+    candidate: LayerCandidate<'_>,
+    pack_factor: u64,
+    group_size: GptqGroupSize,
+) -> Result<PackedLinearLayer, String> {
+    let LayerCandidate {
+        prefix,
+        qweight_name,
+        qzeros_name,
+        scales_name,
+        qweight,
+        qzeros,
+        scales,
+    } = candidate;
+    let (packed_rows, out_features) = qweight_rank_guard(qweight)?;
+    zero_dimension_guard(packed_rows, out_features)?;
+    let in_features = in_features_guard(packed_rows, pack_factor)?;
+    let group_count = group_count_guard(in_features, group_size)?;
+    scales_shape_guard(scales, group_count, out_features)?;
+    let expected_qzeros_cols = qzeros_pack_divisibility_guard(out_features, pack_factor)?;
+    qzeros_shape_guard(qzeros, group_count, expected_qzeros_cols)?;
+
+    let g_idx_name = format!("{prefix}.g_idx");
+    let bias_name = format!("{prefix}.bias");
+    Ok(PackedLinearLayer {
+        prefix: prefix.to_string(),
+        qweight: qweight_name,
+        qzeros: qzeros_name,
+        scales: scales_name,
+        g_idx: container.tensor(&g_idx_name).map(|_| g_idx_name),
+        bias: container.tensor(&bias_name).map(|_| bias_name),
+        in_features,
+        out_features,
+        group_count,
+    })
+}
+
+/// Guard: `qweight` must be rank 2. Returns `(packed_rows, out_features)`
+/// straight off its dims.
+fn qweight_rank_guard(qweight: &TensorDescriptor) -> Result<(u64, u64), String> {
+    let dims = qweight.shape.dims();
+    if dims.len() != 2 {
+        return Err(format!("qweight has rank {}, expected 2", dims.len()));
+    }
+    Ok((dims[0] as u64, dims[1] as u64))
+}
+
+/// Guard: neither of `qweight`'s dimensions may be zero. A
+/// `mlmf-safetensors`-parsed container can legitimately produce a `[N, 0]`
+/// shape (zero elements satisfies its own element-count check), so this
+/// must be checked explicitly rather than left to cascade into a
+/// zero-sized "valid" layer.
+fn zero_dimension_guard(packed_rows: u64, out_features: u64) -> Result<(), String> {
+    if packed_rows == 0 || out_features == 0 {
+        return Err(format!(
+            "qweight shape [{packed_rows}, {out_features}] has a zero dimension"
+        ));
+    }
+    Ok(())
+}
+
+/// Guard: `packed_rows * pack_factor` must not overflow `u64` --
+/// `checked_mul`, never a raw `*`, since both operands are read off an
+/// attacker-controlled (downloaded-file) shape.
+fn in_features_guard(packed_rows: u64, pack_factor: u64) -> Result<u64, String> {
+    packed_rows.checked_mul(pack_factor).ok_or_else(|| {
+        format!(
+            "qweight's packed row count {packed_rows} * pack factor {pack_factor} overflows u64"
+        )
+    })
+}
+
+/// Guard: `GptqGroupSize::NoGrouping` is always one group spanning the
+/// whole input dimension; `PerGroup(gs)` requires `in_features` to be a
+/// whole number of `gs`-sized groups.
+fn group_count_guard(in_features: u64, group_size: GptqGroupSize) -> Result<u64, String> {
+    match group_size {
+        GptqGroupSize::NoGrouping => Ok(1),
+        GptqGroupSize::PerGroup(gs) => {
+            if !in_features.is_multiple_of(gs) {
+                return Err(format!(
+                    "in_features {in_features} is not a whole number of groups of {gs}"
+                ));
+            }
+            Ok(in_features / gs)
+        }
+    }
+}
+
+/// Guard: `scales` must be exactly `[group_count, out_features]`.
+fn scales_shape_guard(
+    scales: &TensorDescriptor,
+    group_count: u64,
+    out_features: u64,
+) -> Result<(), String> {
+    if scales.shape.dims() != [group_count as usize, out_features as usize] {
+        return Err(format!(
+            "scales shape {:?} does not match the expected [{group_count}, {out_features}]",
+            scales.shape.dims()
+        ));
+    }
+    Ok(())
+}
+
+/// Guard: `out_features` must be a whole number of `pack_factor`-sized
+/// packs. Returns the expected `qzeros` column count.
+fn qzeros_pack_divisibility_guard(out_features: u64, pack_factor: u64) -> Result<u64, String> {
+    if !out_features.is_multiple_of(pack_factor) {
+        return Err(format!(
+            "out_features {out_features} is not a whole number of {pack_factor}-packs"
+        ));
+    }
+    Ok(out_features / pack_factor)
+}
+
+/// Guard: `qzeros` must be exactly `[group_count, expected_qzeros_cols]`.
+fn qzeros_shape_guard(
+    qzeros: &TensorDescriptor,
+    group_count: u64,
+    expected_qzeros_cols: u64,
+) -> Result<(), String> {
+    if qzeros.shape.dims() != [group_count as usize, expected_qzeros_cols as usize] {
+        return Err(format!(
+            "qzeros shape {:?} does not match the expected [{group_count}, {expected_qzeros_cols}]",
+            qzeros.shape.dims()
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

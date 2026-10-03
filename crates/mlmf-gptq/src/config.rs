@@ -112,40 +112,59 @@ impl GptqConfig {
         let section = section.as_object().ok_or_else(|| {
             GptqConfigError::new("`quantization_config` is present but is not a JSON object")
         })?;
-        // Final-review finding I4: `quantization_config` is a key AWQ,
-        // bitsandbytes, EXL2 and MLX all also use, with overlapping field
-        // names (`bits`, `group_size`). An explicit `quant_method` that
-        // names a different scheme must not be read as a confident GPTQ
-        // answer -- a declared "awq" config returning six GPTQ fields
-        // (several of which really would parse, since the names overlap)
-        // is a wrong answer, not a best-effort one. A config with NO
-        // `quant_method` at all is given the benefit of the doubt, since
-        // GPTQ's own standalone `quantize_config.json` never carries this
-        // key either (confirmed against the real file in this crate's own
-        // `REAL_QUANTIZE_CONFIG` fixture).
-        //
-        // A `quant_method` present but the WRONG shape (not a string) is
-        // neither of those cases: it is evidence this section was written
-        // by something that doesn't follow the convention this reader
-        // relies on to tell GPTQ apart from AWQ/bitsandbytes/EXL2/MLX, so
-        // silently defaulting to "benefit of the doubt" would produce a
-        // confidently-populated GptqConfig indistinguishable from a
-        // verified one (found against mlmf-awq's identical pattern in
-        // mlmf-awq#110's final review; PM ruling: this one case is an
-        // `Err`, not a malformed field or a silent `Ok(None)`).
-        match section.get("quant_method") {
-            None => {}
-            Some(v) => match v.as_str() {
-                Some(method) if method != "gptq" => return Ok(None),
-                Some(_) => {}
-                None => {
-                    return Err(GptqConfigError::new(
-                        "quant_method is present but is not a string",
-                    ));
-                }
-            },
+        if let QuantMethodCheck::NotGptq = check_quant_method(section)? {
+            return Ok(None);
         }
         Ok(Some(parse_fields(section)))
+    }
+}
+
+/// What `quantization_config.quant_method` tells us about whether the rest
+/// of the section is safe to read as GPTQ. Kept as its own guard (rather
+/// than inline in [`GptqConfig::parse_from_model_config`]) because it has
+/// the one three-way outcome that isn't "a field was present and
+/// well/wrong-shaped" -- it decides whether to read the section at all.
+///
+/// Final-review finding I4: `quantization_config` is a key AWQ,
+/// bitsandbytes, EXL2 and MLX all also use, with overlapping field names
+/// (`bits`, `group_size`). An explicit `quant_method` that names a
+/// different scheme must not be read as a confident GPTQ answer -- a
+/// declared "awq" config returning six GPTQ fields (several of which
+/// really would parse, since the names overlap) is a wrong answer, not a
+/// best-effort one. A config with NO `quant_method` at all is given the
+/// benefit of the doubt, since GPTQ's own standalone `quantize_config.json`
+/// never carries this key either (confirmed against the real file in this
+/// crate's own `REAL_QUANTIZE_CONFIG` fixture).
+///
+/// A `quant_method` present but the WRONG shape (not a string) is neither
+/// of those cases: it is evidence this section was written by something
+/// that doesn't follow the convention this reader relies on to tell GPTQ
+/// apart from AWQ/bitsandbytes/EXL2/MLX, so silently defaulting to
+/// "benefit of the doubt" would produce a confidently-populated
+/// `GptqConfig` indistinguishable from a verified one (found against
+/// mlmf-awq's identical pattern in mlmf-awq#110's final review; PM ruling:
+/// this one case is an `Err`, not a malformed field or a silent
+/// `Ok(None)`).
+enum QuantMethodCheck {
+    /// Declares a DIFFERENT scheme -- the caller must return `Ok(None)`.
+    NotGptq,
+    /// Declares `"gptq"`, or declares no `quant_method` at all (benefit of
+    /// the doubt) -- either way, safe to read the rest of the section.
+    ReadableAsGptq,
+}
+
+fn check_quant_method(
+    section: &serde_json::Map<String, serde_json::Value>,
+) -> Result<QuantMethodCheck, GptqConfigError> {
+    match section.get("quant_method") {
+        None => Ok(QuantMethodCheck::ReadableAsGptq),
+        Some(v) => match v.as_str() {
+            Some(method) if method != "gptq" => Ok(QuantMethodCheck::NotGptq),
+            Some(_) => Ok(QuantMethodCheck::ReadableAsGptq),
+            None => Err(GptqConfigError::new(
+                "quant_method is present but is not a string",
+            )),
+        },
     }
 }
 

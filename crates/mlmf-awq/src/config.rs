@@ -88,30 +88,15 @@ impl AwqConfig {
             .ok_or_else(|| AwqConfigError::new("the top level is not a JSON object"))?;
 
         let mut out = AwqConfig::default();
-        if let Some(v) = root.get("w_bit") {
-            match v.as_u64() {
-                Some(n) => out.bits = Some(n),
-                None => out.malformed.push("w_bit".to_string()),
-            }
-        }
-        if let Some(v) = root.get("q_group_size") {
-            match v.as_u64() {
-                Some(n) => out.group_size = Some(n),
-                None => out.malformed.push("q_group_size".to_string()),
-            }
-        }
-        if let Some(v) = root.get("zero_point") {
-            match v.as_bool() {
-                Some(b) => out.zero_point = Some(b),
-                None => out.malformed.push("zero_point".to_string()),
-            }
-        }
-        if let Some(v) = root.get("version") {
-            match v.as_str() {
-                Some(s) => out.version = Some(s.to_string()),
-                None => out.malformed.push("version".to_string()),
-            }
-        }
+        parse_u64_field(root, "w_bit", &mut out.bits, &mut out.malformed);
+        parse_u64_field(
+            root,
+            "q_group_size",
+            &mut out.group_size,
+            &mut out.malformed,
+        );
+        parse_bool_field(root, "zero_point", &mut out.zero_point, &mut out.malformed);
+        parse_string_field(root, "version", &mut out.version, &mut out.malformed);
         out.malformed.sort_unstable();
         Ok(out)
     }
@@ -149,44 +134,108 @@ impl AwqConfig {
         })?;
 
         let mut out = AwqConfig::default();
-        match section.get("quant_method") {
-            None => {}
-            Some(v) => match v.as_str() {
-                Some(s) => {
-                    if s != "awq" {
-                        return Ok(None);
-                    }
-                    out.quant_method = Some(s.to_string());
-                }
-                None => out.malformed.push("quant_method".to_string()),
-            },
+        match check_quant_method(section) {
+            QuantMethodCheck::NotAwq => return Ok(None),
+            QuantMethodCheck::Confirmed(method) => out.quant_method = Some(method),
+            QuantMethodCheck::Unconfirmed => {}
+            QuantMethodCheck::Malformed => out.malformed.push("quant_method".to_string()),
         }
-        if let Some(v) = section.get("bits") {
-            match v.as_u64() {
-                Some(n) => out.bits = Some(n),
-                None => out.malformed.push("bits".to_string()),
-            }
-        }
-        if let Some(v) = section.get("group_size") {
-            match v.as_u64() {
-                Some(n) => out.group_size = Some(n),
-                None => out.malformed.push("group_size".to_string()),
-            }
-        }
-        if let Some(v) = section.get("zero_point") {
-            match v.as_bool() {
-                Some(b) => out.zero_point = Some(b),
-                None => out.malformed.push("zero_point".to_string()),
-            }
-        }
-        if let Some(v) = section.get("version") {
-            match v.as_str() {
-                Some(s) => out.version = Some(s.to_string()),
-                None => out.malformed.push("version".to_string()),
-            }
-        }
+        parse_u64_field(section, "bits", &mut out.bits, &mut out.malformed);
+        parse_u64_field(
+            section,
+            "group_size",
+            &mut out.group_size,
+            &mut out.malformed,
+        );
+        parse_bool_field(
+            section,
+            "zero_point",
+            &mut out.zero_point,
+            &mut out.malformed,
+        );
+        parse_string_field(section, "version", &mut out.version, &mut out.malformed);
         out.malformed.sort_unstable();
         Ok(Some(out))
+    }
+}
+
+/// What `quantization_config.quant_method` tells us about whether the rest
+/// of the section is safe to read as AWQ. Kept as its own guard (rather
+/// than inline in [`AwqConfig::parse_from_model_config`]) because this is
+/// the one check with three outcomes that aren't "a field was present and
+/// well/wrong-shaped" — it decides whether to read the section at all.
+enum QuantMethodCheck {
+    /// Declares a DIFFERENT scheme (e.g. `"gptq"`) -- the caller must
+    /// return `Ok(None)`, not a confident-but-wrong `AwqConfig`.
+    NotAwq,
+    /// Declares `"awq"`, exactly as written.
+    Confirmed(String),
+    /// Not declared at all -- benefit of the doubt (see
+    /// [`AwqConfig::quant_method`]'s doc comment for why), but not
+    /// recorded as confirmed.
+    Unconfirmed,
+    /// Declared, but not a string -- neither a confirmed match nor a
+    /// confirmed mismatch, so `malformed`, never silently treated as
+    /// `Unconfirmed`.
+    Malformed,
+}
+
+fn check_quant_method(section: &serde_json::Map<String, serde_json::Value>) -> QuantMethodCheck {
+    match section.get("quant_method") {
+        None => QuantMethodCheck::Unconfirmed,
+        Some(v) => match v.as_str() {
+            Some(s) if s != "awq" => QuantMethodCheck::NotAwq,
+            Some(s) => QuantMethodCheck::Confirmed(s.to_string()),
+            None => QuantMethodCheck::Malformed,
+        },
+    }
+}
+
+/// Read one `u64` field, permissively: absent leaves `out` untouched
+/// (still `None`), a wrong-shaped value is named in `malformed` rather
+/// than silently dropped or collapsed into "absent".
+fn parse_u64_field(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    out: &mut Option<u64>,
+    malformed: &mut Vec<String>,
+) {
+    if let Some(v) = obj.get(key) {
+        match v.as_u64() {
+            Some(n) => *out = Some(n),
+            None => malformed.push(key.to_string()),
+        }
+    }
+}
+
+/// Read one `bool` field, permissively (see [`parse_u64_field`]).
+fn parse_bool_field(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    out: &mut Option<bool>,
+    malformed: &mut Vec<String>,
+) {
+    if let Some(v) = obj.get(key) {
+        match v.as_bool() {
+            Some(b) => *out = Some(b),
+            None => malformed.push(key.to_string()),
+        }
+    }
+}
+
+/// Read one `String` field, permissively, preserving it exactly as
+/// declared -- never re-cased (see [`parse_u64_field`]).
+fn parse_string_field(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    out: &mut Option<String>,
+    malformed: &mut Vec<String>,
+) {
+    if let Some(v) = obj.get(key) {
+        match v.as_str() {
+            Some(s) => *out = Some(s.to_string()),
+            None => malformed.push(key.to_string()),
+        }
     }
 }
 

@@ -9,7 +9,7 @@
 
 use std::fmt;
 
-use mlmf_core::TensorContainer;
+use mlmf_core::{TensorContainer, TensorDescriptor};
 
 /// Why `locate_layers` refused to run at all.
 ///
@@ -126,82 +126,156 @@ pub fn locate_layers(
             continue;
         };
 
-        let dims = qweight.shape.dims();
-        if dims.len() != 2 {
-            report.malformed.push((
-                prefix.to_string(),
-                format!("qweight has rank {}, expected 2", dims.len()),
-            ));
-            continue;
-        }
-        // Transposed from mlmf-gptq: AWQ packs the OUTPUT dimension, so
-        // in_features is read directly and out_features is derived.
-        let in_features = dims[0] as u64;
-        let packed_out_cols = dims[1] as u64;
-
-        if in_features == 0 || packed_out_cols == 0 {
-            report.malformed.push((
-                prefix.to_string(),
-                format!("qweight shape [{in_features}, {packed_out_cols}] has a zero dimension"),
-            ));
-            continue;
-        }
-        let Some(out_features) = packed_out_cols.checked_mul(pack_factor) else {
-            report.malformed.push((
-                prefix.to_string(),
-                format!(
-                    "qweight's packed column count {packed_out_cols} * pack factor {pack_factor} overflows u64"
-                ),
-            ));
-            continue;
+        let candidate = LayerCandidate {
+            prefix,
+            qweight_name,
+            qzeros_name,
+            scales_name,
+            qweight,
+            qzeros,
+            scales,
         };
-
-        if !in_features.is_multiple_of(group_size) {
-            report.malformed.push((
-                prefix.to_string(),
-                format!(
-                    "in_features {in_features} is not a whole number of groups of {group_size}"
-                ),
-            ));
-            continue;
+        match build_layer(container, candidate, pack_factor, group_size) {
+            Ok(layer) => report.layers.push(layer),
+            Err(reason) => report.malformed.push((prefix.to_string(), reason)),
         }
-        let group_count = in_features / group_size;
-
-        if scales.shape.dims() != [group_count as usize, out_features as usize] {
-            report.malformed.push((
-                prefix.to_string(),
-                format!(
-                    "scales shape {:?} does not match the expected [{group_count}, {out_features}]",
-                    scales.shape.dims()
-                ),
-            ));
-            continue;
-        }
-        if qzeros.shape.dims() != [group_count as usize, packed_out_cols as usize] {
-            report.malformed.push((
-                prefix.to_string(),
-                format!(
-                    "qzeros shape {:?} does not match the expected [{group_count}, {packed_out_cols}]",
-                    qzeros.shape.dims()
-                ),
-            ));
-            continue;
-        }
-
-        let bias_name = format!("{prefix}.bias");
-        report.layers.push(PackedLinearLayer {
-            prefix: prefix.to_string(),
-            qweight: qweight_name,
-            qzeros: qzeros_name,
-            scales: scales_name,
-            bias: container.tensor(&bias_name).map(|_| bias_name),
-            in_features,
-            out_features,
-            group_count,
-        });
     }
 
     Ok(report)
+}
+
+/// One `.qweight`-suffixed prefix with its sibling `.qzeros`/`.scales`
+/// tensors already found, bundled so [`build_layer`] takes one argument
+/// for "the candidate" rather than seven -- a Codacy finding on
+/// `build_layer`'s own parameter count (the extraction that split
+/// `locate_layers` moved its complexity into a parameter list instead of
+/// removing it).
+struct LayerCandidate<'a> {
+    prefix: &'a str,
+    qweight_name: String,
+    qzeros_name: String,
+    scales_name: String,
+    qweight: &'a TensorDescriptor,
+    qzeros: &'a TensorDescriptor,
+    scales: &'a TensorDescriptor,
+}
+
+/// Validate one candidate's geometry and build its [`PackedLinearLayer`],
+/// or name the first guard it fails. Each guard is its own function so
+/// this one stays a straight-line sequence of checks rather than one long
+/// nest of `if`s -- the per-guard split this crate's Codacy review asked
+/// for (none of the guards themselves, or their messages, changed).
+fn build_layer(
+    container: &dyn TensorContainer,
+    candidate: LayerCandidate<'_>,
+    pack_factor: u64,
+    group_size: u64,
+) -> Result<PackedLinearLayer, String> {
+    let LayerCandidate {
+        prefix,
+        qweight_name,
+        qzeros_name,
+        scales_name,
+        qweight,
+        qzeros,
+        scales,
+    } = candidate;
+    // Transposed from mlmf-gptq: AWQ packs the OUTPUT dimension, so
+    // in_features is read directly and out_features is derived.
+    let (in_features, packed_out_cols) = qweight_rank_guard(qweight)?;
+    zero_dimension_guard(in_features, packed_out_cols)?;
+    let out_features = out_features_guard(packed_out_cols, pack_factor)?;
+    let group_count = group_count_guard(in_features, group_size)?;
+    scales_shape_guard(scales, group_count, out_features)?;
+    qzeros_shape_guard(qzeros, group_count, packed_out_cols)?;
+
+    let bias_name = format!("{prefix}.bias");
+    Ok(PackedLinearLayer {
+        prefix: prefix.to_string(),
+        qweight: qweight_name,
+        qzeros: qzeros_name,
+        scales: scales_name,
+        bias: container.tensor(&bias_name).map(|_| bias_name),
+        in_features,
+        out_features,
+        group_count,
+    })
+}
+
+/// Guard: `qweight` must be rank 2. Returns `(in_features,
+/// packed_out_cols)` straight off its dims.
+fn qweight_rank_guard(qweight: &TensorDescriptor) -> Result<(u64, u64), String> {
+    let dims = qweight.shape.dims();
+    if dims.len() != 2 {
+        return Err(format!("qweight has rank {}, expected 2", dims.len()));
+    }
+    Ok((dims[0] as u64, dims[1] as u64))
+}
+
+/// Guard: neither of `qweight`'s dimensions may be zero. A
+/// `mlmf-safetensors`-parsed container can legitimately produce a `[N, 0]`
+/// shape (zero elements satisfies its own element-count check), so this
+/// must be checked explicitly rather than left to cascade into a
+/// zero-sized "valid" layer.
+fn zero_dimension_guard(in_features: u64, packed_out_cols: u64) -> Result<(), String> {
+    if in_features == 0 || packed_out_cols == 0 {
+        return Err(format!(
+            "qweight shape [{in_features}, {packed_out_cols}] has a zero dimension"
+        ));
+    }
+    Ok(())
+}
+
+/// Guard: `packed_out_cols * pack_factor` must not overflow `u64` --
+/// `checked_mul`, never a raw `*`, since both operands are read off an
+/// attacker-controlled (downloaded-file) shape.
+fn out_features_guard(packed_out_cols: u64, pack_factor: u64) -> Result<u64, String> {
+    packed_out_cols.checked_mul(pack_factor).ok_or_else(|| {
+        format!(
+            "qweight's packed column count {packed_out_cols} * pack factor {pack_factor} overflows u64"
+        )
+    })
+}
+
+/// Guard: `in_features` must be a whole number of `group_size`-sized
+/// groups.
+fn group_count_guard(in_features: u64, group_size: u64) -> Result<u64, String> {
+    if !in_features.is_multiple_of(group_size) {
+        return Err(format!(
+            "in_features {in_features} is not a whole number of groups of {group_size}"
+        ));
+    }
+    Ok(in_features / group_size)
+}
+
+/// Guard: `scales` must be exactly `[group_count, out_features]`.
+fn scales_shape_guard(
+    scales: &TensorDescriptor,
+    group_count: u64,
+    out_features: u64,
+) -> Result<(), String> {
+    if scales.shape.dims() != [group_count as usize, out_features as usize] {
+        return Err(format!(
+            "scales shape {:?} does not match the expected [{group_count}, {out_features}]",
+            scales.shape.dims()
+        ));
+    }
+    Ok(())
+}
+
+/// Guard: `qzeros` must be exactly `[group_count, packed_out_cols]`.
+fn qzeros_shape_guard(
+    qzeros: &TensorDescriptor,
+    group_count: u64,
+    packed_out_cols: u64,
+) -> Result<(), String> {
+    if qzeros.shape.dims() != [group_count as usize, packed_out_cols as usize] {
+        return Err(format!(
+            "qzeros shape {:?} does not match the expected [{group_count}, {packed_out_cols}]",
+            qzeros.shape.dims()
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
