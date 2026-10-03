@@ -22,6 +22,7 @@ default-members = [
     # not fail it. Written here as well as there, because here is where the
     # deletion would be typed.
     ".",
+    "crates/mlmf-awq",
     "crates/mlmf-conformance",
     "crates/mlmf-core",
     "crates/mlmf-exl2",
@@ -39,7 +40,7 @@ default-members = [
 edition    = "2024"
 license    = "MIT OR Apache-2.0"
 repository = "https://github.com/CireSnave/mlmf"
-version    = "0.5.5"
+version    = "0.5.6"
 
 [package]
     authors = ["Eric Evans <CireSnave@gmail.com>"]

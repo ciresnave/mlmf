@@ -1,0 +1,14 @@
+[package]
+    description          = "AWQ quantization geometry: locate packed linear layers in a safetensors container and parse both real quant_config.json conventions. No I/O, no dequantization."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-awq"
+    repository.workspace = true
+    version.workspace    = true
+
+# NO [features] SECTION, matching mlmf-gptq and mlmf-ggml: there is no
+# second configuration to lint or document.
+
+[dependencies]
+    mlmf-core  = { path = "../mlmf-core", version = "0.5.5" }
+    serde_json = { version = "1.0", default-features = false, features = ["std"] }

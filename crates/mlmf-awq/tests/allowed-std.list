@@ -1,0 +1,13 @@
+# C3: the std submodules mlmf-awq may name. Grows one commit at a time,
+# each entry landing beside the code that forced it.
+#
+# `borrow` -- `std::borrow::Cow`, in `layer.rs`'s test module only
+#   (`FakeContainer::tensor_bytes`'s `Result<Cow<'_, [u8]>>` return type,
+#   matching `mlmf_core::TensorContainer::tensor_bytes`'s own signature).
+# `error`  -- `impl std::error::Error for AwqConfigError`/`LocateError`.
+# `fmt`    -- `impl std::fmt::Display for AwqConfigError`/`LocateError`,
+#   hand-written rather than derived because the message is free text the
+#   caller should see as-is.
+borrow
+error
+fmt
