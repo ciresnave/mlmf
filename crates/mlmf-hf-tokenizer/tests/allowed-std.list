@@ -1,0 +1,9 @@
+# C3: the std submodules mlmf-hf-tokenizer may name. Grows one commit at
+# a time, each entry landing beside the code that forced it.
+#
+# `error` -- `impl std::error::Error for TokenizerJsonError`.
+# `fmt`   -- `impl std::fmt::Display for TokenizerJsonError`, hand-written
+#   rather than derived because the message names the exact field/entry
+#   that was missing or malformed.
+error
+fmt

@@ -1154,6 +1154,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mlmf-hf-tokenizer"
+version = "0.5.8"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "mlmf-meta"
 version = "0.5.8"
 dependencies = [

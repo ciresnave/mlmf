@@ -30,6 +30,7 @@ default-members = [
     "crates/mlmf-gguf",
     "crates/mlmf-gptq",
     "crates/mlmf-hf-layout",
+    "crates/mlmf-hf-tokenizer",
     "crates/mlmf-meta",
     "crates/mlmf-safetensors",
     "crates/mlmf-source-file",
