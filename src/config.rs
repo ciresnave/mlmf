@@ -16,25 +16,37 @@ use std::path::Path;
 /// model architectures by using serde field aliases.
 #[derive(Debug, Clone, Deserialize)]
 pub struct HFConfig {
-    /// Vocabulary size
-    #[serde(default)]
-    pub vocab_size: usize,
+    /// Vocabulary size, or `None` if the file did not declare one.
+    ///
+    /// ⚠️ This used to carry `#[serde(default)]`, which decoded an absent key
+    /// to `0` -- the identical value a file declaring `"vocab_size": 0` also
+    /// produces. #118: a fabricated `0` is indistinguishable from a declared
+    /// one, which is exactly the tell CLAUDE.md §1 names.
+    pub vocab_size: Option<usize>,
 
-    /// Hidden dimension size
+    /// Hidden dimension size, or `None` if the file did not declare one.
+    ///
+    /// ⚠️ This used to be a plain, non-`Option` `usize`: one absent key
+    /// failed deserialization of the WHOLE file, discarding every other
+    /// field the file DID declare (#118).
     #[serde(alias = "hidden_size", alias = "n_embd", alias = "d_model")]
-    pub hidden_size: usize,
+    pub hidden_size: Option<usize>,
 
-    /// Number of attention heads
+    /// Number of attention heads, or `None` if the file did not declare one.
+    ///
+    /// ⚠️ Same #118 shape as `hidden_size`: previously a plain `usize`.
     #[serde(alias = "num_attention_heads", alias = "n_head", alias = "num_heads")]
-    pub num_attention_heads: usize,
+    pub num_attention_heads: Option<usize>,
 
     /// Number of key-value heads for Grouped Query Attention (GQA)
     #[serde(alias = "num_key_value_heads")]
     pub num_key_value_heads: Option<usize>,
 
-    /// Number of transformer layers
+    /// Number of transformer layers, or `None` if the file did not declare one.
+    ///
+    /// ⚠️ Same #118 shape as `hidden_size`: previously a plain `usize`.
     #[serde(alias = "num_hidden_layers", alias = "n_layer", alias = "num_layers")]
-    pub num_hidden_layers: usize,
+    pub num_hidden_layers: Option<usize>,
 
     /// Intermediate/FFN size
     #[serde(alias = "intermediate_size", alias = "n_inner", alias = "ffn_dim")]
@@ -158,7 +170,7 @@ impl HFConfig {
     /// use std::path::Path;
     ///
     /// let config = HFConfig::from_file(Path::new("./models/llama-7b/config.json"))?;
-    /// println!("Hidden size: {}", config.hidden_size);
+    /// println!("Hidden size: {:?}", config.hidden_size);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn from_file(config_path: &Path) -> Result<Self> {
@@ -267,26 +279,45 @@ impl HFConfig {
             ));
         }
 
-        // Validate required fields
-        if self.vocab_size == 0 {
+        // Required fields: `ModelConfig` cannot represent an absent one of
+        // these (plain `usize`, not `Option`), so a missing key is reported
+        // by NAME here rather than surfacing as an opaque deserialize
+        // failure for the whole file (#118).
+        let vocab_size = self
+            .vocab_size
+            .ok_or_else(|| Error::invalid_config("vocab_size is required but was not declared"))?;
+        let hidden_size = self
+            .hidden_size
+            .ok_or_else(|| Error::invalid_config("hidden_size is required but was not declared"))?;
+        let num_attention_heads = self.num_attention_heads.ok_or_else(|| {
+            Error::invalid_config("num_attention_heads is required but was not declared")
+        })?;
+        let num_hidden_layers = self.num_hidden_layers.ok_or_else(|| {
+            Error::invalid_config("num_hidden_layers is required but was not declared")
+        })?;
+
+        // A value that WAS declared is still checked against its range --
+        // "declared 0" is a real violation and stays distinguishable from
+        // "not declared" by the `ok_or_else` above having already returned.
+        if vocab_size == 0 {
             return Err(Error::invalid_config("vocab_size must be greater than 0"));
         }
-        if self.hidden_size == 0 {
+        if hidden_size == 0 {
             return Err(Error::invalid_config("hidden_size must be greater than 0"));
         }
-        if self.num_attention_heads == 0 {
+        if num_attention_heads == 0 {
             return Err(Error::invalid_config(
                 "num_attention_heads must be greater than 0",
             ));
         }
-        if self.num_hidden_layers == 0 {
+        if num_hidden_layers == 0 {
             return Err(Error::invalid_config(
                 "num_hidden_layers must be greater than 0",
             ));
         }
 
         // Check head dimensions
-        if self.hidden_size % self.num_attention_heads != 0 {
+        if hidden_size % num_attention_heads != 0 {
             return Err(Error::invalid_config(
                 "hidden_size must be divisible by num_attention_heads",
             ));
@@ -334,17 +365,17 @@ impl HFConfig {
         // what absence MEANS licenses a value. One that merely offers a
         // convenient starting number does not. Every constant removed above
         // failed that test; this one passes it.
-        let num_key_value_heads = self.num_key_value_heads.unwrap_or(self.num_attention_heads);
+        let num_key_value_heads = self.num_key_value_heads.unwrap_or(num_attention_heads);
 
         Ok(ModelConfig {
-            vocab_size: self.vocab_size,
-            hidden_size: self.hidden_size,
-            // `Some(..)`: `HFConfig::num_attention_heads` is NOT `Option` -- an
-            // HF config.json omitting it fails to parse -- so on this path the
-            // count is always read from the file.
-            num_attention_heads: Some(self.num_attention_heads),
+            vocab_size,
+            hidden_size,
+            // `Some(..)`: the `ok_or_else` above already returned if the file
+            // did not declare a head count, so on this path it was read from
+            // the file.
+            num_attention_heads: Some(num_attention_heads),
             num_key_value_heads: Some(num_key_value_heads),
-            num_hidden_layers: self.num_hidden_layers,
+            num_hidden_layers,
             intermediate_size: self.intermediate_size,
             max_position_embeddings: self.max_position_embeddings,
             dropout,
@@ -579,10 +610,10 @@ mod tests {
         let config_path = create_test_config(config_json);
         let hf_config = HFConfig::from_file(&config_path).unwrap();
 
-        assert_eq!(hf_config.vocab_size, 32000);
-        assert_eq!(hf_config.hidden_size, 4096);
-        assert_eq!(hf_config.num_attention_heads, 32);
-        assert_eq!(hf_config.num_hidden_layers, 32);
+        assert_eq!(hf_config.vocab_size, Some(32000));
+        assert_eq!(hf_config.hidden_size, Some(4096));
+        assert_eq!(hf_config.num_attention_heads, Some(32));
+        assert_eq!(hf_config.num_hidden_layers, Some(32));
         assert_eq!(hf_config.intermediate_size, Some(11008));
 
         let model_config = hf_config.to_model_config(Architecture::LLaMA).unwrap();
@@ -605,10 +636,10 @@ mod tests {
         let config_path = create_test_config(config_json);
         let hf_config = HFConfig::from_file(&config_path).unwrap();
 
-        assert_eq!(hf_config.vocab_size, 50257);
-        assert_eq!(hf_config.hidden_size, 768);
-        assert_eq!(hf_config.num_attention_heads, 12);
-        assert_eq!(hf_config.num_hidden_layers, 12);
+        assert_eq!(hf_config.vocab_size, Some(50257));
+        assert_eq!(hf_config.hidden_size, Some(768));
+        assert_eq!(hf_config.num_attention_heads, Some(12));
+        assert_eq!(hf_config.num_hidden_layers, Some(12));
         assert_eq!(hf_config.intermediate_size, Some(3072));
         assert_eq!(hf_config.max_position_embeddings, Some(1024));
 
@@ -620,11 +651,11 @@ mod tests {
     #[test]
     fn test_config_validation() {
         let mut hf_config = HFConfig {
-            vocab_size: 1000,
-            hidden_size: 768,
-            num_attention_heads: 12,
+            vocab_size: Some(1000),
+            hidden_size: Some(768),
+            num_attention_heads: Some(12),
             num_key_value_heads: None, // Will default to num_attention_heads
-            num_hidden_layers: 6,
+            num_hidden_layers: Some(6),
             intermediate_size: None,
             max_position_embeddings: None,
             dropout: Some(0.1),
@@ -643,7 +674,7 @@ mod tests {
         config.validate().unwrap();
 
         // Test invalid head dimension
-        hf_config.hidden_size = 777; // Not divisible by 12
+        hf_config.hidden_size = Some(777); // Not divisible by 12
         let result = hf_config.to_model_config(Architecture::GPT2);
         assert!(result.is_err());
     }
@@ -651,11 +682,11 @@ mod tests {
     #[test]
     fn test_config_summary() {
         let hf_config = HFConfig {
-            vocab_size: 32000,
-            hidden_size: 4096,
-            num_attention_heads: 32,
+            vocab_size: Some(32000),
+            hidden_size: Some(4096),
+            num_attention_heads: Some(32),
             num_key_value_heads: None, // Will default to num_attention_heads
-            num_hidden_layers: 32,
+            num_hidden_layers: Some(32),
             intermediate_size: Some(11008),
             max_position_embeddings: Some(4096),
             dropout: Some(0.0),
@@ -960,6 +991,126 @@ mod tests {
             silent.dropout, None,
             "the file never mentions dropout, so MLMF has nothing to report. \
              0.1 here is serde's default arriving as if the model declared it."
+        );
+    }
+
+    // ================================================================
+    // #118 -- `HFConfig::vocab_size` is `usize` with `#[serde(default)]`, so
+    // an absent key and a declared `0` decode to the identical value and
+    // produce the identical downstream error. `hidden_size`,
+    // `num_attention_heads` and `num_hidden_layers` have the opposite shape:
+    // plain `usize`, no default, so ONE missing key fails the WHOLE file's
+    // deserialization rather than reporting what the file does have.
+    // ================================================================
+
+    /// ⚠️ TWO FIXTURES THAT MUST PRODUCE DIFFERENT ERRORS. Before the fix,
+    /// `vocab_size: usize` with `#[serde(default)]` decodes an absent key to
+    /// `0`, the exact value a file declaring `"vocab_size": 0` also produces
+    /// -- so `to_model_config` cannot tell "the model declared zero" from
+    /// "the model said nothing" and raises the identical
+    /// "vocab_size must be greater than 0" error for both. §6's tell applies
+    /// here to an ERROR MESSAGE, not just a returned value: a fabricated
+    /// `0` is indistinguishable from a declared one.
+    #[test]
+    fn absent_vocab_size_is_distinguishable_from_declared_zero() {
+        const DECLARED_ZERO: &str = r#"{
+            "vocab_size": 0,
+            "hidden_size": 4096,
+            "num_attention_heads": 32,
+            "num_hidden_layers": 32
+        }"#;
+        const ABSENT: &str = r#"{
+            "hidden_size": 4096,
+            "num_attention_heads": 32,
+            "num_hidden_layers": 32
+        }"#;
+
+        let declared_zero_path = create_test_config(DECLARED_ZERO);
+        let declared_zero_err = HFConfig::from_file(&declared_zero_path)
+            .unwrap()
+            .to_model_config(Architecture::LLaMA)
+            .expect_err("a declared 0 is a real range violation")
+            .to_string();
+
+        let absent_path = create_test_config(ABSENT);
+        let absent_err = HFConfig::from_file(&absent_path)
+            .unwrap()
+            .to_model_config(Architecture::LLaMA)
+            .expect_err("vocab_size is required to build a ModelConfig")
+            .to_string();
+
+        assert_ne!(
+            declared_zero_err, absent_err,
+            "a model that declared vocab_size 0 and a file that never \
+             mentioned vocab_size must not raise the same error -- one is a \
+             range violation, the other is a missing key, and conflating \
+             them is the #118 defect"
+        );
+    }
+
+    /// ⚠️ ONE KEY REMOVED, THE OTHER THREE STILL PRESENT. Before the fix,
+    /// `hidden_size`/`num_attention_heads`/`num_hidden_layers` are plain
+    /// `usize` with no `Option` and no default, so `serde` fails to
+    /// deserialize the ENTIRE file over one absent key -- the file's
+    /// `vocab_size` is also lost, even though the file declared it.
+    #[test]
+    fn a_missing_sibling_field_does_not_lose_the_rest_of_the_file() {
+        const MISSING_LAYERS: &str = r#"{
+            "vocab_size": 32000,
+            "hidden_size": 4096,
+            "num_attention_heads": 32
+        }"#;
+
+        let path = create_test_config(MISSING_LAYERS);
+        let hf_config = HFConfig::from_file(&path).expect(
+            "a file missing one optional-in-practice field must still parse \
+             -- #118's ruling is that an absent field is Option<T>, not a \
+             parse failure for the whole document",
+        );
+
+        // The fields the file DID declare must survive the parse.
+        assert_eq!(hf_config.vocab_size, Some(32000));
+        assert_eq!(hf_config.hidden_size, Some(4096));
+        assert_eq!(hf_config.num_attention_heads, Some(32));
+        assert_eq!(
+            hf_config.num_hidden_layers, None,
+            "the file never declared num_hidden_layers"
+        );
+
+        // Converting to ModelConfig still fails -- num_hidden_layers has no
+        // format-documented meaning for absence and ModelConfig cannot
+        // represent one unknown -- but the failure must name the missing
+        // field rather than reporting a parse error over unrelated bytes.
+        let err = hf_config
+            .to_model_config(Architecture::LLaMA)
+            .expect_err("num_hidden_layers is required to build a ModelConfig")
+            .to_string();
+        assert!(
+            err.contains("num_hidden_layers"),
+            "the error must name the field the file actually omitted: {err}"
+        );
+
+        // ⚠️ `contains("num_hidden_layers")` alone would also pass if the
+        // field were silently coerced to 0 -- "num_hidden_layers must be
+        // greater than 0" contains the substring too. The CONTROL: a file
+        // that DECLARES 0 must raise that different, range-violation
+        // message, not this absent-key one.
+        const DECLARED_ZERO_LAYERS: &str = r#"{
+            "vocab_size": 32000,
+            "hidden_size": 4096,
+            "num_attention_heads": 32,
+            "num_hidden_layers": 0
+        }"#;
+        let declared_zero_path = create_test_config(DECLARED_ZERO_LAYERS);
+        let declared_zero_err = HFConfig::from_file(&declared_zero_path)
+            .unwrap()
+            .to_model_config(Architecture::LLaMA)
+            .expect_err("a declared 0 is a real range violation")
+            .to_string();
+        assert_ne!(
+            err, declared_zero_err,
+            "an absent num_hidden_layers and a declared 0 must raise \
+             different errors, exactly as #118 ruled for vocab_size"
         );
     }
 }

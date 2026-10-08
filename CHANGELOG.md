@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-08
+
+### Changed
+- **Breaking:** `HFConfig`'s `vocab_size`, `hidden_size`, `num_attention_heads`
+  and `num_hidden_layers` are now `Option<usize>` instead of `usize` (#118).
+  An absent `vocab_size` previously decoded to `0`, indistinguishable from a
+  file that declared `vocab_size: 0`; the other three were non-`Option`, so
+  one absent key failed deserialization of the whole `config.json`.
+  `HFConfig::to_model_config` now reports a missing field by name, and
+  distinguishes "not declared" from "declared 0" with different error
+  messages.
+
 ## [0.2.1] - 2024-11-12
 
 ### Added

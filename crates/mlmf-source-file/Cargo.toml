@@ -39,7 +39,7 @@
     # format crate. That is what makes `any source x any format` compose --
     # an edge to a format crate here would make this source usable with one
     # format and would put format knowledge on the I/O axis.
-    mlmf-core = { path = "../mlmf-core", version = "0.5.0" }
+    mlmf-core = { path = "../mlmf-core", version = "0.6.0" }
 
 # DEFAULT, because spec §3.4 says default -- and C6 is the other half of that
 # sentence: "CI builds AND RUNS the full parser suite with
