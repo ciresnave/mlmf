@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-10-08
+
+### Fixed
+- `TensorNameMapper` now recognizes qwen3's QK-Norm components -- GGUF
+  `attn_q_norm.weight`/`attn_k_norm.weight` and HF/SafeTensors
+  `self_attn.q_norm.*`/`self_attn.k_norm.*` (#96). Previously these hit the
+  unrecognized-component refusal added in #97/#98; they are now ordinary
+  recognized renames, consistent with the existing `q_proj`/`k_proj`/`v_proj`
+  entries. Not a breaking change -- purely additive recognition.
+
 ## [0.6.0] - 2026-10-08
 
 ### Changed

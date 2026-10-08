@@ -218,22 +218,22 @@ impl TensorNameMapper {
     ///
     /// Measured against a real file (`Qwen3-4B-Instruct-2507-Q4_K_M.gguf`,
     /// `general.architecture = qwen3`, 398 tensors): its `attn_q_norm.weight`
-    /// / `attn_k_norm.weight` (QK-Norm) are not in [`Self::parse_llama_gguf_layer`]'s
-    /// known list, and under the old shape this silently discarded
-    /// translation for all 398 tensors, not just the two unrecognized
-    /// components — the first one encountered poisoned the whole result.
-    ///
-    /// A partial map — translate what is recognized, drop the rest under
-    /// their raw names — was considered and rejected: `attn_q_norm` /
-    /// `attn_k_norm` have no canonical slot in this map's target schema, so
-    /// a partial map would leave them silently untranslated with no
-    /// signal, and a caller building a model from the result would run it
-    /// as ordinary LLaMA-style attention, silently omitting the
-    /// QK-normalization qwen3 actually needs — wrong numerics with no
-    /// error, which is worse than today's uniform, at least visible, total
-    /// failure. Refusing loudly and naming every unrecognized component in
-    /// one message is what a caller can act on without a second round
-    /// trip per component.
+    /// / `attn_k_norm.weight` (QK-Norm) were not in
+    /// [`Self::parse_llama_gguf_layer`]'s known list, and under the old
+    /// shape this silently discarded translation for all 398 tensors, not
+    /// just the two unrecognized components — the first one encountered
+    /// poisoned the whole result. #96 added both as recognized components
+    /// (structural renames, not guessed values -- see
+    /// [`Self::parse_llama_gguf_layer`] and
+    /// [`Self::parse_llama_safetensors_layer`]), so this particular pair no
+    /// longer reaches the refusal below. The refusal itself stays: it is
+    /// what the NEXT unanticipated component needs, and a partial map was
+    /// considered and rejected for exactly the reason QK-Norm demonstrated
+    /// here -- an unrecognized attention component has no safe default
+    /// translation, so a caller building a model from a partial map could
+    /// run it as ordinary attention while silently omitting a step the
+    /// architecture actually needs: wrong numerics with no error, which is
+    /// worse than a loud, named refusal.
     ///
     /// ⚠️ **This is a breaking behaviour change**, and deliberately so: a
     /// file with an unrecognized component used to silently fall back to
@@ -323,6 +323,16 @@ impl TensorNameMapper {
                     let suffix = &s["self_attn.o_proj.".len()..];
                     format!("h.{}.attn.out_proj.{}", layer_num, suffix)
                 }
+                // qwen3's QK-Norm (#96), HF naming -- same component the
+                // GGUF arm above now recognizes under its `blk.N.` spelling.
+                s if s.starts_with("self_attn.q_norm.") => {
+                    let suffix = &s["self_attn.q_norm.".len()..];
+                    format!("h.{}.attn.q_norm.{}", layer_num, suffix)
+                }
+                s if s.starts_with("self_attn.k_norm.") => {
+                    let suffix = &s["self_attn.k_norm.".len()..];
+                    format!("h.{}.attn.k_norm.{}", layer_num, suffix)
+                }
                 s if s.starts_with("mlp.gate_proj.") => {
                     let suffix = &s["mlp.gate_proj.".len()..];
                     format!("h.{}.mlp.gate_proj.{}", layer_num, suffix)
@@ -368,6 +378,12 @@ impl TensorNameMapper {
                 "ffn_gate.weight" => format!("h.{}.mlp.gate_proj.weight", layer_num),
                 "ffn_up.weight" => format!("h.{}.mlp.up_proj.weight", layer_num),
                 "ffn_down.weight" => format!("h.{}.mlp.c_proj.weight", layer_num),
+                // qwen3's QK-Norm (#96): a real, documented GGUF component
+                // this map previously had no entry for at all -- not a
+                // guessed value, the same structural rename every other
+                // component here gets.
+                "attn_q_norm.weight" => format!("h.{}.attn.q_norm.weight", layer_num),
+                "attn_k_norm.weight" => format!("h.{}.attn.k_norm.weight", layer_num),
                 _ => return Err(Error::tensor_name_mapping(format!("blk.{}", layer_section))),
             };
 
@@ -536,37 +552,42 @@ mod tests {
     /// `SmartTensorNameMapper::from_tensor_names`), not just itself. It now
     /// refuses instead, by name.
     ///
-    /// Real-file shape: qwen3's QK-Norm (`attn_q_norm.weight`,
-    /// `attn_k_norm.weight`), measured against
-    /// `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` (398 tensors, `general.architecture
-    /// = qwen3`). Not run against that file directly here — it is 2.5 GB and
-    /// not a fixture — but this reproduces the exact component names that
-    /// file declares.
+    /// ⚠️ #96 ADDED `attn_q_norm`/`attn_k_norm` AS RECOGNIZED COMPONENTS, so
+    /// this test (previously built on those two) now uses a genuinely
+    /// synthetic, never-to-be-recognized component name instead — the
+    /// mechanism under test is "an unrecognized component is a named
+    /// refusal", not qwen3 specifically. qwen3's QK-Norm now has its own
+    /// positive-case test below
+    /// (`qwen3_qk_norm_components_are_recognized_not_refused`).
     #[test]
     fn an_unrecognized_gguf_component_is_a_named_refusal() {
         let names = vec![
             "blk.0.attn_q.weight".to_string(),
-            "blk.0.attn_q_norm.weight".to_string(),
-            "blk.0.attn_k_norm.weight".to_string(),
+            "blk.0.attn_q_mystery.weight".to_string(),
+            "blk.0.ffn_also_unrecognized.weight".to_string(),
         ];
 
         let err = TensorNameMapper::from_tensor_names(&names).unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.contains("attn_q_norm.weight") && msg.contains("attn_k_norm.weight"),
+            msg.contains("attn_q_mystery.weight") && msg.contains("ffn_also_unrecognized.weight"),
             "both unrecognized components must be named, not just the first: {msg}"
         );
     }
 
     /// ⚠️ THE CONTROL for the test above: naming BOTH is not naming
     /// everything regardless of what was asked. A recognized-components-only
-    /// file must still succeed exactly as before this fix.
+    /// file must still succeed exactly as before this fix. Includes qwen3's
+    /// QK-Norm components (#96): they are recognized now, so a file using
+    /// them belongs in this control, not in the refusal test above.
     #[test]
     fn a_file_using_only_recognized_components_still_succeeds() {
         let names = vec![
             "token_embd.weight".to_string(),
             "blk.0.attn_q.weight".to_string(),
+            "blk.0.attn_q_norm.weight".to_string(),
             "blk.0.attn_k.weight".to_string(),
+            "blk.0.attn_k_norm.weight".to_string(),
             "blk.0.attn_v.weight".to_string(),
             "blk.0.attn_output.weight".to_string(),
             "blk.0.attn_norm.weight".to_string(),
@@ -584,20 +605,89 @@ mod tests {
     /// missing, not read a wall of near-duplicate tensor names differing
     /// only by layer number — a real file has one unrecognized-component
     /// message per layer count, which for a 30-layer model would otherwise
-    /// bury the two actual components inside dozens of repeats.
+    /// bury the actual components inside dozens of repeats.
     #[test]
     fn the_same_unrecognized_component_across_layers_is_named_once() {
+        // `.attn_q` as a SUBSTRING (not an exact component match) is enough
+        // for architecture detection to classify this as LLaMA -- the same
+        // reason the original #97 fixture used `attn_q_norm` before #96
+        // made it a recognized component. The point under test is the
+        // de-duplication, not architecture detection, so a synthetic name
+        // that is detectable but never recognized keeps that separate.
         let names = vec![
-            "blk.0.attn_q_norm.weight".to_string(),
-            "blk.1.attn_q_norm.weight".to_string(),
-            "blk.2.attn_q_norm.weight".to_string(),
+            "blk.0.attn_q_mystery.weight".to_string(),
+            "blk.1.attn_q_mystery.weight".to_string(),
+            "blk.2.attn_q_mystery.weight".to_string(),
         ];
         let err = TensorNameMapper::from_tensor_names(&names).unwrap_err();
         let msg = err.to_string();
         assert_eq!(
-            msg.matches("attn_q_norm.weight").count(),
+            msg.matches("attn_q_mystery.weight").count(),
             1,
             "one component, named once, regardless of how many layers repeat it: {msg}"
+        );
+    }
+
+    // ================================================================
+    // #96 -- qwen3's QK-Norm (`attn_q_norm`/`attn_k_norm` in GGUF,
+    // `self_attn.q_norm`/`self_attn.k_norm` in HF/SafeTensors) are real,
+    // documented components this map previously had no entry for at all,
+    // which poisoned name translation for the WHOLE file via the refusal
+    // mechanism above. They are now recognized, structural renames --
+    // not guessed values.
+    // ================================================================
+
+    /// ⚠️ THE POSITIVE CASE #96 ADDS. Before the fix, both GGUF names here
+    /// hit `parse_llama_gguf_layer`'s catch-all arm and the whole file was
+    /// refused (this is the exact fixture the old
+    /// `an_unrecognized_gguf_component_is_a_named_refusal` test used to
+    /// assert failure on). Now both translate, alongside the ordinary
+    /// components in the same layer, which is the CONTROL that adding the
+    /// two new arms did not disturb the nine pre-existing ones.
+    #[test]
+    fn qwen3_qk_norm_components_are_recognized_not_refused() {
+        let names = vec![
+            "blk.0.attn_q.weight".to_string(),
+            "blk.0.attn_q_norm.weight".to_string(),
+            "blk.0.attn_k.weight".to_string(),
+            "blk.0.attn_k_norm.weight".to_string(),
+        ];
+        let mapper = TensorNameMapper::from_tensor_names(&names)
+            .expect("attn_q_norm/attn_k_norm are now recognized GGUF components");
+
+        assert_eq!(
+            mapper.map_name("blk.0.attn_q_norm.weight"),
+            Some("h.0.attn.q_norm.weight")
+        );
+        assert_eq!(
+            mapper.map_name("blk.0.attn_k_norm.weight"),
+            Some("h.0.attn.k_norm.weight")
+        );
+        // CONTROL: the ordinary components in the same layer are unaffected.
+        assert_eq!(
+            mapper.map_name("blk.0.attn_q.weight"),
+            Some("h.0.attn.q_proj.weight")
+        );
+    }
+
+    /// The same component pair, HF/SafeTensors spelling.
+    #[test]
+    fn qwen3_qk_norm_components_are_recognized_in_safetensors_naming_too() {
+        let names = vec![
+            "model.layers.0.self_attn.q_proj.weight".to_string(),
+            "model.layers.0.self_attn.q_norm.weight".to_string(),
+            "model.layers.0.self_attn.k_norm.weight".to_string(),
+        ];
+        let mapper = TensorNameMapper::from_tensor_names(&names)
+            .expect("self_attn.q_norm/k_norm are now recognized SafeTensors components");
+
+        assert_eq!(
+            mapper.map_name("model.layers.0.self_attn.q_norm.weight"),
+            Some("h.0.attn.q_norm.weight")
+        );
+        assert_eq!(
+            mapper.map_name("model.layers.0.self_attn.k_norm.weight"),
+            Some("h.0.attn.k_norm.weight")
         );
     }
 
