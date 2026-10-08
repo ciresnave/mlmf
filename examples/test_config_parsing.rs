@@ -43,9 +43,9 @@ fn test_config(config_path: &str) -> anyhow::Result<()> {
             if let Some(arch) = arch {
                 println!("   🏷️  Model type: {}", arch.name());
             }
-            println!("   🔢 Vocab size: {}", config.vocab_size);
-            println!("   🧠 Hidden size: {}", config.hidden_size);
-            println!("   📚 Layers: {}", config.num_hidden_layers);
+            println!("   🔢 Vocab size: {:?}", config.vocab_size);
+            println!("   🧠 Hidden size: {:?}", config.hidden_size);
+            println!("   📚 Layers: {:?}", config.num_hidden_layers);
             println!();
         }
         Err(e) => {
