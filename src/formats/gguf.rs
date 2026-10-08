@@ -1360,7 +1360,7 @@ mod tests {
     /// A minimal, byte-authored GGUF file declaring `qwen3` with a full
     /// transformer block's tensors, including the two components
     /// (`attn_q_norm`, `attn_k_norm`, qwen3's QK-Norm) that
-    /// `parse_llama_gguf_layer` does not recognize.
+    /// `parse_llama_gguf_layer` did not recognize before #96.
     ///
     /// #98: closes the COVERAGE gap for #96/#97's bug, not the CORPUS gap.
     /// `C:/Models/gguf-corpus` still contains no tensor-bearing, non-llama
@@ -1446,14 +1446,13 @@ mod tests {
     /// `load_gguf` would -- so the parsing path and the name-mapping path
     /// are exercised TOGETHER, not as two separately-trusted halves.
     ///
-    /// Asserts the BEHAVIOUR (#97's named refusal, naming both
-    /// unrecognized components), not merely that the file parses. A test
-    /// that only checked "this does not panic" would pass on a
-    /// first-error-only implementation, exactly the property #97's own
-    /// sabotage test guards -- now checked against a realistic file
-    /// rather than a synthetic diagnostic.
+    /// ⚠️ #96 ADDED `attn_q_norm`/`attn_k_norm` AS RECOGNIZED COMPONENTS,
+    /// so this test (previously named `..._is_refused_naming_both_qk_norm_components`
+    /// and asserting the refusal) now asserts the opposite: the fixture
+    /// succeeds and both components translate to their canonical names,
+    /// alongside the nine components this map already recognized.
     #[test]
-    fn a_real_shaped_qwen3_file_is_refused_naming_both_qk_norm_components() {
+    fn a_real_shaped_qwen3_file_translates_both_qk_norm_components() {
         let bytes = gguf_qwen3_with_qk_norm();
         let (meta, kv_report) = mlmf_gguf::GgufMetadata::parse(&bytes, "qwen3-fixture")
             .expect("the fixture's header and KV block are well formed");
@@ -1479,13 +1478,21 @@ mod tests {
             "the fixture declares 11 block tensors plus 2 non-block ones"
         );
 
-        let err = crate::name_mapping::TensorNameMapper::from_tensor_names(&names)
-            .expect_err("attn_q_norm/attn_k_norm are not in parse_llama_gguf_layer's known list");
-        let msg = err.to_string();
-        assert!(
-            msg.contains("attn_q_norm.weight") && msg.contains("attn_k_norm.weight"),
-            "both unrecognized components must be named, from a REAL parsed file's tensor \
-             names, not just from a hand-typed test vector: {msg}"
+        let mapper = crate::name_mapping::TensorNameMapper::from_tensor_names(&names)
+            .expect("attn_q_norm/attn_k_norm are recognized GGUF components since #96");
+        assert_eq!(
+            mapper.map_name("blk.0.attn_q_norm.weight"),
+            Some("h.0.attn.q_norm.weight"),
+            "from a REAL parsed file's tensor names, not just a hand-typed test vector"
+        );
+        assert_eq!(
+            mapper.map_name("blk.0.attn_k_norm.weight"),
+            Some("h.0.attn.k_norm.weight")
+        );
+        // CONTROL: an ordinary component in the same fixture is unaffected.
+        assert_eq!(
+            mapper.map_name("blk.0.attn_q.weight"),
+            Some("h.0.attn.q_proj.weight")
         );
     }
 
