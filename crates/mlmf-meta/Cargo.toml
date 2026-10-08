@@ -23,4 +23,4 @@
     # `version` alongside `path`, matching all eight existing workspace path
     # edges. A path-only dependency cannot be published, and this crate is
     # not `publish = false`.
-    mlmf-core = { path = "../mlmf-core", version = "0.5.0" }
+    mlmf-core = { path = "../mlmf-core", version = "0.6.0" }

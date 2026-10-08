@@ -15,7 +15,7 @@
 # scoped to this crate's name and this one dependency -- not to the source
 # axis generally, so `mlmf-source-file` does not inherit it.
 [dependencies]
-    mlmf-core = { path = "../mlmf-core", version = "0.5.2" }
+    mlmf-core = { path = "../mlmf-core", version = "0.6.0" }
 
     # Minimal, synchronous HTTP client. NOT `hf-hub`: as of hf-hub 1.0.0 that
     # crate is a full Hub SDK (buckets, spaces, kernels, commits, uploads --
