@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-10-16
+
+### Security
+- CI hardening (Q14): GitHub Actions in `.github/workflows/ci.yml` are pinned to
+  full commit SHAs, the workflow declares least-privilege `permissions: contents: read`,
+  and `.github/CODEOWNERS` names a default owner. No code change; not breaking.
+
 ## [0.6.1] - 2026-10-08
 
 ### Fixed

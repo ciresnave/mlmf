@@ -526,10 +526,19 @@ fn toolchain_pin_matches_ci() {
     );
 
     let workflow = workflow_without_comments();
+    // The action is pinned to a commit (SUP-008), so `@{channel}` is the branch name written as a trailing comment on a
+    // 40-hex ref; the branch's own `action.yml` carries the version, which is what the commit pins. Either spelling counts.
     let needle = format!("dtolnay/rust-toolchain@{channel}");
+    let by_commit = |line: &str| {
+        line.split("dtolnay/rust-toolchain@")
+            .nth(1)
+            .and_then(|rest| rest.split_whitespace().next())
+            .is_some_and(|r| r.len() == 40 && r.chars().all(|c| c.is_ascii_hexdigit()))
+            && line.contains(&format!("# {channel}"))
+    };
     assert!(
-        workflow.contains(&needle),
-        "rust-toolchain.toml pins {channel} but the workflow does not use `{needle}` — CI would build with a different compiler than every developer, and both would report green"
+        workflow.contains(&needle) || workflow.lines().any(by_commit),
+        "rust-toolchain.toml pins {channel} but the workflow does not use `{needle}` (or a commit with `# {channel}` beside it) — CI would build with a different compiler than every developer, and both would report green"
     );
 }
 
