@@ -156,6 +156,10 @@ the false one is gone, these are merely unverified. **Do not cite them.**
 - **Zero-copy**: Direct tensor access without unnecessary copying
 - **Incremental builds**: Changes compile in <10 seconds
 
+## Documentation
+
+- [GLOSSARY.md](GLOSSARY.md) - terms, types and format names used across MLMF
+
 ## Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
