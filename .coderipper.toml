@@ -1,0 +1,26 @@
+# Declared public API (reachability): each file below holds `pub` items of a `pub` module that this repository's own
+# targets do not call. Kept per file, not as a glob, so a new undeclared file is still reported.
+[reachability]
+public_api = [
+  { file = "src/cached_loader.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/checkpoint.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/conversion.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/distributed_core.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/distributed_loader.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/formats/awq_export.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/formats/gguf.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/formats/gguf_export.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/formats/onnx_export.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/formats/pytorch_export.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/formats/pytorch_loader.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/formats/safetensors_export.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/lora.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/metadata.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/multimodal_loader.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/name_mapping.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/progress.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/quantization.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/saver.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/smart_mapping.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+  { file = "src/validation.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+]
