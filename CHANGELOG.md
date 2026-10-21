@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.5] - 2026-10-21
+
+### Security
+- `rustls-webpki` 0.103.15 -> 0.103.16 (RUSTSEC-2026-0382: certificate
+  verification may accept distrusted intermediates).
+- `webpki-roots` 1.0.9 -> 1.0.10 (RUSTSEC-2026-0381: bundled roots trusted
+  distrusted emSign intermediates).
+- `rustls` 0.23.45 -> 0.23.46 (RUSTSEC-2026-0346, -0347, -0348, -0349).
+  Dependency-only; no code change, not breaking.
+
 ## [0.6.4] - 2026-10-19
 
 ### Added
