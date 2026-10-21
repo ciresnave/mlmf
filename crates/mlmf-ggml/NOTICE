@@ -1,0 +1,56 @@
+mlmf — third-party provenance notice
+
+mlmf itself is licensed MIT OR Apache-2.0 (see LICENSE-MIT / LICENSE-APACHE
+in this repository and in each crate). This file credits the upstream
+sources behind data this repository derives, measures against, or quotes,
+per the provenance audit of 2026-10-21.
+
+================================================================================
+ggml-org/llama.cpp and ggml-org/ggml
+================================================================================
+
+Both repositories are licensed MIT, under the same copyright line (verified
+via each repository's LICENSE file at time of audit):
+
+    MIT License
+
+    Copyright (c) 2023-2026 The ggml authors
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+What mlmf derives from them, and where:
+
+- `crates/mlmf-ggml/tests/ggml-types.tsv` and `crates/mlmf-ggml/src/types.rs`
+  — ggml's type codes and block geometry (elements/block, bytes/block,
+  alignment), measured from `ggml-org/llama.cpp` commit
+  `9d57ce456c94d241dde672b2db9cf18879766568`: `ggml/include/ggml.h` (codes),
+  `ggml/src/ggml.c` (elements/block), `ggml/src/ggml-common.h`
+  (bytes/block, alignment). Facts about the format, not transcribed source
+  code; cross-checked against the upstream static asserts at that commit.
+- `crates/mlmf-gguf/src/requirements.rs` — GGUF's required-key table and the
+  spec's own legend for "required", quoted from `ggml-org/ggml`
+  `docs/gguf.md` (read 2026-09-05).
+- `crates/mlmf-gguf/src/header.rs` — version-support table from
+  `docs/gguf.md`'s `## Version History` (same read), and a byte-swap
+  detection heuristic that has no corresponding spec section and is
+  `ggml-org/llama.cpp`'s own, pinned at commit
+  `9d57ce456c94d241dde672b2db9cf18879766568`, `ggml/src/gguf.cpp:497`.
+
+No source code from either repository is copied or reproduced; these are
+facts about file formats and short, attributed spec quotations.

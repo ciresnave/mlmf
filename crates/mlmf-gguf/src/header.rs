@@ -1,4 +1,14 @@
 //! The first stage: magic, version, and the two counts.
+//!
+//! Version support corresponds to the spec's own `## Version History`
+//! (`ggml-org/ggml docs/gguf.md`, read 2026-09-05: v1 initial, v2 widens
+//! counts to u64, v3 adds big-endian support). **The byte-swap heuristic
+//! below has no spec section** — `docs/gguf.md`'s endianness note (same
+//! read) says outright *"there is no way to determine if a model is
+//! big-endian"*; it is `ggml-org/llama.cpp`'s own undocumented check,
+//! pinned at commit `9d57ce456c94d241dde672b2db9cf18879766568`,
+//! `ggml/src/gguf.cpp:497`. MIT-licensed upstream; see `NOTICE` at the
+//! workspace root.
 
 use crate::cursor::Cursor;
 use crate::error::{GgufError, Stage};
@@ -59,8 +69,9 @@ pub fn parse_header(cursor: &mut Cursor<'_>) -> Result<Header, GgufError> {
         available: t.available,
     })?;
 
-    // llama.cpp's own sniff (gguf.cpp:497). Checked BEFORE the supported
-    // list, so a byte-swapped v3 is reported as byte-swapped rather than as
+    // llama.cpp's own sniff (gguf.cpp:497 @ 9d57ce456c94d241dde672b2db9cf18879766568,
+    // see this module's doc comment). Checked BEFORE the supported list, so
+    // a byte-swapped v3 is reported as byte-swapped rather than as
     // "unsupported version 50331648".
     if version & 0x0000_FFFF == 0 {
         return Err(GgufError::ByteSwapped {
@@ -153,10 +164,10 @@ mod tests {
 
     #[test]
     fn a_byte_swapped_file_is_named_rather_than_reported_as_a_huge_version() {
-        // llama.cpp's own check (gguf.cpp:497): version 3 read with the
-        // wrong endianness is 0x03000000. Without this the error says
-        // "unsupported version 50331648", which sends the reader looking
-        // for a version that has never existed.
+        // llama.cpp's own check (gguf.cpp:497 @ 9d57ce456c94d241dde672b2db9cf18879766568):
+        // version 3 read with the wrong endianness is 0x03000000. Without
+        // this the error says "unsupported version 50331648", which sends
+        // the reader looking for a version that has never existed.
         let mut b = Vec::new();
         b.extend_from_slice(b"GGUF");
         b.extend_from_slice(&0x0300_0000u32.to_le_bytes());

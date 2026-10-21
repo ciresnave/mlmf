@@ -1,4 +1,11 @@
 //! ggml's type codes and their geometry.
+//!
+//! `row()`'s geometry is `ggml-org/llama.cpp`'s, pinned the same way as the
+//! ground truth it is checked against (`tests/ggml-types.tsv`): **commit
+//! `9d57ce456c94d241dde672b2db9cf18879766568`**, `ggml/include/ggml.h`
+//! (codes), `ggml/src/ggml.c` (elements/block), `ggml/src/ggml-common.h`
+//! (bytes/block, alignment). MIT-licensed upstream; see `NOTICE` at the
+//! workspace root.
 
 /// Declare [`GgmlType`] and [`GgmlType::ALL`] **from one list**.
 ///
