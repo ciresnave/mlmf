@@ -23,4 +23,26 @@ public_api = [
   { file = "src/saver.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
   { file = "src/smart_mapping.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
   { file = "src/validation.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
+
+  # mlmf-awq, mlmf-gptq and mlmf-hf-tokenizer are each published to crates.io
+  # (verified via the crates.io API, 2026-10-23) as standalone "bytes to
+  # structure" geometry/config readers, by the charter quoted in this repo's
+  # own CLAUDE.md ("MLMF is never intended to be an interpreter of the
+  # content of model files"). Each crate's one or two public entry points
+  # (parse_standalone/parse_from_model_config/locate_layers/parse) are
+  # exercised only by that crate's own #[cfg(test)] unit tests, which this
+  # check does not count as production reachability (unlike a separate
+  # tests/*.rs integration test, example, or bench, which it does by name).
+  # None of the three has an in-repo consumer yet: the root mlmf crate's
+  # "awq" feature is still a stub (`awq = []`), and its "tokenizers" feature
+  # wraps the external `tokenizers` crate, not mlmf-hf-tokenizer. Declared,
+  # not deleted, because the code is correct, documented and tested; it is
+  # unintegrated, not dead.
+  { file = "crates/mlmf-awq/src/config.rs", reason = "published API of mlmf-awq (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
+  { file = "crates/mlmf-awq/src/layer.rs", reason = "published API of mlmf-awq (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
+  { file = "crates/mlmf-gptq/src/config.rs", reason = "published API of mlmf-gptq (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
+  { file = "crates/mlmf-gptq/src/layer.rs", reason = "published API of mlmf-gptq (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
+  { file = "crates/mlmf-hf-tokenizer/src/lib.rs", reason = "published API of mlmf-hf-tokenizer (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
+  { file = "crates/mlmf-hf-tokenizer/src/merges.rs", reason = "published API of mlmf-hf-tokenizer (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
+  { file = "crates/mlmf-hf-tokenizer/src/model.rs", reason = "published API of mlmf-hf-tokenizer (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
 ]
