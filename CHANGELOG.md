@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.13] - 2026-10-23
+
+### Fixed
+- `ROADMAP.md`: a peer notice had reported 17 `unused-parameters` findings;
+  recounting raw finding lines directly from the sweep job log on
+  `origin/main` found 0 for both `unused-parameters` and
+  `unused-return-values`. The PM traced the "17" to an earlier,
+  different-method baseline (root-package-only, pre-workspace-split) and
+  confirmed 0/0 for the current per-member sweep; removed as a backlog item.
+  `reachability`'s count (73) was re-verified and is unchanged.
+
 ## [0.6.12] - 2026-10-23
 
 ### Added
