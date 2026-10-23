@@ -575,3 +575,13 @@ jobs:
       # that only a local `--all-targets` build caught.
       - name: cargo build -p mlmf --all-targets
         run: cargo build -p mlmf --all-targets
+
+  # Advisory-only, non-blocking portfolio-wide code scan (CireSnave,
+  # 2026-10-23: "Roll out advisory-only, non-blocking CodeRipper checks
+  # everywhere."). Deliberately NOT a required status check: it reports
+  # findings without gating merges, and nothing here may be promoted into a
+  # required check or used to silence an existing rule.
+  portfolio:
+    permissions:
+      contents: read
+    uses: ciresnave/coderipper/.github/workflows/portfolio.yml@c665210ad0972cf3ddb7bc81bdd7800c3248a938
