@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Multi-Modal Model Support
 //!
 //! This module provides comprehensive support for multi-modal models that process

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Fixtures shaped from real `special_tokens_map.json` files, plus one
 //! synthetic case for a shape no fetched file happened to use.
 //!

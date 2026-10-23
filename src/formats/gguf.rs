@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! GGUF format loading with memory-mapped access
 //!
 //! This module provides fast GGUF file loading using memory mapping, adapted from

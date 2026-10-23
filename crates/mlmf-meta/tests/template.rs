@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Template extraction: the GGUF multi-template indirection, §9 1.1's
 //! blank-is-undeclared rule, and the loss lists §5 rule 3 requires.
 

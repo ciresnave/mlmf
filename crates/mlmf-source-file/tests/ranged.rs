@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `RangedSource` over the bytes this crate already holds.
 //!
 //! A `FileSource` is materialized — see the crate documentation for why

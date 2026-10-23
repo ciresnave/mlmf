@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use mlmf::{
     DeviceType, DistributedConfig, DistributedConfigBuilder, InferenceRequest, NodeConfig,
     ShardingStrategy, SimpleDistributedManager,

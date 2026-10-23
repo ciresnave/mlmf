@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! ⚠️ **A DEFERRAL DETECTOR, NOT A REQUIREMENT.** Delete this file — and the
 //! matching section of `write_check`'s module docs — when something consumes
 //! [`WriteCheck`](mlmf_core::WriteCheck).

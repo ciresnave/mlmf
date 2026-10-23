@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! A model-specific field assigned a LITERAL inside a `ModelConfig`
 //! construction must carry a warning marker.
 //!

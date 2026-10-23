@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Reads safetensors headers and tensor directories. No I/O, no interpretation.
 //!
 //! A safetensors file is an 8-byte little-endian length prefix, a JSON

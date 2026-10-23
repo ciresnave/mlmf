@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! ⚠️ **A DEFERRAL MARKER, NOT A REQUIREMENT.** Delete this file when GGUF
 //! v1 support lands.
 //!

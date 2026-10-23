@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The corpus key census, **derived on every run** rather than stored.
 //!
 //! `src/requirements.rs` argues that the required-key table must come from

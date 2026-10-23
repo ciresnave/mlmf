@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Vocabulary and traits for machine learning model files.
 //!
 //! `mlmf-core` describes **what is in a model file**. It does not obtain

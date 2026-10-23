@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Core distributed functionality implementation.
 //!
 //! This module provides the essential distributed model loading capabilities

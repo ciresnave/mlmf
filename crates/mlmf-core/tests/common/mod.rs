@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Shared workspace-member discovery for the C2/C3 gates.
 //!
 //! `workspace_root()` and `gated_members()` used to be duplicated, byte for
@@ -23,7 +24,10 @@
 //! (`workspace.rs` and `transitive_deps.rs` want only `workspace_root`), so
 //! dead-code analysis is silenced here rather than per call site.
 
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "not every test binary that includes this module uses every item in it"
+)]
 
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Format-specific model loaders
 //!
 //! This module contains specialized loaders for different model file formats.

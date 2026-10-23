@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Every name this crate publishes, reached the way a consumer reaches it.
 //!
 //! An integration test rather than a unit test, and that is the entire

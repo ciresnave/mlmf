@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Model Card Generation Example
 //!
 //! This example demonstrates how to generate comprehensive model cards for documentation,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Multi-Modal Model Loading and Inference Example
 //!
 //! This example demonstrates how to load and use multi-modal models

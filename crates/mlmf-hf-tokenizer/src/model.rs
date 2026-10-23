@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `model` section reading: the `"type"`/`"vocab"` identity checks and
 //! `model.vocab`'s per-entry parsing, plus the top-level `added_tokens`
 //! array -- split out of `lib.rs` so each guard is its own function

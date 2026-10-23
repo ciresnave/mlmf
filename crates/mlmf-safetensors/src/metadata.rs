@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The third stage: `__metadata__`, projected onto [`MetadataSource`].
 //!
 //! Its own module rather than a block in `lib.rs`, matching `dtype`,

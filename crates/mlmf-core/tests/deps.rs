@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! C2 (direct half) and the manifest half of C3/C5: every gated workspace
 //! member's direct dependencies are pinned to its own allow-list, and no
 //! table other than a plain `[dependencies]` may introduce one.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! LoRA (Low-Rank Adaptation) support for ML models
 //!
 //! This module provides comprehensive LoRA functionality including detection,

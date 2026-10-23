@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The second stage: the tensor directory, and safetensors' own base.
 //!
 //! # The base is the point
@@ -670,7 +671,10 @@ mod tests {
     /// `Result<Vec<u8>, String>` rather than `mlmf_core::Result`, because
     /// `mlmf_core::Error` is not `PartialEq` and this must compare as a
     /// whole value.
-    #[allow(clippy::type_complexity)]
+    #[allow(
+        clippy::type_complexity,
+        reason = "the nested Vec/tuple return is a test helper's exact comparison value, not a public API signature"
+    )]
     fn directory_with_bytes(
         image: &[u8],
     ) -> Result<

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Test configuration parsing robustness
 //!
 //! This example tests the enhanced configuration parsing capabilities,

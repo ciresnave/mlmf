@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `special_tokens_map.json` — the checkpoint's declared special tokens.
 //!
 //! Bytes to structure, matching [`crate::shards`] and

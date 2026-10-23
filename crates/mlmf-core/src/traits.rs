@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The seam between the format axis, the source axis, and everything above.
 //!
 //! Format crates implement [`TensorContainer`] and [`MetadataSource`].

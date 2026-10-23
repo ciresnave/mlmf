@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `config.json` — HuggingFace's third sidecar, and the generic
 //! `MetadataSource` this crate's own `tests/part_b_deferral.rs` named
 //! "Part B": a declared key space this crate does not already know the

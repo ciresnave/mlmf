@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Model configuration parsing and validation
 //!
 //! This module provides utilities for loading and parsing HuggingFace model configurations

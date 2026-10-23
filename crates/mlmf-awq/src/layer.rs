@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Locating AWQ-packed linear layers in an already-open container.
 //!
 //! AWQ's quantization is **inter-tensor**, like GPTQ's: one logical

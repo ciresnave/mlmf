@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The table agrees with the committed ground truth, in both directions.
 
 use mlmf_ggml::GgmlType;

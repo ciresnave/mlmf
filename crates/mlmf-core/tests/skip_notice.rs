@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Any test that writes a notice to `stderr` must use the token the gate
 //! runner greps for.
 //!

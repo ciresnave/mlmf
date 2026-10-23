@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Computed sizes match sizes measured from real model files.
 
 use mlmf_ggml::GgmlType;

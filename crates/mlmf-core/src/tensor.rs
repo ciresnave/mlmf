@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! What a model file declares about one tensor.
 
 use std::ops::Range;

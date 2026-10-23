@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! One metadata value, in the union of what the supported formats declare.
 //!
 //! **Fourteen variants: GGUF's thirteen typed value kinds, plus

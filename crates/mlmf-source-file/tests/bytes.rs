@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The bytes come back exactly as they were written, by the plain-read path.
 //!
 //! This file is deliberately the FIRST thing in this crate, before mmap

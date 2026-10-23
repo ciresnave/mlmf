@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! ONNX format export with computational graph construction
 //!
 //! This module provides ONNX export functionality by constructing computational graphs

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Every source file is reachable, or its tests never ran.
 //!
 //! A `.rs` file under `src/` that no `mod` declaration names is not

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Safetensors dtype strings, mapped onto [`mlmf_core::DType`].
 //!
 //! Safetensors declares an element type as a **string** — `"BF16"`,

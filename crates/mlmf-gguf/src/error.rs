@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! What went wrong, and at which stage.
 //!
 //! The stage split exists because a consumer's remedies differ (R7). A file

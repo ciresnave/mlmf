@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! A `#[test]` function must contain at least one statement.
 //!
 //! # The defect this exists for, found twice

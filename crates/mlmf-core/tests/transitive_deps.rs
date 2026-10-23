@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! C1 (node ceiling) and C2 (pinned transitive set), as a **Rust test**.
 //!
 //! Both of these previously existed only inside `scripts/check-deps.sh`,

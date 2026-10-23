@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The error type shared by every MLMF crate.
 //!
 //! MLMF owns this outright: no foreign error type appears in it, so a

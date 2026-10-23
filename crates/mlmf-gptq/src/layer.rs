@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Locating GPTQ-packed linear layers in an already-open container.
 //!
 //! GPTQ's quantization is **inter-tensor**: one logical linear layer is

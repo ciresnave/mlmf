@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! HuggingFace checkpoint layout and declared sidecar contents.
 //!
 //! Answers two things from bytes the caller supplies: where does each

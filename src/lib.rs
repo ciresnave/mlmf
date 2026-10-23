@@ -1,6 +1,16 @@
-#![allow(missing_docs)]
-#![allow(rustdoc::missing_doc_code_examples)]
-#![allow(clippy::missing_docs_in_private_items)]
+// SPDX-License-Identifier: MIT OR Apache-2.0
+#![allow(
+    missing_docs,
+    reason = "this root crate predates the per-crate #![warn(missing_docs)] convention the crates/* members were built under, and hasn't had a doc pass yet"
+)]
+#![allow(
+    rustdoc::missing_doc_code_examples,
+    reason = "this root crate predates the per-crate #![warn(missing_docs)] convention the crates/* members were built under, and hasn't had a doc pass yet"
+)]
+#![allow(
+    clippy::missing_docs_in_private_items,
+    reason = "this root crate predates the per-crate #![warn(missing_docs)] convention the crates/* members were built under, and hasn't had a doc pass yet"
+)]
 
 //! MLMF - Machine Learning Model Files
 //!

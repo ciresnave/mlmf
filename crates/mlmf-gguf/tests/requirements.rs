@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! GGUF's required-key table (spec §6 CD-1/CD-2/CD-3) against real files.
 //!
 //! Two synthetic tests establish that a refusal is reachable at all, and one
@@ -281,7 +282,10 @@ fn the_corpus_satisfies_the_table_or_says_it_was_not_there() {
 }
 
 /// Compile-time proof that the table is `Requirement`-shaped and public.
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "exists to be compiled, never called -- its job is the compile-time proof, not a runtime result"
+)]
 fn table_is_reachable() -> Vec<Requirement> {
     requirements(true)
 }

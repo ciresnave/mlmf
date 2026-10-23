@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! ggml's type codes and their geometry.
 //!
 //! `row()`'s geometry is `ggml-org/llama.cpp`'s, pinned the same way as the

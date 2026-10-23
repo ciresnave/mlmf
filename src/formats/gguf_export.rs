@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! GGUF format export with quantization support
 //!
 //! This module provides GGUF export functionality for converting models from various formats
@@ -24,7 +25,10 @@ use std::{
 
 /// GGUF quantization types matching llama.cpp conventions
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(non_camel_case_types)] // Keep GGUF standard naming (Q4_K_M, Q6_K, etc.)
+#[allow(
+    non_camel_case_types,
+    reason = "keep GGUF's own standard naming (Q4_K_M, Q6_K, etc.)"
+)]
 pub enum GGUFQuantType {
     /// No quantization - F32 format
     F32,

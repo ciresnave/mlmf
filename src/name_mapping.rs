@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Tensor name mapping for loading HuggingFace models into custom formats
 //!
 //! This module provides intelligent mapping between HuggingFace naming conventions

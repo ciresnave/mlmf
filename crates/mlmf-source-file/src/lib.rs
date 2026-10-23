@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Opens local files as `mlmf-core` byte sources. I/O only, no format
 //! knowledge.
 //!

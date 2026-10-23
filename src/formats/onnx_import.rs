@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! ONNX import functionality
 //!
 //! This module provides ONNX model loading and conversion to MLMF tensor format.

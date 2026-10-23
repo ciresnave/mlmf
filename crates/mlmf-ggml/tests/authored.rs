@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Types no ordinary file carries, with sizes derived by hand from the
 //! block layouts in ggml-common.h rather than from the code under test.
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! What went wrong, and at which stage.
 //!
 //! The stage split exists for the same reason it does in `mlmf-gguf`: a

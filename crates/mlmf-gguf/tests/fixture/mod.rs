@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! A GGUF writer, for files no one publishes.
 //!
 //! The corpus contains zero non-UTF-8 strings, zero trailing-NUL strings,

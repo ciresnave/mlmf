@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Special-token declarations.
 //!
 //! Every field here is something a file SAID. Nothing here is something a

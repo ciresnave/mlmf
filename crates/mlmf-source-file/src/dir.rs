@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! One directory, listed. No interpretation.
 
 use std::ffi::OsString;

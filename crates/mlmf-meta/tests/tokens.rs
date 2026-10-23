@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Special-token declarations: what the file said, never what to do.
 
 use mlmf_core::{MetaValue, MetadataSource};

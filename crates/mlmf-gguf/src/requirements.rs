@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! GGUF's required-key table — the data half of spec §6 CD-1/CD-2/CD-3.
 //!
 //! The mechanism that consumes this lives in [`mlmf_core::write_check`]; C4

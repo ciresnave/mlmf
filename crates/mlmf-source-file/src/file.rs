@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! One local file, read whole.
 
 use std::ops::Range;

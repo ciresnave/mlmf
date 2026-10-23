@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Example: Testing GGUF model loading with real Lightbulb models
 //!
 //! This example tests the GGUF loading functionality with actual model files

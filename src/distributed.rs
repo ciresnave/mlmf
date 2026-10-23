@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Distributed model loading and management for scalable inference.
 //!
 //! This module provides comprehensive support for distributed model deployment,

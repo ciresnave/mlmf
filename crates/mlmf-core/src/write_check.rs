@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! CD-1/CD-2/CD-3 — what a target format requires, and what MLMF may supply.
 //!
 //! Spec §6 sorts every value a writer needs into three states: **Declared**

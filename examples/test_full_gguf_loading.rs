@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Example: Full GGUF model loading with tensor validation
 //!
 //! This example demonstrates the complete GGUF loading pipeline including

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Chat-template extraction.
 //!
 //! # What this returns, and why the shape is load-bearing

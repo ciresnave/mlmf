@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 #![cfg(feature = "mmap")]
 //! The mapped path and the read path serve the same bytes.
 //!

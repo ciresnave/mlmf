@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Fixtures shaped from real `config.json` files.
 //!
 //! Population: two, fetched from the Hub 2026-10-03 and verified against

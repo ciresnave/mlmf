@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Progress reporting utilities for model loading operations
 //!
 //! This module provides progress callback functionality for long-running model loading

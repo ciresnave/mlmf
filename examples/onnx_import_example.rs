@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! ONNX Import Example
 //!
 //! This example demonstrates how to load and convert ONNX models to MLMF format.

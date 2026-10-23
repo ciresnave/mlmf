@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Assert the corpus, and name where it came from.
 //!
 //! Every expectation was measured **2026-09-03** against the corpus at

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Advanced Quantization Example
 //!
 //! This example demonstrates the quantization API configuration in MLMF.

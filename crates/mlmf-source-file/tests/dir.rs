@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Listing a directory, with no opinion about what is in it.
 //!
 //! Spec §3.2 puts the walk here — *"`mlmf-source-file` walks a local

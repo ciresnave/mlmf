@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Every source file a root-level document CITES must exist.
 //!
 //! The sibling of `documented_imports.rs`, split from it when Codacy reported

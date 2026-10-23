@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Test GGUF export functionality
 //!
 //! This example demonstrates how to export models to GGUF format with various

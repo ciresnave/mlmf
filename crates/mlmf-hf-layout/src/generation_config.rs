@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `generation_config.json` — a checkpoint's declared decoding defaults.
 //!
 //! Bytes to structure, matching [`crate::shards`]'s rule: no I/O, no

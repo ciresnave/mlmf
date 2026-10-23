@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Cases no published model provides.
 //!
 //! Every test here answers "what would this show if the claim were false?"

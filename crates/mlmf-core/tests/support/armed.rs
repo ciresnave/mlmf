@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The portfolio's common spelling of a "make skips fatal" arming predicate.
 //!
 //! Agreed across **mlmf**, **vulkane** and **lightbulb** on 2026-09-05, at

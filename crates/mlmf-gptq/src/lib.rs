@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! GPTQ quantization geometry: locate packed linear layers in a
 //! safetensors container, and parse `quantize_config.json` /
 //! `config.json`'s embedded `quantization_config`.
