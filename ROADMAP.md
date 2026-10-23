@@ -22,6 +22,35 @@ from 169 of 169).
 | `licence` | 2 | SPDX done, copyright wording open | SPDX: every git-tracked `.rs` file (165, via `git ls-files`) plus the 3 tracked `.py` files and 2 tracked `.sh` files (CodeRipper's "source file" count of 169 includes those 5, which `git ls-files '*.rs'` alone does not) now carry an SPDX comment. The second sweep, run before the `.py`/`.sh` fix was pushed, still showed "5 of 169" missing — exactly those 5; not yet re-confirmed at 0. Copyright-holder wording in `LICENSE-MIT` waits on board 263 (CireSnave). |
 | `reachability` (no caller found within its own crate) | 73 across `mlmf-awq` (23), `mlmf-gptq` (23), `mlmf-hf-tokenizer` (18), `mlmf-exl2` (4), `mlmf-core` (3), `mlmf-gguf` (1), `mlmf-safetensors` (1) | open, not started | Only visible once the sweep started analysing member crates individually (`ciresnave/coderipper`#127); each one needs a judgement call (genuinely dead vs. reachable only from a caller outside the crate the per-crate analysis can't see, e.g. a doctest, another workspace member, or a planned call site) rather than a mechanical fix — out of scope for this "cheap rows first" pass. |
 
+## File-length (Codacy, on PR #132 at `e411340`, https://github.com/ciresnave/mlmf/pull/132)
+
+Codacy flagged these files for length while PR #132 only touched them to add
+an SPDX header and/or a lint-suppression reason — pre-existing, not caused by
+that PR (PM disposition, 2026-10-23: "none of those files was lengthened
+beyond that \[SPDX/reason\] line... pre-existing"). **15 files, not the 8 a
+peer notice first named** — pulled the real count from the check run's own
+annotations (`gh api repos/ciresnave/mlmf/check-runs/<id>/annotations`)
+rather than the notice, which undercounted. One row per file, biggest
+non-comment-LOC first, to split — none started.
+
+| File | Non-comment LOC | Status |
+|---|---|---|
+| `src/loader.rs` | 1228 | open |
+| `src/formats/gguf.rs` | 1091 | open |
+| `src/lora.rs` | 1011 | open |
+| `crates/mlmf-gguf/src/tensors.rs` | 822 | open |
+| `src/model_card.rs` | 723 | open |
+| `src/formats/gguf_export.rs` | 700 | open |
+| `src/config.rs` | 645 | open |
+| `src/formats/onnx_import.rs` | 644 | open |
+| `crates/mlmf-core/tests/purity.rs` | 640 | open |
+| `src/formats/onnx_export.rs` | 632 | open |
+| `crates/mlmf-gguf/src/metadata.rs` | 616 | open |
+| `src/metadata.rs` | 528 | open |
+| `crates/mlmf-gguf/src/value.rs` | 515 | open |
+| `src/distributed.rs` | 515 | open |
+| `src/validation.rs` | 513 | open |
+
 ## Known infrastructure defect in the same run (not a code finding)
 
 The sweep's `reachability`, `unused-return-values`, and
