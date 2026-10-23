@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.6] - 2026-10-21
+
+### Added
+- `NOTICE` at the workspace root (also shipped inside `mlmf-ggml` and
+  `mlmf-gguf`'s packages) crediting `ggml-org/llama.cpp` and `ggml-org/ggml`
+  (MIT) for the type-geometry and required-key/version-support tables those
+  two crates measure from and quote, with the upstream licence text copied
+  from their LICENSE files and a README Acknowledgements section pointing
+  to it.
+- `crates/mlmf-ggml/src/types.rs` and `crates/mlmf-gguf/src/header.rs` now pin
+  the exact upstream commit (`9d57ce456c94d241dde672b2db9cf18879766568`) their
+  comments cite, instead of a file:line reference alone; `header.rs` also
+  now names which parts of its header checks correspond to the GGUF spec's
+  `## Version History` and which (the byte-swap heuristic) have no spec
+  section at all. Not breaking: doc comments only, no behaviour change.
+
 ## [0.6.5] - 2026-10-21
 
 ### Security

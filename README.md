@@ -164,6 +164,15 @@ the false one is gone, these are merely unverified. **Do not cite them.**
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
+## Acknowledgements
+
+mlmf-ggml's type-geometry table and mlmf-gguf's required-key and
+version-support tables are measured from, and quote, the GGUF format and
+reference parser maintained by [ggml-org/ggml](https://github.com/ggml-org/ggml)
+and [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT
+licensed). See [NOTICE](NOTICE) for the full credit, pinned sources, and
+upstream licence text.
+
 ## License
 
 This project is licensed under either of:
