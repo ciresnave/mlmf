@@ -14,8 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   two crates measure from and quote, with the upstream licence text copied
   from their LICENSE files and a README Acknowledgements section pointing
   to it.
-- `mlmf-ggml/src/types.rs` and `mlmf-gguf/src/header.rs` now pin the exact
-  upstream commit (`9d57ce456c94d241dde672b2db9cf18879766568`) their
+- `crates/mlmf-ggml/src/types.rs` and `crates/mlmf-gguf/src/header.rs` now pin
+  the exact upstream commit (`9d57ce456c94d241dde672b2db9cf18879766568`) their
   comments cite, instead of a file:line reference alone; `header.rs` also
   now names which parts of its header checks correspond to the GGUF spec's
   `## Version History` and which (the byte-swap heuristic) have no spec
