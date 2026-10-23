@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """Verify the safetensors layout, and measure what it asks of mlmf-core's seam.
 
 Two questions, and the second is the one plan 5 exists for.
