@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.14] - 2026-10-23
+
+### Added
+- `.coderipper.toml`: declared `mlmf-awq`, `mlmf-gptq` and `mlmf-hf-tokenizer`'s
+  public API under `[reachability] public_api` (7 files, 64 of the 73
+  `reachability` findings from the per-member portfolio sweep). All three
+  crates are independently published to crates.io; their entry points
+  (`parse_standalone`/`parse_from_model_config`/`locate_layers`/`parse`) are
+  exercised only by each crate's own unit tests and have no in-repo
+  consumer yet (root `mlmf`'s `awq` feature is still a stub; its
+  `tokenizers` feature wraps the external crate, not `mlmf-hf-tokenizer`).
+  Configuration only; no code change, not breaking.
+
 ## [0.6.13] - 2026-10-23
 
 ### Fixed
