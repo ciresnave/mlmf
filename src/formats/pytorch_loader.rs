@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! PyTorch format loading support
 //!
 //! This module provides loading capabilities for PyTorch model files (.pt, .pth, .bin).

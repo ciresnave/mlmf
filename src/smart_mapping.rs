@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Smart tensor name mapping with ML-powered suggestions
 //!
 //! This module provides intelligent tensor name mapping using pluggable inference systems.

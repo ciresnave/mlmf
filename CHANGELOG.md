@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.11] - 2026-10-23
+
+### Fixed
+- `lint-suppression` baseline rows (ROADMAP.md): 12 of 14 `#[allow(...)]`
+  attributes across src and tests now carry a `reason = "..."`; the other
+  2 (`src/validation.rs`'s `unreachable_patterns` allows) had the
+  attribute removed outright after `cargo check` confirmed, with the
+  attribute removed, that neither produces a warning — the suppression
+  was unneeded, not just unexplained.
+- `licence` baseline row (ROADMAP.md), partial: every git-tracked `.rs`
+  file (165) now carries `// SPDX-License-Identifier: MIT OR Apache-2.0`
+  as its first line. `LICENSE-MIT`'s copyright-holder wording is
+  unchanged, pending board 263.
+
 ## [0.6.10] - 2026-10-23
 
 ### Added

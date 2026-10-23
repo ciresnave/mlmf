@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Header, KV-block and tensor-directory facts, replayed against
 //! measurements from real files.
 //!

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Comprehensive example demonstrating GGUF export usage patterns
 //!
 //! This example shows various ways to use the GGUF export functionality

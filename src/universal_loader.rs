@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     LoadOptions, LoadedModel,
     error::{Error, Result},
@@ -263,7 +264,13 @@ fn load_model_file(path: &Path, options: LoadOptions) -> Result<LoadedModel> {
 ///
 /// `the_pytorch_arm_cannot_reach_the_config_seam` in this module's tests is
 /// the detector: it measures that short-circuit rather than assuming it.
-#[cfg_attr(not(feature = "pytorch"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "pytorch"),
+    allow(
+        dead_code,
+        reason = "only called from the pytorch-feature arm; dead without that feature enabled"
+    )
+)]
 fn create_loaded_model_from_tensors(
     tensors: HashMap<String, Tensor>,
     _options: LoadOptions,

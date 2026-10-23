@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! AWQ quantization geometry: locate packed linear layers in a
 //! safetensors container, and parse AWQ's quantization config from both
 //! real-world conventions (standalone `quant_config.json`, and

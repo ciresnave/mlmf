@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Distributed model loader implementation.
 //!
 //! This module provides the main distributed model loading functionality,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Tests against the REAL Hub. Feature-gated, never run by a bare
 //! `cargo test -p mlmf-source-hub` — matching `mlmf-conformance`'s
 //! `--features fuel-differential` pattern for the same reason: a

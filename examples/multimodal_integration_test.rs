@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Comprehensive Multi-Modal Integration Test
 //!
 //! This example tests the complete multi-modal pipeline including:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Two backends, one seam, asserted through the seam only.
 //!
 //! Lives in `mlmf-conformance` rather than in either backend's own

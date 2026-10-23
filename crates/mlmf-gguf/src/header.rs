@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The first stage: magic, version, and the two counts.
 //!
 //! Version support corresponds to the spec's own `## Version History`

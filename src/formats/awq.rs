@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! AWQ (Activation-aware Weight Quantization) format support -- **detection only**.
 //!
 //! ⚠️ **AWQ LOADING IS NOT IMPLEMENTED.** No AWQ tensor is read or

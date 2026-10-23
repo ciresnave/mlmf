@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Reads GGUF metadata and tensor directories.
 //!
 //! A GGUF file is parsed in stages — magic and version, then the key-value

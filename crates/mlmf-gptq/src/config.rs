@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `quantize_config.json` (standalone) and `config.json`'s embedded
 //! `quantization_config` — GPTQ's declared quantization parameters.
 //!

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Canonical key vocabulary and declared-metadata extraction.
 //!
 //! This crate answers **"what did this file declare?"** It never answers

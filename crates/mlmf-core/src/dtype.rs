@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Scalar element types, as model files declare them.
 //!
 //! `DType` is a **tag**, not a Rust type: it names what a file says its

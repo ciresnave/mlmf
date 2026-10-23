@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Header, tensor-directory and `__metadata__` facts, replayed against
 //! measurements taken from real files.
 //!

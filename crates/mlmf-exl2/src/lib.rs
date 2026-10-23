@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! EXL2 detection and refusal.
 //!
 //! **Not a geometry crate.** Real verification (see

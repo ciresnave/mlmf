@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Model metadata and provenance tracking
 //!
 //! This module provides comprehensive metadata management for ML models,

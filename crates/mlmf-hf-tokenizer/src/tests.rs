@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
 
 /// A trimmed-but-real excerpt of `TheBloke/Llama-2-7B-Chat-AWQ`'s

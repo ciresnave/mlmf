@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! How a tensor's elements are laid out in bytes.
 //!
 //! GGUF and safetensors are **siblings, not a stack**: safetensors stores

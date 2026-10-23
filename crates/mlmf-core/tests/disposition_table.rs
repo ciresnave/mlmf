@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! A **Superseded** row in the spec's `src/` disposition table must state how
 //! many callers it has.
 //!

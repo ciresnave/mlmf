@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Comprehensive test of mlmf with real model files
 
 use candlelight::{DType, Device};

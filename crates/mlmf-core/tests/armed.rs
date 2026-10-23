@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The portfolio's shared arming predicate, pinned.
 //!
 //! The predicate lives in `tests/support/armed.rs` and is included by

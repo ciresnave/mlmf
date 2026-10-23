@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Example: AWQ model loading test
 //!
 //! This example demonstrates AWQ (Activation-aware Weight Quantization) model loading

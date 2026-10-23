@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The tensor directory: what tensors a file declares and where their bytes are.
 
 use crate::cursor::Cursor;

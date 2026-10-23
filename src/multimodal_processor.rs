@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Multi-Modal Processor Implementation
 //!
 //! This module provides concrete implementations of multi-modal processing

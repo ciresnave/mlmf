@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Every public function must be named by an integration test.
 //!
 //! This gate exists because **two audit rounds of this crate's plan found

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Every `use mlmf::…` in a root-level document must name a path that resolves.
 //!
 //! A documented import is a claim about the API, and it is the one claim a

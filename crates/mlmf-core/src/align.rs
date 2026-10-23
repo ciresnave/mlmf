@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The alignment contract (spec §4.6).
 //!
 //! MLMF gives **no blanket alignment guarantee**, because the formats do

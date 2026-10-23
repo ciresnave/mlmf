@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! AD-1: the differential fuel actually needs, not MLMF against itself.
 //!
 //! Spec §9 §7 AD-1: *"Before Fuel switches its dependency, a differential

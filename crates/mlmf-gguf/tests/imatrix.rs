@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Board item 63a's GGUF-embedded imatrix module: parse, validate,
 //! enumerate — never interpret.
 
-// `#[allow(dead_code)]`: each integration-test binary compiles
-// `tests/fixture/mod.rs` separately, and this file uses only part of the
-// shared builder — `authored.rs` uses the rest.
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "each integration-test binary compiles tests/fixture/mod.rs separately, and this file uses only part of the shared builder -- authored.rs uses the rest"
+)]
 mod fixture;
 
 use fixture::GgufBuilder;

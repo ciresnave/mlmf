@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `quant_config.json` (standalone) and `config.json`'s embedded
 //! `quantization_config` — AWQ's declared quantization parameters, in
 //! BOTH real-world field-name conventions.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! C5 (no build-script codegen) and C7 (one version number across the
 //! workspace), neither of which had any gate at all.
 //!

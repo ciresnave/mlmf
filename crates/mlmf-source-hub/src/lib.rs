@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! HuggingFace Hub fetch + cache. I/O only, no format knowledge.
 //!
 //! Spec §3.1 draws two orthogonal axes: format crates are `bytes ->

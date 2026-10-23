@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Validation utilities for device and model configuration
 //!
 //! This module provides validation functions for CUDA availability, data type compatibility,
@@ -92,7 +93,6 @@ impl From<DType> for QuantizationInfo {
             // FP8 E4M3 — native Hopper/Ada hardware acceleration.
             DType::F8E4M3 => Self::FP8_NATIVE,
             // Any future DType variants: conservative FP32 fallback.
-            #[allow(unreachable_patterns)]
             _ => Self::F32,
         }
     }
@@ -257,7 +257,6 @@ pub fn validate_dtype_for_device(dtype: DType, device: &Device) -> Result<()> {
                 _ => Ok(()),
             }
         }
-        #[allow(unreachable_patterns)]
         _ => Ok(()), // Other devices, assume compatible
     }
 }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Conformance tests for the `mlmf-core` seam, run against every backend.
 //!
 //! **This crate contains no library code and is never published.** Its

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use candlelight::{DType, Device, Tensor};
 use mlmf::{Error, LoadOptions, detect_model_format, is_supported_model, load_model};
 use std::collections::HashMap;
@@ -141,7 +142,10 @@ fn show_conversion_workflow() -> Result<(), Error> {
 }
 
 /// Example of creating a mock PyTorch model for testing
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "illustrative code for readers of this example, not called by it"
+)]
 fn create_mock_pytorch_tensors() -> HashMap<String, Tensor> {
     let device = Device::Cpu;
     let mut tensors = HashMap::new();

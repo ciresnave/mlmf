@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Example: Smart mapping integration test
 //!
 //! This example demonstrates the smart mapping feature integrated into the main loader,

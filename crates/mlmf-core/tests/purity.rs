@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! C3: every gated workspace member performs no I/O. Enforced at the source
 //! level, not by convention — and **structurally**, not by substring match.
 //!

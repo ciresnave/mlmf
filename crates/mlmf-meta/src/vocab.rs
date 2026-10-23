@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The spec §5 canonical key vocabulary, held as data.
 //!
 //! Spec §5: *"Declared, bidirectional, per-format."* Adding a format or a

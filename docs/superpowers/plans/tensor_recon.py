@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """Verify the GGUF tensor-directory layout against the real corpus, and emit
 the tensor fixture that `crates/mlmf-gguf/tests/corpus.rs` replays.
 

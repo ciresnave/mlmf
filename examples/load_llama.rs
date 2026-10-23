@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Example: Loading a LLaMA model from SafeTensors
 //!
 //! This example shows how to load a LLaMA model from a directory containing

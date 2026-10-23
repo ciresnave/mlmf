@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Size arithmetic, with ggml's divisibility rule rather than the weaker
 //! whole-tensor one.
 

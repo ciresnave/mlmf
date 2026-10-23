@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! High-level model loading API
 //!
 //! This module provides the main entry points for loading models from various formats
@@ -949,9 +950,15 @@ impl LoadedModel {
             tensor_info: HashMap<String, crate::metadata::TensorInfo>,
             quantization_info: Option<crate::metadata::ModelQuantizationInfo>,
             provenance: crate::metadata::ModelProvenance,
-            #[allow(dead_code)]
+            #[allow(
+                dead_code,
+                reason = "exists so serde can deserialize the saved file's shape; never read back out of the bundle"
+            )]
             format_version: String,
-            #[allow(dead_code)]
+            #[allow(
+                dead_code,
+                reason = "exists so serde can deserialize the saved file's shape; never read back out of the bundle"
+            )]
             saved_at: chrono::DateTime<chrono::Utc>,
         }
 

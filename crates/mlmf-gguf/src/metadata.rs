@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The key-value block, indexed at open and decoded on demand.
 
 use std::sync::OnceLock;

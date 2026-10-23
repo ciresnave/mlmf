@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `model.merges` reading, split out of `lib.rs` so each shape's guard
 //! is its own function (Codacy complexity finding, mirroring mlmf#112's
 //! fix for mlmf-awq/mlmf-gptq). No logic or message text changed from

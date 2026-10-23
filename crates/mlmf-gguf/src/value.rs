@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! GGUF's thirteen value types: their codes, their widths, and how to walk
 //! past one without decoding it.
 

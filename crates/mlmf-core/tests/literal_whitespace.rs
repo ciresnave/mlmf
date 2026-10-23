@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! ⚠️ **A string literal must carry the text that was written into it.**
 //!
 //! Measured 2026-09-09: **24 runs of folded indentation in 12 literals**, one

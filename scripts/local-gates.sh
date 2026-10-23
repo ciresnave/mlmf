@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT OR Apache-2.0
 # Run exactly what CI runs, by READING what CI runs.
 #
 # A local verification set is a claim about CI's job list, and it decays

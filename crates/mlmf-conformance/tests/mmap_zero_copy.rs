@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Item 3 of the fuel-gap plan (#113): does `mlmf-gguf`/`mlmf-safetensors`
 //! already borrow zero-copy through a live mmap, or is that primitive
 //! unwired?

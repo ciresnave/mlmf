@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Fixtures shaped from two real indices.
 //!
 //! ⚠️ THERE IS NO `model.safetensors.index.json` ON THIS MACHINE — both

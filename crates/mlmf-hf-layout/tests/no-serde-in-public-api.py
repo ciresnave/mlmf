@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """Extract PUBLIC SIGNATURES ONLY -- pub fn/struct/enum/type up to `{` or `;`
 -- and report any that name serde_json. A body may use it freely; a
 signature may not."""

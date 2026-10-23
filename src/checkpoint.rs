@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Training checkpoint management for ML models
 //!
 //! This module provides comprehensive checkpoint saving and loading functionality

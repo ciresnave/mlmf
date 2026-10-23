@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The account of what a parse did not understand (spec §7).
 //!
 //! Every parse returns `(Content, Report)`: the content cannot be obtained

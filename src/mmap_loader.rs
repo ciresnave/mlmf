@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Advanced memory-mapped loading for large ML models
 //!
 //! This module provides memory-efficient loading capabilities for large models

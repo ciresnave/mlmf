@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Every workspace crate is gated by CI, or this test fails.
 //!
 //! `mlmf-gguf` existed for six tasks — a cursor, an error taxonomy, a

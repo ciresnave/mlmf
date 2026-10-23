@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! AD-1 for safetensors: `mlmf-safetensors` against the parser fuel wraps.
 //!
 //! ⚠️ **Unlike `fuel_differential.rs`'s GGUF/GGML half, there is no

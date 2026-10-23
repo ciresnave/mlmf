@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Geometry of ggml's quantization types.
 //!
 //! ggml owns a closed space of numeric type codes. This crate knows how

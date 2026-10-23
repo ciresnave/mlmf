@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! `tokenizer.json`'s declared vocabulary and BPE merge rules.
 //!
 //! Bytes to structure: no I/O, no BPE algorithm (applying merges to

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Dump what MLMF reads from a GGUF corpus, for the cross-project
 //! disagreement harness with lightbulb.
 //!

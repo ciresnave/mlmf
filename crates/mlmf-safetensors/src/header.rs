@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The first stage: an 8-byte length prefix and the JSON header it sizes.
 //!
 //! ```text

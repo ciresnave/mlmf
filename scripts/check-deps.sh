@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT OR Apache-2.0
 # C1/C2: mlmf-core's transitive dependency set is pinned.
 # Regenerate deliberately with: scripts/check-deps.sh --bless
 #

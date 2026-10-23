@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Model Card Generation
 //!
 //! This module provides functionality for generating comprehensive model cards and documentation.

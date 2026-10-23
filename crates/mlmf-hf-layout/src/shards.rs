@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! The shard index — where each tensor lives.
 //!
 //! Spec line 90 defines this crate by this question: *"given a list of

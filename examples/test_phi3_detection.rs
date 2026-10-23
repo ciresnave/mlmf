@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Test Phi-3 architecture detection
 //!
 //! This example tests whether the architecture detection works correctly

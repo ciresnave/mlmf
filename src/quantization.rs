@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Advanced quantization support for ML models.
 //!
 //! This module provides comprehensive quantization functionality including:

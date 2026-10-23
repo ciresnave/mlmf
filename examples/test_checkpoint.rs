@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Test checkpoint functionality
 //!
 //! This example demonstrates saving and loading training checkpoints

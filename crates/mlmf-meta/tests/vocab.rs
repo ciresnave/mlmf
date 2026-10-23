@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Spec §5's canonical key vocabulary, checked in both directions.
 
 use mlmf_meta::vocab::{self, Format, keys};

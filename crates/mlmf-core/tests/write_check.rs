@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Spec §6 CD-1/CD-2/CD-3, pinned against the mechanism in
 //! [`mlmf_core::write_check`].
 //!

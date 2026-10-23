@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Demonstrate quantization features with MLMF
 //!
 //! This example shows how to use the new integrated quantization features

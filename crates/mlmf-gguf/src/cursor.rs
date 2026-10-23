@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Bounds-checked little-endian reads over a byte slice.
 
 /// A read that ran off the end of the slice.

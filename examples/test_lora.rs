@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Test LoRA (Low-Rank Adaptation) functionality
 //!
 //! This example demonstrates LoRA adapter creation, configuration,
