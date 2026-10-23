@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.8] - 2026-10-23
+
+### Fixed
+- `.github/workflows/ci.yml`'s `cargo metadata --locked` step moved to run
+  first in `core-gates`, before any unlocked cargo invocation. It used to
+  run fourth (after `cargo fmt`, two `cargo test -p mlmf-core` steps, and
+  `scripts/check-deps.sh`), all of which resolve without `--locked` and so
+  were free to silently rewrite the in-runner `Cargo.lock` before the
+  dedicated check ever saw it — which is exactly how 0.6.7's own
+  manifest/lockfile drift (fixed in #128) shipped on `main` with every
+  `core-gates` leg green. Measured directly: restoring the committed
+  drifted pair and running `cargo metadata --locked` first fails (exit
+  101) as expected; running an unlocked `cargo test -p mlmf-core` first
+  silently flips all 14 lockfile version lines to match the manifest, and
+  the same `--locked` check then passes.
+- Added a final `git diff --exit-code Cargo.lock` step at the end of
+  `core-gates`, after every other cargo invocation in that job, as
+  defense in depth: the moved check stops an existing drift from being
+  masked, but nothing before stopped a later unlocked step in the same
+  run from introducing a new one after the check passed.
+
 ## [0.6.7] - 2026-10-23
 
 ### Fixed
