@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.12] - 2026-10-23
+
+### Added
+- `ROADMAP.md`: a file-length row per Codacy finding on PR #132 (15
+  files, biggest non-comment-LOC first, none started) — pulled from
+  the check run's own annotations rather than a peer notice that had
+  undercounted at 8.
+
 ## [0.6.11] - 2026-10-23
 
 ### Fixed
