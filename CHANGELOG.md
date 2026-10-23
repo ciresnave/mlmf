@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.7] - 2026-10-23
+
+### Fixed
+- `Cargo.lock` had drifted from `Cargo.toml`: every `mlmf-*` crate's
+  recorded lock version still read `0.6.5` after the workspace version was
+  bumped to `0.6.6`. `cargo update -p mlmf` resyncs it to this release's
+  version.
+
 ## [0.6.6] - 2026-10-21
 
 ### Added
