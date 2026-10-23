@@ -23,6 +23,33 @@ from 169 of 169).
 | `reachability` (no caller found within its own crate) | 73 across `mlmf-awq` (23), `mlmf-gptq` (23), `mlmf-hf-tokenizer` (18), `mlmf-exl2` (4), `mlmf-core` (3), `mlmf-gguf` (1), `mlmf-safetensors` (1) | 64 of 73 DONE (declared), 9 open | `mlmf-awq`/`mlmf-gptq`/`mlmf-hf-tokenizer` (64 findings) all trace back to 1-2 public entry points each (`parse_standalone`/`parse_from_model_config`/`locate_layers`/`parse`) that have no in-repo caller — verified all three crates are independently published to crates.io (checked the crates.io API directly, 2026-10-23: `mlmf-awq` 0.5.11/30 downloads, `mlmf-gptq` 0.5.11/30, `mlmf-hf-tokenizer` 0.5.11/20) as standalone "bytes to structure" readers per this repo's own charter quote, each exercised only by its own `#[cfg(test)]` unit tests (which this check, by design, doesn't count as production reachability — unlike a separate `tests/*.rs` file, example or bench). None has an in-repo consumer: root `mlmf`'s `awq` feature is still `awq = []`, and its `tokenizers` feature wraps the external `tokenizers` crate, not `mlmf-hf-tokenizer`. **Declared in `.coderipper.toml`, not deleted** — the code is correct, documented and tested, just unintegrated, the same judgment call this row already called out ("a planned call site"). The remaining 9 (`mlmf-exl2` 4, `mlmf-core` 3, `mlmf-gguf` 1, `mlmf-safetensors` 1) are smaller crates with a different shape (not yet reviewed) — still open. |
 | `unused-parameters` / `unused-return-values` | 0 / 0 | not a backlog item | A peer notice reported 17 unused-parameters findings; recounting raw finding lines directly from the sweep job log on `origin/main` at `09d8321` (run 40034994212, job 120692157236) found **0** for both rules across all 13 workspace members that analysed successfully. The PM traced its "17" to an earlier, different-method baseline (root-package-only, pre-workspace-split) and confirmed 0/0 is correct for the current sweep; no fix work needed. |
 
+## Decision needed (CireSnave): integrate or retire mlmf-awq/mlmf-gptq/mlmf-hf-tokenizer
+
+Surfaced while disposing the `reachability` row above (#135/#136). The
+facts, not a recommendation — this is a decision about a *published*
+crate's lifecycle, not a code fix this lane can make unilaterally:
+
+- All three crates (`mlmf-awq`, `mlmf-gptq`, `mlmf-hf-tokenizer`) are
+  independently published to crates.io (verified via the crates.io API,
+  2026-10-23: `mlmf-awq` 0.5.11/30 downloads, `mlmf-gptq` 0.5.11/30,
+  `mlmf-hf-tokenizer` 0.5.11/20 — real external downloads, not zero).
+- None has an in-repo consumer. The root `mlmf` crate's `awq` feature is
+  still a stub (`awq = []`, no dependency on `mlmf-awq` at all). Its
+  `tokenizers` feature wraps the external `tokenizers` crate, not
+  `mlmf-hf-tokenizer`. No workspace member depends on `mlmf-gptq`.
+- Each crate's own code is complete, documented, and covered by its own
+  unit tests — this isn't abandoned or broken work, just unwired.
+- **Option A — integrate**: wire each crate into the root `mlmf` crate's
+  corresponding feature (`awq`, and a new or existing path for GPTQ/
+  tokenizer support), making the published crates' existence match what
+  `mlmf` actually does. Real engineering work, scope not yet sized.
+- **Option B — retire**: yank/deprecate the published crates if they
+  were speculative and integration isn't planned. Yanking a published
+  crate is a decision this lane should not make unilaterally — flagged to
+  CireSnave's board per the PM, 2026-10-23.
+- Not actionable by this lane without a decision between A and B; parked
+  here rather than left unrecorded.
+
 ## File-length (Codacy, on PR #132 at `e411340`, https://github.com/ciresnave/mlmf/pull/132)
 
 Codacy flagged these files for length while PR #132 only touched them to add
