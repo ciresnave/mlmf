@@ -40,7 +40,8 @@ somewhere (memory map, owned buffer, downloaded file), exposed as `&[u8]`.
 Implemented by source crates; `mlmf-core` never implements it. Source:
 `crates/mlmf-core/src/traits.rs`.
 
-**CalibrationMethod** -- How the legacy quantizer calibrates: `MinMax`,
+**CalibrationMethod** -- How a quantized model was calibrated, as recorded in
+its metadata: `MinMax`,
 `Percentile`, `Entropy` or `KLDivergence`. Source: `src/metadata.rs`.
 
 **Charter** -- The project's founding rule: "MLMF's job is to read and write
@@ -157,9 +158,6 @@ what it means. Source: `crates/mlmf-core/src/meta.rs`.
 string keys; GGUF's in-file metadata and HuggingFace's JSON sidecars both
 implement it. Source: `crates/mlmf-core/src/traits.rs`.
 
-**ModelCache** -- The legacy root crate's cache of loaded models, with LRU
-eviction and memory-pressure handling. Source: `src/cache.rs`.
-
 **ONNX** -- A model file format. The legacy root crate loads tensors from it
 and can export to it; its `ModelConfig` is partly guessed from tensor shapes.
 Source: `README.md`, `src/formats/onnx_import.rs`,
@@ -206,10 +204,6 @@ so neither side knows the other. Source: `crates/mlmf-core/src/traits.rs`.
 **ShardIndex** -- A parsed `model.safetensors.index.json`, mapping each tensor
 name to the shard file that holds it. Source:
 `crates/mlmf-hf-layout/src/shards.rs`.
-
-**ShardingStrategy** -- How the legacy distributed module splits a model
-across nodes: `NoSharding`, `LayerSharding`, `DimensionSharding` and others.
-Source: `src/distributed.rs`.
 
 **SmartTensorNameMapper** -- The legacy root crate's tensor name mapper with
 fallbacks, used by `LoadedModel`. Source: `src/smart_mapping.rs`.

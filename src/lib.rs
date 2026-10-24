@@ -73,22 +73,15 @@
 pub use candlelight::{DType, Device, VarBuilder};
 
 // Public modules
-pub mod cache;
-pub mod cached_loader;
 pub mod checkpoint;
 pub mod config;
-pub mod distributed;
-pub mod distributed_core;
-pub mod distributed_loader;
 pub mod error;
 pub mod loader;
 pub mod lora;
 pub mod metadata;
 pub mod mmap_loader;
-pub mod model_card;
 pub mod name_mapping;
 pub mod progress;
-pub mod quantization;
 pub mod saver;
 pub mod smart_mapping;
 pub mod universal_loader;
@@ -101,20 +94,10 @@ pub mod formats;
 pub mod conversion;
 
 // Re-export commonly used types
-pub use cache::{CacheConfig, CacheConfigBuilder, CacheStats, MemoryPressure, ModelCache};
-pub use cached_loader::{
-    CachedModelLoader, global_cached_loader, load_cached, load_safetensors_cached,
-};
 pub use checkpoint::{
     Checkpoint, CheckpointManager, CheckpointMetadata, CheckpointSaveOptions, OptimizerState,
 };
 pub use config::{HFConfig, ModelConfig};
-pub use distributed::{
-    DeviceType, DistributedConfig, DistributedConfigBuilder, NodeConfig, ShardingStrategy,
-};
-pub use distributed_core::{
-    ClusterStatus, InferenceRequest, InferenceResponse, SimpleDistributedManager,
-};
 pub use error::{Error, Result};
 pub use loader::{LoadOptions, LoadedModel};
 pub use lora::{LoRAAdapter, LoRAConfig, LoRAModel, LoRAWeights};
@@ -122,15 +105,7 @@ pub use metadata::{
     CalibrationMethod, ModelMetadata, ModelProvenance, ModelQuantizationInfo, TensorInfo,
     TensorQuantizationInfo, TensorStatistics,
 };
-pub use model_card::{
-    EvaluationInfo, MemoryRequirements, ModelCard, ModelCardGenerator, ModelInfo, TechnicalSpecs,
-    TrainingInfo, UsageInfo,
-};
 pub use name_mapping::{Architecture, TensorNameMapper};
-pub use quantization::{
-    ActivationStats, CalibrationDataset, QuantizationConfig, QuantizationEngine,
-    QuantizationScheme, QuantizationType,
-};
 pub use saver::{ModelSaver, SaveOptions, save_model, save_safetensors};
 pub use universal_loader::{detect_model_format, is_supported_model, load_model};
 

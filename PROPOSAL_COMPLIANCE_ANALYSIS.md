@@ -94,7 +94,7 @@ This is a **2025-era snapshot of the legacy root crate against two proposals**, 
 | **Advanced Features**                      |                     |                   |                                 |                                  |
 | Quantization support                       | 🔄 Future need       | ✅ **IMPLEMENTED** | `src/quantization*.rs`          | AWQ, GPTQ, GGML, Dynamic         |
 | Model metadata                             | 🔄 Future need       | ✅ **IMPLEMENTED** | `src/metadata.rs`               | Comprehensive provenance         |
-| Model cards                                | 🔄 Future need       | ✅ **IMPLEMENTED** | `src/model_card.rs`             | Auto-generated documentation     |
+| Model cards                                | 🔄 Future need       | ✅ **IMPLEMENTED** | `model_card` (removed 0.7.0)    | Auto-generated documentation     |
 
 **Cognition Compliance: ✅ 100% COMPLETE + ADVANCED FEATURES**
 

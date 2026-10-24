@@ -34,6 +34,12 @@ pub enum Architecture {
     Unknown,
 }
 
+impl std::fmt::Display for Architecture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
 impl Architecture {
     /// Get human-readable name for the architecture
     pub fn name(self) -> &'static str {

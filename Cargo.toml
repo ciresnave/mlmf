@@ -198,10 +198,6 @@ version    = "0.7.0"
     required-features = ["pytorch"]
 
 [[example]]
-    name              = "model_card_example"
-    required-features = []
-
-[[example]]
     name              = "onnx_import_example"
     required-features = []
 

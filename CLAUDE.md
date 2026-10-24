@@ -16,6 +16,46 @@ this crate's.
 
 ---
 
+## 0. What belongs in MLMF (ruled by CireSnave, 2026-10-24)
+
+Quoted verbatim, because a paraphrase inherits the decider's authority without
+his words:
+
+> *"If the code adds to MLMF's ability to read or write (but not interpret or
+> guess about) machine learning model files, it should be in MLMF. Anything
+> else should not."*
+
+> *"Don't interpret or guess at what the model itself means but detection of
+> what format a model is stored in is fine."*
+
+> *"The guesses that I don't want are things like: This model file doesn't
+> specify a value for this key but it is almost always X so the value should be
+> X here."*
+
+> *"If the underlying specification defines a default for a field, it's fine if
+> we default to that. If, instead, we are making an educated guess about what a
+> value should be without a defined-in-the-standard default, that's not okay."*
+
+What that settles:
+
+- **In:** readers and writers of model files, including the HuggingFace Hub as
+  a place model files are loaded from and saved to (*"I decided HuggingFace Hub
+  code belonged in MLMF because you can load machine learning model files from
+  HuggingFace Hub repositories and save machine learning model files to
+  HuggingFace Hub repositories"*).
+- **In:** guessing HOW to read a file: architecture detection from tensor
+  names, tensor-name mapping, the oracle. They find where a value is stored;
+  they never supply what the value should be. A wrong guess must surface as a
+  read error or an absent value, never an invented one.
+- **Out:** running a model (inference, attention, fusion), serving it
+  (distributed loading), computing on its values (quantization, calibration,
+  LoRA merging, conversion with measured error, memory estimation), caching
+  loaded models, and generating model cards. MLMF supplies the facts those
+  need (shapes, dtypes, byte sizes, declared config values); the work is a
+  consumer's or a separate project's.
+- **Values stay in the stored format.** A writer takes data already encoded in
+  the file's dtype; encoding F32 into Q8_0 is conversion, not file writing.
+
 ## 1. The §6 fence
 
 > **MLMF may supply a format's documented default. MLMF may never supply a
