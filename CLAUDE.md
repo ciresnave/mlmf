@@ -43,7 +43,7 @@ What that settles:
   code belonged in MLMF because you can load machine learning model files from
   HuggingFace Hub repositories and save machine learning model files to
   HuggingFace Hub repositories"*).
-- **In:** guessing HOW to read a file: architecture detection from tensor
+- **In:** guessing how to read a file: architecture detection from tensor
   names, tensor-name mapping, the oracle. They find where a value is stored;
   they never supply what the value should be. A wrong guess must surface as a
   read error or an absent value, never an invented one.
