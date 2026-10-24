@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.21] - 2026-10-24
+
+### Changed
+- `ONNXLoader::infer_model_config` (private) drops its never-read `name_mapper`
+  parameter. The `modality` parameters of `load_distributed_modality` and
+  `load_single_modality`, `deploy_shard_to_node`'s `model_path` and `select_node`'s
+  `request` are underscore-prefixed as planned call sites. No behaviour change.
+  Resolves 5 of the remaining 6 `unused-parameters` findings; the sixth,
+  `process_modality`'s `model`, is a live no-op filed as an issue.
+
 ## [0.6.20] - 2026-10-24
 
 ### Fixed
