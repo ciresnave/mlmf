@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.15] - 2026-10-23
+
+### Added
+- `ROADMAP.md`: recorded that `mlmf-awq`, `mlmf-gptq` and `mlmf-hf-tokenizer`
+  are each independently published to crates.io with real downloads but
+  have no in-repo consumer (root `mlmf`'s `awq` feature is a stub; its
+  `tokenizers` feature wraps the external crate). Facts and two options
+  (integrate vs. retire) only, no decision — flagged to CireSnave's board
+  per the PM. Documentation only; not breaking.
+
 ## [0.6.14] - 2026-10-23
 
 ### Added
