@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.16] - 2026-10-24
+
+### Fixed
+- `.coderipper.toml`: the `mlmf-awq`, `mlmf-gptq` and `mlmf-hf-tokenizer` public-API
+  declarations now live in each crate's own `.coderipper.toml`, which is the file a
+  per-member check reads; 0.6.14's root-file entries had no effect. Repinned the
+  `portfolio.yml` caller to d14a22b (CodeRipper 0.9.14). Config and CI only; not breaking.
+
 ## [0.6.15] - 2026-10-23
 
 ### Added

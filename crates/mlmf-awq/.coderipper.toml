@@ -1,0 +1,16 @@
+# Declared public API (reachability): mlmf-awq is published to crates.io
+# (verified via the crates.io API, 2026-10-23: 0.5.11, 30 downloads) as a
+# standalone AWQ geometry/config reader, per this repo's own charter quote
+# ("MLMF is never intended to be an interpreter of the content of model
+# files"). Its two entry points, AwqConfig::{parse_standalone,
+# parse_from_model_config} and layer::locate_layers, are exercised only by
+# this crate's own #[cfg(test)] unit tests (not counted as production
+# reachability by this check, unlike a separate tests/*.rs file, example,
+# or bench). Neither has an in-repo consumer yet: the root mlmf crate's
+# "awq" feature is still a stub (`awq = []`). Declared, not deleted --
+# the code is correct, documented and tested, just unintegrated.
+[reachability]
+public_api = [
+  { file = "src/config.rs", reason = "published API of mlmf-awq (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
+  { file = "src/layer.rs", reason = "published API of mlmf-awq (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
+]

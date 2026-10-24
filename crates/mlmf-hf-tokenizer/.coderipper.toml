@@ -1,0 +1,18 @@
+# Declared public API (reachability): mlmf-hf-tokenizer is published to
+# crates.io (verified via the crates.io API, 2026-10-23: 0.5.11, 20
+# downloads) as a standalone tokenizer.json reader, per this repo's own
+# charter quote ("MLMF is never intended to be an interpreter of the
+# content of model files" -- applying BPE merges is Fuel's job, not this
+# crate's). Its entry point, TokenizerJson::parse, and the module-private
+# helpers only it reaches, are exercised only by this crate's own
+# #[cfg(test)] unit tests (not counted as production reachability by this
+# check, unlike a separate tests/*.rs file, example, or bench). It has no
+# in-repo consumer yet: the root mlmf crate's "tokenizers" feature wraps
+# the external `tokenizers` crate, not this one. Declared, not deleted --
+# the code is correct, documented and tested, just unintegrated.
+[reachability]
+public_api = [
+  { file = "src/lib.rs", reason = "published API of mlmf-hf-tokenizer (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
+  { file = "src/merges.rs", reason = "published API of mlmf-hf-tokenizer (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
+  { file = "src/model.rs", reason = "published API of mlmf-hf-tokenizer (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
+]
