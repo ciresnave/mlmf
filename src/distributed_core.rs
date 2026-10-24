@@ -308,7 +308,8 @@ impl SimpleDistributedManager {
     /// Deploy a single shard to a node
     async fn deploy_shard_to_node<P: AsRef<Path>>(
         &self,
-        model_path: P,
+        // Planned: the transfer step in the comment below will read it.
+        _model_path: P,
         shard: &SimpleModelShard,
     ) -> Result<()> {
         // In a real implementation, this would:
@@ -462,7 +463,8 @@ impl SimpleLoadBalancer {
     pub async fn select_node(
         &self,
         shards: &[SimpleModelShard],
-        request: &InferenceRequest,
+        // Planned: request-aware strategies; none of the current ones read it.
+        _request: &InferenceRequest,
     ) -> Result<String> {
         if shards.is_empty() {
             return Err(anyhow!("No shards available for request"));

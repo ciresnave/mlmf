@@ -146,7 +146,7 @@ impl ONNXLoader {
         }
 
         // Create model configuration
-        let config = self.infer_model_config(&model_info, &tensors, &name_mapper)?;
+        let config = self.infer_model_config(&model_info, &tensors)?;
 
         // Report configuration inference complete
         if let Some(ref progress) = self.progress_fn {
@@ -411,7 +411,6 @@ impl ONNXLoader {
         &self,
         info: &ONNXModelInfo,
         tensors: &HashMap<String, Tensor>,
-        name_mapper: &SmartTensorNameMapper,
     ) -> Result<ModelConfig> {
         // ⚠️ STEP 1 OF THIS COMMIT IS A PURE EXTRACTION, BEHAVIOUR UNCHANGED.
         // The shape walk moved to `dimensions_from_tensor_shapes` below so it
@@ -915,8 +914,6 @@ mod tests {
         );
 
         let names: Vec<String> = tensors.keys().cloned().collect();
-        let name_mapper = SmartTensorNameMapper::from_tensor_names(&names)
-            .expect("LLaMA-style names are recognised");
         let info = ONNXModelInfo {
             model_version: 1,
             producer_name: "probe".to_string(),
@@ -932,7 +929,7 @@ mod tests {
         let loader = ONNXLoader::new(ONNXLoadOptions::default());
 
         let config = loader
-            .infer_model_config(&info, &tensors, &name_mapper)
+            .infer_model_config(&info, &tensors)
             .expect("this graph declares a vocabulary, a hidden size and layer 0");
 
         // CONTROL FIRST: what the graph DOES declare must survive, or the

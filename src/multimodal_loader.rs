@@ -123,7 +123,8 @@ impl MultiModalLoader {
 
     async fn load_distributed_modality(
         &self,
-        modality: Modality,
+        // Planned: per-modality device placement (see the note below).
+        _modality: Modality,
         path: &str,
         dist_manager: &SimpleDistributedManager,
     ) -> Result<LoadedModel> {
@@ -141,7 +142,7 @@ impl MultiModalLoader {
         crate::loader::load_safetensors_auto(path)
     }
 
-    async fn load_single_modality(&self, modality: Modality, path: &str) -> Result<LoadedModel> {
+    async fn load_single_modality(&self, _modality: Modality, path: &str) -> Result<LoadedModel> {
         // Determine format and load accordingly
         if path.ends_with(".safetensors") {
             crate::loader::load_safetensors(path, self.base_options.clone_basic())
