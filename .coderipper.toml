@@ -16,7 +16,6 @@ public_api = [
   { file = "src/formats/safetensors_export.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
   { file = "src/lora.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
   { file = "src/metadata.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/multimodal_loader.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
   { file = "src/name_mapping.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
   { file = "src/progress.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
   { file = "src/quantization.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },

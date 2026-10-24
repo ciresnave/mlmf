@@ -86,9 +86,6 @@ pub mod lora;
 pub mod metadata;
 pub mod mmap_loader;
 pub mod model_card;
-pub mod multimodal;
-pub mod multimodal_loader;
-pub mod multimodal_processor;
 pub mod name_mapping;
 pub mod progress;
 pub mod quantization;
@@ -154,15 +151,3 @@ pub use conversion::{
     ConversionFormat, ConversionJob, ConversionOptions, ConversionResult, convert_batch,
     convert_model,
 };
-
-// Re-export multi-modal API
-pub use multimodal::{
-    AttentionStats, CrossModalAttentionConfig, FusionStrategy, Modality, ModalityConfig,
-    ModalityInput, MultiModalConfig, MultiModalInput, MultiModalOutput, MultiModalProcessor,
-    MultiModalStats, PreprocessingConfig,
-};
-pub use multimodal_loader::{
-    BasicCrossModalLayer, BasicFusionComponent, CrossModalLayer, FusionComponent, MultiModalLoader,
-    MultiModalModel, MultiModalModelStats,
-};
-pub use multimodal_processor::{BasicMultiModalProcessor, CrossModalAttention, FusionLayer};

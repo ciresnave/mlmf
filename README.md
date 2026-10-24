@@ -143,7 +143,6 @@ See the [`examples/`](examples/) directory for complete working examples:
 - [`test_gguf_loading.rs`](examples/test_gguf_loading.rs) - Loading quantized GGUF models
 - [`pytorch_support_example.rs`](examples/pytorch_support_example.rs) - Loading PyTorch models
 - [`onnx_export_example.rs`](examples/onnx_export_example.rs) - Exporting models to ONNX format
-- [`multimodal_demo.rs`](examples/multimodal_demo.rs) - Multi-modal model handling
 
 ## Performance
 

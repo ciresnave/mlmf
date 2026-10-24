@@ -159,12 +159,6 @@ pub enum ShardingStrategy {
         /// Function to determine shard placement
         placement_fn: String, // Serialized function identifier
     },
-
-    /// Modality-specific sharding for multi-modal models
-    ModalitySpecific {
-        /// Assignment of modalities to node groups
-        modality_assignments: HashMap<crate::multimodal::Modality, Vec<String>>,
-    },
 }
 
 /// Dimension for sharding operations

@@ -72,16 +72,9 @@ let model = lora::load_model_with_adapter(
 )?;
 ```
 
-### **3. Multimodal Models**
-```rust
-use mlmf::multimodal::Modality;
-use mlmf::multimodal_loader::MultiModalLoader;
+### **3. Multimodal Models** — removed
 
-// Handle text, image, audio, video modalities
-let loader = MultiModalLoader::new(config, base_options)
-    .with_modality_path(Modality::Text, "./text-model")
-    .with_modality_path(Modality::Image, "./vision-model");
-```
+Multi-modal processing (cross-modal attention, fusion, inference) was removed from MLMF in 0.7.0: it is not model-file loading or saving. Use a runtime such as Fuel.
 
 ### **4. Distributed Loading** — ⚠️ **DO NOT INTEGRATE: out of charter, and the loader panics**
 
@@ -208,7 +201,6 @@ let model = cached_loader.load("./model", options)?;
 - **`load_llama.rs`** - Basic LLaMA model loading (Lightbulb)
 - **`smart_mapping_test.rs`** - Architecture detection (Cognition) 
 - **`cache_system_test.rs`** - Performance optimization
-- **`multimodal_demo.rs`** - Advanced multimodal usage
 - **`distributed_demo.rs`** - Enterprise distributed loading
 - **`quantization_demo.rs`** - Dynamic compression examples
 

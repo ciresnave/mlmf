@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-10-24
+
+### Removed (breaking)
+- Multi-modal support is gone: `multimodal`, `multimodal_loader` and `multimodal_processor`
+  (cross-modal attention, fusion, `MultiModalModel::infer`) and everything they exported,
+  plus `ShardingStrategy::ModalitySpecific`, the two multimodal examples and the Feature 8
+  docs. MLMF loads and saves model files; running a model is not its job (CireSnave,
+  2026-10-24). Fixes #143, whose no-op `process_modality` is deleted with it.
+
+### Changed
+- `ROADMAP.md`: the integrate-or-retire section is replaced by CireSnave's ruling that AWQ
+  loading and saving stay in MLMF, with an inventory of what exists.
+
 ## [0.6.21] - 2026-10-24
 
 ### Changed
