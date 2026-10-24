@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.20] - 2026-10-24
+
+### Fixed
+- `save_as_onnx` ignored its `export_options`: it built fresh writer options and never read
+  the argument. `opset_version` and `custom_metadata` now reach the writer;
+  `optimize_graph` and `preserve_metadata`, which the writer cannot honour, are refused
+  with an error instead of accepted and dropped. Behaviour change: `convert` to ONNX with
+  `preserve_metadata: true` now returns that error (the ONNX writer itself still refuses
+  to write a graph, so no export that succeeded before fails now).
+
 ## [0.6.19] - 2026-10-24
 
 ### Fixed
