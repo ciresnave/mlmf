@@ -1,0 +1,10 @@
+# Declared public API (reachability): mlmf-gguf is published to crates.io
+# (verified with `cargo search`, 2026-10-24: 0.5.11). The `pub` items of
+# src/requirements.rs that the check flags are part of that published API; none is
+# called by this repository's own non-test targets. Declared, not deleted --
+# the code is documented and tested. Kept per file, not as a glob, so a new
+# undeclared file is still reported.
+[reachability]
+public_api = [
+  { file = "src/requirements.rs", reason = "published API of mlmf-gguf (crates.io); not called by this repository's own targets" },
+]
