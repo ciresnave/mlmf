@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ROADMAP.md` now records the root crate's 17 `unused-parameters` and 1
   `unused-return-values` findings. Config and docs only; not breaking.
 
+## [0.6.16] - 2026-10-24
+
+### Fixed
+- `.coderipper.toml`: the `mlmf-awq`, `mlmf-gptq` and `mlmf-hf-tokenizer` public-API
+  declarations now live in each crate's own `.coderipper.toml`, which is the file a
+  per-member check reads; 0.6.14's root-file entries had no effect. Repinned the
+  `portfolio.yml` caller to d14a22b (CodeRipper 0.9.14). Config and CI only; not breaking.
+
 ## [0.6.15] - 2026-10-23
 
 ### Added
