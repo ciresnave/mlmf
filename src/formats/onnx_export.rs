@@ -812,24 +812,9 @@ pub fn save_as_onnx(
     // change would touch this line.
     let tensors = model.raw_tensors.clone();
 
-    // ⚠️ A SECOND DISCARD, ONE LINE FROM THE FIRST, AND NOT FIXED HERE.
-    //
-    // `export_options` — the caller's opset version, metadata and optimise
-    // flag — is ignored. These options are built fresh and the argument is
-    // never read, which is why clippy reports it unused.
-    //
-    // Left as-is rather than mapped, because honouring it means translating
-    // `OnnxExportOptions` into `ONNXExportOptions` field by field for a path
-    // that refuses before either is used: `Custom` reaches the architecture
-    // match's `_` arm. Writing that mapping now would be untestable code
-    // serving an unreachable call, which is the shape deleted from the AWQ
-    // loader in #43.
-    //
-    // It is named here rather than left to be rediscovered, and it becomes
-    // real work the moment ONNX export is implemented.
-    let onnx_options = ONNXExportOptions::new(ONNXArchitecture::Custom)
-        .with_metadata("converted_by", "mlmf")
-        .with_metadata("source_format", "mlmf_loaded_model");
+    // The caller's options, translated -- not rebuilt. This used to ignore
+    // `export_options` entirely ("a SECOND DISCARD, one line from the first").
+    let onnx_options = onnx_options_from(&export_options)?;
 
     let save_options = crate::saver::SaveOptions {
         progress_callback: None,
@@ -839,6 +824,37 @@ pub fn save_as_onnx(
 
     export_to_onnx(&tensors, path, onnx_options, &save_options)
         .map_err(|e| crate::Error::model_saving(format!("ONNX export failed: {}", e)))
+}
+
+/// Translate the conversion API's options into the writer's.
+///
+/// ⚠️ EVERY FIELD IS HONOURED OR REFUSED, NEVER DROPPED. `opset_version` and
+/// `custom_metadata` map onto the writer's options. `optimize_graph` and
+/// `preserve_metadata` have no counterpart there, so asking for either is an
+/// error rather than a flag that is accepted and ignored: an export that
+/// reports success while skipping what was requested is indistinguishable
+/// from one that did it.
+fn onnx_options_from(export_options: &OnnxExportOptions) -> crate::Result<ONNXExportOptions> {
+    if export_options.optimize_graph {
+        return Err(crate::Error::invalid_config(
+            "ONNX export: `optimize_graph` is not supported by the ONNX writer".to_string(),
+        ));
+    }
+    if export_options.preserve_metadata {
+        return Err(crate::Error::invalid_config(
+            "ONNX export: `preserve_metadata` is not supported by the ONNX writer".to_string(),
+        ));
+    }
+    let mut onnx_options = ONNXExportOptions::new(ONNXArchitecture::Custom)
+        .with_metadata("converted_by", "mlmf")
+        .with_metadata("source_format", "mlmf_loaded_model");
+    if let Some(opset) = export_options.opset_version {
+        onnx_options = onnx_options.with_opset_version(opset);
+    }
+    for (key, value) in &export_options.custom_metadata {
+        onnx_options = onnx_options.with_metadata(key.clone(), value.clone());
+    }
+    Ok(onnx_options)
 }
 
 /// Export options for ONNX format (conversion API compatibility)
@@ -945,5 +961,46 @@ mod tests {
             "and it is NOT the writer's refusal, so the test above is reaching \
              the writer: {msg}"
         );
+    }
+
+    #[test]
+    fn options_are_translated_not_rebuilt() {
+        let mut custom = HashMap::new();
+        custom.insert("author".to_string(), "someone".to_string());
+        let mapped = onnx_options_from(&OnnxExportOptions {
+            custom_metadata: custom,
+            opset_version: Some(13),
+            ..Default::default()
+        })
+        .expect("supported options map");
+        assert_eq!(mapped.opset_version, 13, "the requested opset, not 17");
+        assert_eq!(
+            mapped.metadata.get("author").map(String::as_str),
+            Some("someone")
+        );
+        let defaulted = onnx_options_from(&OnnxExportOptions::default()).expect("defaults map");
+        assert_eq!(
+            defaulted.opset_version, 17,
+            "absent opset keeps the writer default"
+        );
+    }
+
+    #[test]
+    fn options_that_cannot_be_honoured_are_refused() {
+        for opts in [
+            OnnxExportOptions {
+                optimize_graph: true,
+                ..Default::default()
+            },
+            OnnxExportOptions {
+                preserve_metadata: true,
+                ..Default::default()
+            },
+        ] {
+            assert!(
+                onnx_options_from(&opts).is_err(),
+                "{opts:?} must not be silently ignored"
+            );
+        }
     }
 }
