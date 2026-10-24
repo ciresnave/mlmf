@@ -756,8 +756,8 @@ impl DistributedModelLoader {
     /// Deploy a model across the distributed cluster
     pub async fn deploy_model<P: AsRef<std::path::Path>>(
         &self,
-        model_path: P,
-        model_id: String,
+        _model_path: P,
+        _model_id: String,
     ) -> Result<String> {
         // Implementation for deploying a model across nodes
         // This would involve:
@@ -796,7 +796,7 @@ impl DistributedModelLoader {
     }
 
     /// Scale the cluster up or down
-    pub async fn scale_cluster(&self, target_nodes: usize) -> Result<()> {
+    pub async fn scale_cluster(&self, _target_nodes: usize) -> Result<()> {
         // Implementation for scaling the cluster
         todo!("Implement cluster scaling")
     }
@@ -806,33 +806,33 @@ impl DistributedModelLoader {
 // Due to length constraints, I'll implement the core functionality
 
 impl NodeManager {
-    fn new(config: Arc<DistributedConfig>) -> Result<Self> {
+    fn new(_config: Arc<DistributedConfig>) -> Result<Self> {
         // Initialize node manager
         todo!("Implement NodeManager::new")
     }
 }
 
 impl ShardManager {
-    fn new(config: Arc<DistributedConfig>) -> Result<Self> {
+    fn new(_config: Arc<DistributedConfig>) -> Result<Self> {
         // Initialize shard manager
         todo!("Implement ShardManager::new")
     }
 
-    async fn migrate_shard(&self, shard_id: &str, target_node: &str) -> Result<String> {
+    async fn migrate_shard(&self, _shard_id: &str, _target_node: &str) -> Result<String> {
         // Implement shard migration
         todo!("Implement shard migration")
     }
 }
 
 impl LoadBalancer {
-    fn new(config: Arc<DistributedConfig>) -> Result<Self> {
+    fn new(_config: Arc<DistributedConfig>) -> Result<Self> {
         // Initialize load balancer
         todo!("Implement LoadBalancer::new")
     }
 }
 
 impl HealthMonitor {
-    fn new(config: Arc<DistributedConfig>) -> Result<Self> {
+    fn new(_config: Arc<DistributedConfig>) -> Result<Self> {
         // Initialize health monitor
         todo!("Implement HealthMonitor::new")
     }

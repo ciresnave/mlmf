@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refuses with an error when there are none. Behaviour change: a call that used to
   return `Ok` on an empty model now returns `Err`.
 
+## [0.6.18] - 2026-10-24
+
+### Changed
+- `src/distributed_loader.rs`: the nine parameters of the private `todo!()` stubs
+  (`deploy_model`, `scale_cluster`, `NodeManager::new`, `ShardManager::new` and
+  `migrate_shard`, `LoadBalancer::new`, `HealthMonitor::new`) are underscore-prefixed.
+  Resolves 9 of the root crate's 17 `unused-parameters` findings; no behaviour change,
+  not breaking. The other 8 are triaged in `ROADMAP.md`.
+
 ## [0.6.17] - 2026-10-24
 
 ### Added
