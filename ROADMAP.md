@@ -111,7 +111,7 @@ Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10
 | S-03 | GGUF `preserve_metadata` writes only a placeholder `preserved="true"`, and `general.architecture` is written as `"unknown"` (section 6 fence) | `gguf_export.rs`, `save_as_gguf` placeholder comment | open | CALL: section 6 and the `Option<T>` policy |
 | S-04 | GGUF calibration data support | GGUF_EXPORT_SUMMARY.md:149 | open | CALL: arguably interpreting content |
 | S-05 | AWQ export (`awq_export.rs` returns `Err`); batch, streaming and compression export | GGUF_EXPORT_SUMMARY.md:154-157 | held (by the awq/gptq/hf-tokenizer decision above) | - |
-| S-06 | GGUF v1 reading (`UnsupportedVersion`; detector `mlmf-gguf/tests/v1_deferral.rs`; the one corpus file is unmeasured) | SPEC §9 §7 L403; gguf plans L87, L1517 | held (accepted loss, CireSnave 2026-09-25) | CALL: build it or re-defer |
+| S-06 | GGUF v1 reading (`UnsupportedVersion`; detector `crates/mlmf-gguf/tests/v1_deferral.rs`; the one corpus file is unmeasured) | SPEC §9 §7 L403; gguf plans L87, L1517 | held (accepted loss, CireSnave 2026-09-25) | CALL: build it or re-defer |
 | S-07 | Non-native-endian GGUF: refused by name (`ByteSwapped`), no transcoder | gguf-metadata plan L3865 | open (by design) | CALL: low priority, no corpus file exhibits it |
 | S-08 | Streaming, async and ranged sources: no `impl Read` source, no ranged GGUF `parse` | SPEC §9 §7 L404; gguf-metadata plan D4; source-file plan L818 | open | CALL: the `RangedSource` trait change (`&mut self` or interior mutability) is an API call |
 | S-09 | Metadata-only GGUF entry point `metadata_only(bytes)` | INV §7.2.1 L295-302 | open | - |
@@ -164,7 +164,7 @@ Doc corrections: docs-only work that needs no decision. Recorded as rows, not ed
 | D-03 | GGUF_EXPORT_SUMMARY.md:12, 19-21, 32, 86, 159-168 says F16, Q8_0 and Q4_0 work, gives a size table and says "production-ready"; L15 claims streaming writes while L156 lists streaming as future | only F32 writes (`gguf_export.rs:616-620`); every other type, F16 included, returns `NOT IMPLEMENTED`. Re-checked. | open |
 | D-04 | FEATURE_8_MULTIMODAL_SUMMARY.md:99-114 shows a working `model.infer(input)`; FEATURE_8_COMPILATION_SUCCESS.md:126, 139 says "production-ready" and ticks Feature 6 | `process_modality` ignores its model (#143); `DistributedModelLoader::new` panics through `todo!` (`distributed_loader.rs:811`) | open |
 | D-05 | FEATURE_6_DISTRIBUTED_SUMMARY.md:223-236 says "COMPLETED ... production-ready" | 8 live `todo!()`; its own banner retracts this, but FEATURE_8's tick of Feature 6 does not | open |
-| D-06 | hf-layout-metadata-DEFERRED plan L8-12 and `mlmf-hf-layout`'s `lib.rs` and `config.rs` cite `tests/part_b_deferral.rs` as existing and say the metadata half "has not been rewritten" | the file is absent on `origin/main` (re-checked); `ConfigJson` shipped in #119 (board #111) | open |
+| D-06 | hf-layout-metadata-DEFERRED plan L8-12 and `mlmf-hf-layout`'s `lib.rs` and `config.rs` cite the Part B deferral detector test as existing and say the metadata half "has not been rewritten" | the file is absent on `origin/main` (re-checked); `ConfigJson` shipped in #119 (board #111) | open |
 | D-07 | INV L188 says `ModelConfig` cannot represent an absent field (#48, open); L189 says `tokenizer.json` is "HAS"; L191-192 say `generation_config.json` and `special_tokens_map.json` are "MISSING"; L76 says mmap is "not yet wired" | fields are `Option<T>` (#77); GAP L359-364 retracts the tokenizer claim; both readers exist in `mlmf-hf-layout`; zero-copy is verified (#115) | open |
 | D-08 | SPEC L441 says `mlmf-source-file` has not landed and `mlmf-hf-layout` does not exist; L483, 487 say the root crate has no `mlmf-*` dependency | both crates exist; `Cargo.toml` depends on `mlmf-gguf` and `mlmf-core` (#36); `gguf.rs:85` calls `mlmf_gguf::GgufMetadata::parse` | open |
 | D-09 | README.md:31 `tag = "v0.2.1"`; RELEASE_NOTES_v0.2.0.md:1 "at 0.4.0"; ONNX_SUPPORT.md:126 `version = "0.1.0"`; MLMF_TEAM_BRIEFING.md "v0.1.0 production-ready" | the workspace is at 0.6.22 (proposed) | open |
@@ -188,6 +188,6 @@ Doc corrections: docs-only work that needs no decision. Recorded as rows, not ed
 | Legacy GGML (GGJT) container dropped | board 63a, 2026-09-26 |
 | `save_as_gguf` writes the model's tensors | #141 |
 | `save_as_onnx` honours or refuses its options | #142 |
-| transitive-deps C1 and C2 gates | `mlmf-core/tests/transitive_deps.rs` |
+| transitive-deps C1 and C2 gates | `crates/mlmf-core/tests/transitive_deps.rs` |
 | `errors.txt` removed | absent at the repo root |
 | `Declaration`, `array_len`, `array_get`, `NotGguf` (lightbulb R2, R5, R7) | `mlmf-core`, `mlmf-gguf` |
