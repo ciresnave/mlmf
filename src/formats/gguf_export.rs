@@ -788,9 +788,20 @@ pub fn save_as_gguf(
     path: &Path,
     export_options: GgufExportOptions,
 ) -> crate::Result<()> {
-    // Convert LoadedModel tensors to HashMap<String, Tensor>
-    // For now, this is a placeholder since we need actual tensor data
-    let tensors = std::collections::HashMap::new();
+    // ⚠️ The model's OWN tensors. This was `HashMap::new()` under "For now,
+    // this is a placeholder since we need actual tensor data": every call
+    // returned `Ok` and wrote a GGUF with a header, metadata and NO tensors,
+    // whatever model it was handed. `conversion.rs` reaches it for any GGUF
+    // target. An empty file reads as a valid, empty model, so nothing
+    // downstream notices.
+    let tensors = model.raw_tensors.clone();
+    if tensors.is_empty() {
+        // Refuse rather than write a model with no weights. A model carrying
+        // only `quantized_tensors` is not supported by this path.
+        return Err(crate::Error::model_saving(
+            "GGUF export refused: the model has no raw tensors to write".to_string(),
+        ));
+    }
 
     let quantization = if let Some(ref quant) = export_options.quantization {
         match quant.as_str() {
@@ -1000,5 +1011,94 @@ mod tests {
                 "{label} names what it used to do instead: {msg}"
             );
         }
+    }
+
+    /// ⚠️ `save_as_gguf` must write the MODEL's tensors. It used to build an
+    /// empty map, ignore `model`, and return `Ok` with a tensor-less file.
+    fn loaded_model(tensors: HashMap<String, Tensor>) -> crate::LoadedModel {
+        let names: Vec<String> = tensors.keys().cloned().collect();
+        crate::LoadedModel {
+            var_builder: candlelight::VarBuilder::from_tensors(
+                tensors.clone(),
+                DType::F32,
+                &candlelight::Device::Cpu,
+            ),
+            config: crate::config::ModelConfig {
+                vocab_size: 2,
+                hidden_size: 2,
+                num_attention_heads: None,
+                num_key_value_heads: None,
+                num_hidden_layers: 1,
+                intermediate_size: None,
+                max_position_embeddings: None,
+                dropout: None,
+                layer_norm_eps: None,
+                attention_dropout: None,
+                activation_function: None,
+                rope_theta: None,
+                tie_word_embeddings: None,
+                architecture: crate::name_mapping::Architecture::Unknown,
+                raw_config: serde_json::Value::Null,
+            },
+            name_mapper: crate::smart_mapping::SmartTensorNameMapper::from_tensor_names(&names)
+                .expect("mapper"),
+            raw_tensors: tensors,
+            quantized_tensors: None,
+            metadata: crate::metadata::ModelMetadata::new(),
+            tensor_info: HashMap::new(),
+            quantization_info: None,
+            provenance: crate::metadata::ModelProvenance::new(),
+        }
+    }
+
+    #[test]
+    fn save_as_gguf_writes_the_models_tensors() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let path = dir.path().join("model.gguf");
+        let written = distinct_tensors();
+        let model = loaded_model(written.clone());
+
+        save_as_gguf(
+            &model,
+            &path,
+            GgufExportOptions {
+                quantization: Some("f32".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("save");
+
+        let raw = std::fs::read(&path).expect("read back");
+        let mut fh = std::io::Cursor::new(&raw);
+        let content =
+            candlelight::quantized::gguf_file::Content::read(&mut fh).expect("parses as GGUF");
+        assert_eq!(content.tensor_infos.len(), written.len());
+        for (name, original) in &written {
+            let mut cur = std::io::Cursor::new(&raw);
+            let got = content
+                .tensor(&mut cur, name, &candlelight::Device::Cpu)
+                .expect("tensor reads back")
+                .dequantize(&candlelight::Device::Cpu)
+                .expect("dequantizes");
+            let expected = original
+                .flatten_all()
+                .and_then(|t| t.to_vec1::<f32>())
+                .expect("e");
+            let actual = got
+                .flatten_all()
+                .and_then(|t| t.to_vec1::<f32>())
+                .expect("a");
+            assert_eq!(actual, expected, "{name} carries the model's values");
+        }
+    }
+
+    #[test]
+    fn save_as_gguf_refuses_a_model_with_no_tensors() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let path = dir.path().join("empty.gguf");
+        let model = loaded_model(HashMap::new());
+        let err = save_as_gguf(&model, &path, GgufExportOptions::default());
+        assert!(err.is_err(), "an empty model must not yield Ok");
+        assert!(!path.exists(), "and must not leave a tensor-less file");
     }
 }
