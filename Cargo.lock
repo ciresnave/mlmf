@@ -1169,6 +1169,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mlmf-pickle"
+version = "0.7.4"
+dependencies = [
+ "mlmf-core",
+]
+
+[[package]]
 name = "mlmf-safetensors"
 version = "0.7.4"
 dependencies = [
