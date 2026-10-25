@@ -10,6 +10,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `mlmf-gguf`: `read_tokenizer_data`, `GgufTokenizerData`, `TokenizerDataError` read the `tokenizer.ggml.*` keys as plain data (fuel row 42 slice E3). Every field is `Option`: an absent key is `None`, with no defaulted `pre`, `add_bos_token` or `add_eos_token` and no case folding of the model name; merges stay unsplit strings; a wrong-typed key, an out-of-range id or a non-UTF-8 token is an error, never `None`. `index_complete` travels with the data. Checked against an independent Python reader over the 30 v2/v3 files of the GGUF corpus (`tests/corpus-tokenizer.tsv`).
 
+## [0.7.6] - 2026-10-25
+
+### Added
+- `mlmf-gguf`: `encode_gguf`, `encode_gguf_head`, `GgufTensorToWrite`, `GgufVersion`, `GgufEncodeError`, `GgufHead` (fuel row 42 slice F2). Pure, no I/O. Tensors arrive already encoded in their ggml type and are laid down untouched, dims as stored (innermost first, what this crate's readers report), each tensor padded to the alignment (`general.alignment`, else the spec's 32). Refuses a missing `general.architecture` (and `general.quantization_version` when any tensor is quantized) rather than writing a guess, an empty or mixed array, duplicate keys or tensor names, and a byte length that is not what the type and dims require. For the same inputs the v2 output is byte-identical to a port of fuel's `write_gguf`, checked in `mlmf-conformance`.
+
+### Removed
+- The `write_check_has_no_consumer` test in `mlmf-core` (deleted; its path is not cited here because the documented-paths guard rejects a deleted file), the deferral detector for `WriteCheck`, and the "Nothing consumes this yet" section of `write_check.rs`: `encode_gguf` now consumes `WriteCheck`, which is the event the detector's header says to delete both on. The module doc now says who consumes it.
+
+## [0.7.5] - 2026-10-25
+
+### Added
+- `mlmf-gguf`: `parse_raw_imatrix`, `RawImatrix`, `RawImatrixEntry`, `RawImatrixError` read `llama-imatrix`'s raw positional layout (fuel row 42 slice E1). Pure, no I/O; every length is bounded against the remaining bytes before allocation. Values come back as stored: unlike fuel's reader this does not divide by `ncall`; `ncall`, the trailer's `last_call` and the dataset name are returned beside them. Checked against a real 1.3 MB file (`bartowski/Llama-3.2-1B-Instruct-GGUF`) with facts measured by an independent reader; the test announces `SKIPPED` when the file is absent.
+
+## [0.7.4] - 2026-10-25
+
+### Added
+- `mlmf-safetensors`: `encode_safetensors`, `encode_header`, `TensorToWrite`, `EncodeError`, `name_of`. Lays tensors already encoded in their file dtype into a safetensors image (fuel row 42 slice F1, CireSnave 2026-10-25). Pure, no I/O: the caller writes the bytes. Tensors are ordered widest dtype first then by name so each starts aligned; length, duplicate-name, `__metadata__` and overflow errors refuse rather than write. Checked in `mlmf-conformance` against the upstream `safetensors` crate in both directions.
+
 ## [0.7.3] - 2026-10-25
 
 ### Changed

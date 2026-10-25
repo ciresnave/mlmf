@@ -171,6 +171,31 @@ where
         .map(Some)
 }
 
+/// The three id keys.
+fn read_ids<S>(src: &S) -> Result<[Option<u32>; 3]>
+where
+    S: MetadataSource + ?Sized,
+{
+    Ok([
+        read(src, "tokenizer.ggml.unk_token_id", "integer", to_id)?,
+        read(src, "tokenizer.ggml.bos_token_id", "integer", to_id)?,
+        read(src, "tokenizer.ggml.eos_token_id", "integer", to_id)?,
+    ])
+}
+
+/// The four boolean keys: byte_fallback, ignore_merges, add_bos, add_eos.
+fn read_flags<S>(src: &S) -> Result<[Option<bool>; 4]>
+where
+    S: MetadataSource + ?Sized,
+{
+    Ok([
+        read(src, "tokenizer.ggml.byte_fallback", "bool", to_bool)?,
+        read(src, "tokenizer.ggml.ignore_merges", "bool", to_bool)?,
+        read(src, "tokenizer.ggml.add_bos_token", "bool", to_bool)?,
+        read(src, "tokenizer.ggml.add_eos_token", "bool", to_bool)?,
+    ])
+}
+
 /// Read the `tokenizer.ggml.*` keys from `src`.
 ///
 /// # Errors
@@ -182,17 +207,19 @@ pub fn read_tokenizer_data<S>(src: &S) -> Result<GgufTokenizerData>
 where
     S: MetadataSource + ?Sized,
 {
+    let [unk_token_id, bos_token_id, eos_token_id] = read_ids(src)?;
+    let [byte_fallback, ignore_merges, add_bos_token, add_eos_token] = read_flags(src)?;
     Ok(GgufTokenizerData {
         model: read(src, "tokenizer.ggml.model", "string", to_string)?,
         tokens: read_strings(src, "tokenizer.ggml.tokens")?,
         merges: read_strings(src, "tokenizer.ggml.merges")?,
-        unk_token_id: read(src, "tokenizer.ggml.unk_token_id", "integer", to_id)?,
-        bos_token_id: read(src, "tokenizer.ggml.bos_token_id", "integer", to_id)?,
-        eos_token_id: read(src, "tokenizer.ggml.eos_token_id", "integer", to_id)?,
-        byte_fallback: read(src, "tokenizer.ggml.byte_fallback", "bool", to_bool)?,
-        ignore_merges: read(src, "tokenizer.ggml.ignore_merges", "bool", to_bool)?,
-        add_bos_token: read(src, "tokenizer.ggml.add_bos_token", "bool", to_bool)?,
-        add_eos_token: read(src, "tokenizer.ggml.add_eos_token", "bool", to_bool)?,
+        unk_token_id,
+        bos_token_id,
+        eos_token_id,
+        byte_fallback,
+        ignore_merges,
+        add_bos_token,
+        add_eos_token,
         pre: read(src, "tokenizer.ggml.pre", "string", to_string)?,
         index_complete: src.index_complete(),
     })
