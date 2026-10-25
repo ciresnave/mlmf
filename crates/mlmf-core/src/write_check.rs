@@ -31,23 +31,15 @@
 //! had to enumerate every format's conditions, which is the interpretation
 //! this project does not do.
 
-//! # ⚠️ Nothing consumes this yet, and that is not visible from a green run
+//! # Who consumes this
 //!
-//! **There is no GGUF writer.** The spec records it directly — *"there is
-//! still no GGUF writer, which is why `formats/gguf_export.rs` above is
-//! Planned rather than Superseded"* — so **CD-3's refusal currently has no
-//! conversion to refuse.** Every test here drives this module directly.
-//!
-//! ⚠️ **An unexercised gate and a working one are indistinguishable in any
-//! coverage summary.** Both show green, both show tests passing, and neither
-//! says whether a real caller has ever reached the code. Stated here so the
-//! absence is a recorded fact rather than something a reader has to notice
-//! is missing — the same reason a supplied value must be reported rather
-//! than merely correct.
-//!
-//! This is the seam a writer will need, and it is built to the spec rather
-//! than to a caller. **When one arrives, delete this section** — its
-//! accuracy is the only thing keeping it here.
+//! `mlmf_gguf::encode_gguf` runs [`WriteCheck`] over the caller's metadata
+//! with `mlmf_gguf::requirements`, and refuses with
+//! `GgufEncodeError::MissingRequiredKey` when CD-3 does. Its tests drive the
+//! refusal through a real write, not only this module directly. (This section
+//! used to say nothing consumed the check, with a test that turned red on the
+//! day something did; that day was the GGUF writer, and the test went with
+//! the sentence it guarded.)
 
 use crate::error::{Error, ErrorKind};
 use crate::meta::MetaValue;

@@ -54,3 +54,53 @@ What mlmf derives from them, and where:
 
 No source code from either repository is copied or reproduced; these are
 facts about file formats and short, attributed spec quotations.
+
+
+================================================================================
+unsloth/Qwen3-0.6B-unsloth-bnb-4bit and Qwen/Qwen3-0.6B (test fixture)
+================================================================================
+
+`crates/mlmf-conformance/tests/fixtures/bnb_double_quant/
+bnb_double_quant_k_proj_16rows.safetensors` is real bitsandbytes NF4
+double-quantization output: the first 16 rows (of 1024) of
+`model.layers.1.self_attn.k_proj` from `unsloth/Qwen3-0.6B-unsloth-bnb-4bit`,
+`model.safetensors`, revision `e86f5289a2ca40ab7114071959dc2079cf97cb3c`, with
+the `quant_state` JSON's `shape` patched to the 16-row slice. The weights are
+`Qwen/Qwen3-0.6B`'s (revision `c1899de289a04d12100db370d81485cdf75e47ca`).
+Both repositories declare the licence Apache-2.0; the licence text, as
+`Qwen/Qwen3-0.6B` serves it, is `crates/mlmf-conformance/tests/fixtures/
+bnb_double_quant/LICENSE-Qwen3-0.6B-Apache-2.0.txt`. The fixture reached this
+repository through Fuel's repository, which cut it (provenance there: 
+`fuel-tensor/tests/fixtures/bnb_double_quant/PROVENANCE.md`); its blob sha256
+is `1d6b7975dada0c24563ad630e944d7677714d40074c962ff462e31042026e971`, and
+its five weight-bearing tensors were re-read from the real checkpoint by HTTP
+range requests on 2026-10-25 and found byte-identical to the hub's. It is used
+only by `crates/mlmf-conformance/tests/bnb_fixture.rs`.
+
+================================================================================
+huggingface/candle (lineage of the pickle reader)
+================================================================================
+
+The opcode set and the `_rebuild_tensor_v2` reading in `crates/mlmf-pickle`
+follow the minimal pickle reader in Fuel's `fuel-formats/src/pickle.rs`, which
+derives from `candle-core/src/pickle.rs` in `huggingface/candle`. candle is
+licensed MIT OR Apache-2.0 (its `LICENSE-MIT` and `LICENSE-APACHE`; the GitHub
+licence API reports Apache-2.0 for the repository, checked 2026-10-25).
+`mlmf-pickle` is a rewrite, not a copy: objects live in an arena, every length
+is bounded, and the callable allowlist is new. No candle source is reproduced.
+
+================================================================================
+Files measured against but not copied
+================================================================================
+
+These are read from a local path by tests that skip when the file is absent.
+Neither repository states a licence, so neither is vendored:
+
+- `bartowski/Llama-3.2-1B-Instruct-GGUF`, `Llama-3.2-1B-Instruct.imatrix`
+  (HF commit `067b946cf014b7c697f3654f621d577a3e3afd1c`, 1,314,426 bytes):
+  `crates/mlmf-gguf/tests/imatrix_raw.rs`.
+- `hf-internal-testing/tiny-random-gpt2`, `pytorch_model.bin` (revision
+  `71034c5d8bde858ff824298bdedc65515b97d2b9`, 3,561,811 bytes):
+  `crates/mlmf-pickle/tests/corpus_pth.rs`. The row fixture next to it
+  (`corpus-pth.tsv`) holds tensor names, shapes and byte sums measured from
+  that file, not its contents.

@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - New crate `mlmf-bnb` (fuel row 42 slice E4, reading only): `locate_layers` finds bitsandbytes 4-bit layers in an open container by their `quant_state.bitsandbytes__<type>` tensor; `read_layer` returns the packed weight, `absmax`, `quant_map`, `nested_absmax` and `nested_quant_map` as the file's bytes (each `None` if absent) and the parsed `quant_state` JSON; `parse_quant_state` returns every field as `Option`, with `quant_type` unjudged and unknown keys listed. No dequantization (that is the conversions project's) and no check that a blocksize divides a row. Checked against real bitsandbytes output (16 rows of a Qwen3-0.6B NF4 double-quant layer, Apache-2.0, vendored with its licence and provenance), whose pieces were also re-read from the real 576 MB checkpoint by HTTP range requests and found byte-identical.
 
+## [0.7.6] - 2026-10-25
+
+### Added
+- `mlmf-gguf`: `encode_gguf`, `encode_gguf_head`, `GgufTensorToWrite`, `GgufVersion`, `GgufEncodeError`, `GgufHead` (fuel row 42 slice F2). Pure, no I/O. Tensors arrive already encoded in their ggml type and are laid down untouched, dims as stored (innermost first, what this crate's readers report), each tensor padded to the alignment (`general.alignment`, else the spec's 32). Refuses a missing `general.architecture` (and `general.quantization_version` when any tensor is quantized) rather than writing a guess, an empty or mixed array, duplicate keys or tensor names, and a byte length that is not what the type and dims require. For the same inputs the v2 output is byte-identical to a port of fuel's `write_gguf`, checked in `mlmf-conformance`.
+
+### Removed
+- The `write_check_has_no_consumer` test in `mlmf-core` (deleted; its path is not cited here because the documented-paths guard rejects a deleted file), the deferral detector for `WriteCheck`, and the "Nothing consumes this yet" section of `write_check.rs`: `encode_gguf` now consumes `WriteCheck`, which is the event the detector's header says to delete both on. The module doc now says who consumes it.
+
 ## [0.7.5] - 2026-10-25
 
 ### Added

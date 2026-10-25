@@ -1,0 +1,28 @@
+mlmf-bnb - third-party provenance notice
+
+mlmf-bnb itself is licensed MIT OR Apache-2.0. Its tests read a small real
+bitsandbytes checkpoint slice that this repository vendors for testing; the
+slice lives in the `mlmf-conformance` crate (the test that reads it needs
+`mlmf-safetensors`, which `mlmf-bnb` does not depend on), and is credited here
+because this crate is what it is a fixture for.
+
+================================================================================
+unsloth/Qwen3-0.6B-unsloth-bnb-4bit and Qwen/Qwen3-0.6B (test fixture)
+================================================================================
+
+`crates/mlmf-conformance/tests/fixtures/bnb_double_quant/
+bnb_double_quant_k_proj_16rows.safetensors` is real bitsandbytes NF4
+double-quantization output: the first 16 rows (of 1024) of
+`model.layers.1.self_attn.k_proj` from `unsloth/Qwen3-0.6B-unsloth-bnb-4bit`,
+`model.safetensors`, revision `e86f5289a2ca40ab7114071959dc2079cf97cb3c`, with
+the `quant_state` JSON's `shape` patched to the 16-row slice. The weights are
+`Qwen/Qwen3-0.6B`'s (revision `c1899de289a04d12100db370d81485cdf75e47ca`).
+Both repositories declare the licence Apache-2.0; the licence text, as
+`Qwen/Qwen3-0.6B` serves it, is `crates/mlmf-conformance/tests/fixtures/
+bnb_double_quant/LICENSE-Qwen3-0.6B-Apache-2.0.txt`. The fixture reached this
+repository through Fuel's repository, which cut it (provenance there: 
+`fuel-tensor/tests/fixtures/bnb_double_quant/PROVENANCE.md`); its blob sha256
+is `1d6b7975dada0c24563ad630e944d7677714d40074c962ff462e31042026e971`, and
+its five weight-bearing tensors were re-read from the real checkpoint by HTTP
+range requests on 2026-10-25 and found byte-identical to the hub's. It is used
+only by `crates/mlmf-conformance/tests/bnb_fixture.rs`.
