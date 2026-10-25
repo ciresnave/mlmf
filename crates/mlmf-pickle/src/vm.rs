@@ -38,6 +38,9 @@ pub const ALLOWED_REDUCE_TARGETS: [(&str, &str); 4] = [
     ("torch._tensor", "_rebuild_from_type_v2"),
 ];
 
+/// The high bit of a byte: LONG1's sign.
+const SIGN_BIT: u8 = 0x80;
+
 const MAX_OPS: usize = 20_000_000;
 const MAX_NODES: usize = 4_000_000;
 
@@ -136,6 +139,7 @@ struct Vm<'a> {
     stack: Vec<Id>,
     memo: HashMap<u32, Id>,
     ops: usize,
+    table: [Option<Handler<'a>>; 256],
 }
 
 fn allowed(module: &str, name: &str) -> bool {
@@ -258,6 +262,18 @@ impl<'a> Vm<'a> {
         }
     }
 
+    fn top(&self, what: &str) -> Result<Id, PickleError> {
+        self.stack
+            .last()
+            .copied()
+            .ok_or_else(|| self.malformed(what))
+    }
+
+    /// `PROTO` carries one byte, `FRAME` eight; neither changes the stack.
+    fn skip(&mut self, op: u8) -> Result<(), PickleError> {
+        self.take(if op == op::PROTO { 1 } else { 8 }).map(drop)
+    }
+
     fn constant(&mut self, op: u8) -> Result<(), PickleError> {
         match op {
             op::NONE => self.push(Node::None),
@@ -271,15 +287,18 @@ impl<'a> Vm<'a> {
             op::BININT1 => Node::Int(self.le(1)? as i64),
             op::BININT2 => Node::Int(self.le(2)? as i64),
             op::BININT => Node::Int(i64::from(self.le(4)? as u32 as i32)),
-            op::BINFLOAT => {
-                let raw = self.take(8)?;
-                let mut a = [0u8; 8];
-                a.copy_from_slice(raw);
-                Node::Float(f64::from_be_bytes(a))
-            }
+            op::BINFLOAT => Node::Float(f64::from_bits(self.be64()?)),
             _ => self.long1()?,
         };
         self.push(node)
+    }
+
+    /// Eight big-endian bytes (pickle writes `BINFLOAT` big-endian).
+    fn be64(&mut self) -> Result<u64, PickleError> {
+        Ok(self
+            .take(8)?
+            .iter()
+            .fold(0u64, |a, &b| (a << 8) | u64::from(b)))
     }
 
     /// `LONG1`: a length byte, then that many little-endian two's-complement
@@ -291,69 +310,66 @@ impl<'a> Vm<'a> {
         }
         let raw = self.take(n)?;
         let mut v = raw.iter().rev().fold(0u64, |a, &b| (a << 8) | u64::from(b));
-        if n > 0 && n < 8 && raw[n - 1] & op::PROTO != 0 {
+        if n > 0 && n < 8 && raw[n - 1] & SIGN_BIT != 0 {
             v |= u64::MAX << (8 * n);
         }
         Ok(Node::Int(v as i64))
     }
 
     fn text(&mut self, op: u8) -> Result<(), PickleError> {
-        let len = if op == op::BINUNICODE {
-            self.le(4)?
-        } else {
-            self.le(1)?
-        };
+        let len = self.le(if op == op::BINUNICODE { 4 } else { 1 })?;
         let s = self.string(len)?;
         self.push(Node::Str(s))
     }
 
-    fn memo_op(&mut self, op: u8) -> Result<(), PickleError> {
-        match op {
-            op::BINPUT | op::LONG_BINPUT | op::MEMOIZE => {
-                let key = match op {
-                    op::BINPUT => self.le(1)? as u32,
-                    op::LONG_BINPUT => self.le(4)? as u32,
-                    _ => u32::try_from(self.memo.len())
-                        .map_err(|_| PickleError::LimitExceeded { limit: "memo size" })?,
-                };
-                let top = *self
-                    .stack
-                    .last()
-                    .ok_or_else(|| self.malformed("MEMOIZE on an empty stack"))?;
-                self.memo.insert(key, top);
-                Ok(())
-            }
-            _ => {
-                let key = (if op == op::BINGET {
-                    self.le(1)?
-                } else {
-                    self.le(4)?
-                }) as u32;
-                let id = *self
-                    .memo
-                    .get(&key)
-                    .ok_or_else(|| self.malformed("GET of a missing memo entry"))?;
-                self.stack.push(id);
-                Ok(())
-            }
-        }
+    /// `BINPUT`, `LONG_BINPUT`, `MEMOIZE`: remember the top of the stack.
+    fn memo_put(&mut self, op: u8) -> Result<(), PickleError> {
+        let key = match op {
+            op::BINPUT => self.le(1)? as u32,
+            op::LONG_BINPUT => self.le(4)? as u32,
+            _ => u32::try_from(self.memo.len())
+                .map_err(|_| PickleError::LimitExceeded { limit: "memo size" })?,
+        };
+        let top = self.top("memo put on an empty stack")?;
+        self.memo.insert(key, top);
+        Ok(())
     }
 
-    fn container(&mut self, op: u8) -> Result<(), PickleError> {
-        let node = match op {
+    /// `BINGET`, `LONG_BINGET`: push a remembered object (an index, no copy).
+    fn memo_get(&mut self, op: u8) -> Result<(), PickleError> {
+        let key = self.le(if op == op::BINGET { 1 } else { 4 })? as u32;
+        let id = *self
+            .memo
+            .get(&key)
+            .ok_or_else(|| self.malformed("GET of a missing memo entry"))?;
+        self.stack.push(id);
+        Ok(())
+    }
+
+    /// `MARK` and the empty containers.
+    fn empty(&mut self, op: u8) -> Result<(), PickleError> {
+        self.push(match op {
             op::MARK => Node::Mark,
             op::EMPTY_TUPLE => Node::Tuple(Vec::new()),
             op::EMPTY_LIST => Node::List(Vec::new()),
-            op::EMPTY_DICT => Node::Dict(Vec::new()),
-            op::TUPLE => Node::Tuple(self.pop_to_mark()?),
-            op::LIST => Node::List(self.pop_to_mark()?),
-            op::DICT => {
-                let items = self.pop_to_mark()?;
-                Node::Dict(self.pairs(&items)?)
-            }
-            _ => Node::Tuple(self.pop_n(usize::from(op - op::TUPLE1 + 1))?),
-        };
-        self.push(node)
+            _ => Node::Dict(Vec::new()),
+        })
+    }
+
+    /// `TUPLE`, `LIST`, `DICT`: everything above the last mark.
+    fn collect_to_mark(&mut self, op: u8) -> Result<(), PickleError> {
+        let items = self.pop_to_mark()?;
+        self.push(match op {
+            op::TUPLE => Node::Tuple(items),
+            op::LIST => Node::List(items),
+            _ => Node::Dict(self.pairs(&items)?),
+        })
+    }
+
+    /// `TUPLE1`, `TUPLE2`, `TUPLE3`.
+    fn small_tuple(&mut self, op: u8) -> Result<(), PickleError> {
+        let items = self.pop_n(usize::from(op - op::TUPLE1 + 1))?;
+        self.push(Node::Tuple(items))
     }
 
     fn pairs(&self, items: &[Id]) -> Result<Vec<(Id, Id)>, PickleError> {
@@ -364,28 +380,35 @@ impl<'a> Vm<'a> {
         Ok(pairs.iter().map(|&[k, v]| (k, v)).collect())
     }
 
-    /// `APPEND`/`APPENDS`/`SETITEM`/`SETITEMS`: extend the container below.
-    fn fill(&mut self, op: u8) -> Result<(), PickleError> {
-        let items = match op {
-            op::APPEND => self.pop_n(1)?,
-            op::SETITEM => self.pop_n(2)?,
-            _ => self.pop_to_mark()?,
-        };
-        let target = *self
-            .stack
-            .last()
-            .ok_or_else(|| self.malformed("no container to fill"))?;
-        let pairs = if matches!(op, op::SETITEM | op::SETITEMS) {
-            Some(self.pairs(&items)?)
+    /// `APPEND`, `APPENDS`: extend the list below.
+    fn append(&mut self, op: u8) -> Result<(), PickleError> {
+        let items = if op == op::APPEND {
+            self.pop_n(1)?
         } else {
-            None
+            self.pop_to_mark()?
         };
-        match (&mut self.arena[target], pairs) {
-            (Node::List(l), None) => l.extend(items),
-            (Node::Dict(d), Some(p)) => d.extend(p),
-            _ => return Err(self.malformed("append or set on the wrong kind of object")),
+        let target = self.top("no list to append to")?;
+        if let Node::List(list) = &mut self.arena[target] {
+            list.extend(items);
+            return Ok(());
         }
-        Ok(())
+        Err(self.malformed("append to something that is not a list"))
+    }
+
+    /// `SETITEM`, `SETITEMS`: extend the dict below.
+    fn set_items(&mut self, op: u8) -> Result<(), PickleError> {
+        let items = if op == op::SETITEM {
+            self.pop_n(2)?
+        } else {
+            self.pop_to_mark()?
+        };
+        let pairs = self.pairs(&items)?;
+        let target = self.top("no dict to set items in")?;
+        if let Node::Dict(dict) = &mut self.arena[target] {
+            dict.extend(pairs);
+            return Ok(());
+        }
+        Err(self.malformed("set item on something that is not a dict"))
     }
 
     fn check_callable(&self, id: Id) -> Result<(), PickleError> {
@@ -399,67 +422,94 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn object(&mut self, op: u8) -> Result<(), PickleError> {
-        match op {
-            op::REDUCE | op::NEWOBJ => {
-                let args = self.pop()?;
-                let callable = self.pop()?;
-                self.check_callable(callable)?;
-                if self.node(callable) == &Node::Global("collections".into(), "OrderedDict".into())
-                {
-                    // `OrderedDict()` is the empty dict that SETITEMS then fills.
-                    return self.push(Node::Dict(Vec::new()));
-                }
-                self.push(Node::Reduce(callable, args))
-            }
-            op::BUILD => {
-                let state = self.pop()?;
-                let obj = self.pop()?;
-                self.push(Node::Build(obj, state))
-            }
-            _ => {
-                let id = self.pop()?;
-                self.push(Node::PersId(id))
-            }
-        }
+    /// `REDUCE`, `NEWOBJ`: record `callable(args)`; never call it.
+    fn reduce(&mut self, _op: u8) -> Result<(), PickleError> {
+        let args = self.pop()?;
+        let callable = self.pop()?;
+        self.check_callable(callable)?;
+        // `OrderedDict()` is the empty dict that SETITEMS then fills.
+        let ordered = Node::Global("collections".into(), "OrderedDict".into());
+        self.push(if self.node(callable) == &ordered {
+            Node::Dict(Vec::new())
+        } else {
+            Node::Reduce(callable, args)
+        })
+    }
+
+    fn build(&mut self, _op: u8) -> Result<(), PickleError> {
+        let state = self.pop()?;
+        let obj = self.pop()?;
+        self.push(Node::Build(obj, state))
+    }
+
+    fn persid(&mut self, _op: u8) -> Result<(), PickleError> {
+        let id = self.pop()?;
+        self.push(Node::PersId(id))
     }
 
     /// Run one opcode. Returns the root when `STOP` is reached.
     fn step(&mut self) -> Result<Option<Id>, PickleError> {
         self.op_at = self.pos;
-        let op = self.u8()?;
-        match op {
-            op::PROTO => drop(self.u8()?),
-            op::FRAME => drop(self.take(8)?),
-            op::STOP => return Ok(Some(self.pop()?)),
-            op::GLOBAL | op::STACK_GLOBAL => self.global(op)?,
-            op::NONE | op::NEWTRUE | op::NEWFALSE => self.constant(op)?,
-            op::BININT1 | op::BININT2 | op::BININT | op::BINFLOAT | op::LONG1 => self.number(op)?,
-            op::BINUNICODE | op::SHORT_BINUNICODE => self.text(op)?,
-            op::BINPUT | op::LONG_BINPUT | op::BINGET | op::LONG_BINGET | op::MEMOIZE => {
-                self.memo_op(op)?
-            }
-            op::MARK
-            | op::EMPTY_TUPLE
-            | op::EMPTY_LIST
-            | op::EMPTY_DICT
-            | op::TUPLE
-            | op::LIST
-            | op::DICT
-            | op::TUPLE1
-            | op::TUPLE2
-            | op::TUPLE3 => self.container(op)?,
-            op::APPEND | op::SETITEM | op::APPENDS | op::SETITEMS => self.fill(op)?,
-            op::REDUCE | op::NEWOBJ | op::BUILD | op::BINPERSID => self.object(op)?,
-            _ => {
-                return Err(PickleError::UnsupportedOpcode {
-                    opcode: op,
-                    offset: self.op_at,
-                });
-            }
+        let opcode = self.u8()?;
+        if opcode == op::STOP {
+            return Ok(Some(self.pop()?));
         }
+        let handler = self.table[usize::from(opcode)].ok_or(PickleError::UnsupportedOpcode {
+            opcode,
+            offset: self.op_at,
+        })?;
+        handler(self, opcode)?;
         Ok(None)
     }
+}
+
+/// One opcode's effect on the machine.
+type Handler<'a> = fn(&mut Vm<'a>, u8) -> Result<(), PickleError>;
+
+/// Which handler runs which opcode; `None` is an unsupported opcode.
+///
+/// A table rather than a `match` so that adding an opcode is one line here
+/// and the dispatch itself never grows.
+fn handlers<'a>() -> [Option<Handler<'a>>; 256] {
+    let mut t: [Option<Handler<'a>>; 256] = [None; 256];
+    t[op::PROTO as usize] = Some(Vm::skip);
+    t[op::FRAME as usize] = Some(Vm::skip);
+    t[op::GLOBAL as usize] = Some(Vm::global);
+    t[op::STACK_GLOBAL as usize] = Some(Vm::global);
+    t[op::NONE as usize] = Some(Vm::constant);
+    t[op::NEWTRUE as usize] = Some(Vm::constant);
+    t[op::NEWFALSE as usize] = Some(Vm::constant);
+    t[op::BININT1 as usize] = Some(Vm::number);
+    t[op::BININT2 as usize] = Some(Vm::number);
+    t[op::BININT as usize] = Some(Vm::number);
+    t[op::BINFLOAT as usize] = Some(Vm::number);
+    t[op::LONG1 as usize] = Some(Vm::number);
+    t[op::BINUNICODE as usize] = Some(Vm::text);
+    t[op::SHORT_BINUNICODE as usize] = Some(Vm::text);
+    t[op::BINPUT as usize] = Some(Vm::memo_put);
+    t[op::LONG_BINPUT as usize] = Some(Vm::memo_put);
+    t[op::MEMOIZE as usize] = Some(Vm::memo_put);
+    t[op::BINGET as usize] = Some(Vm::memo_get);
+    t[op::LONG_BINGET as usize] = Some(Vm::memo_get);
+    t[op::MARK as usize] = Some(Vm::empty);
+    t[op::EMPTY_TUPLE as usize] = Some(Vm::empty);
+    t[op::EMPTY_LIST as usize] = Some(Vm::empty);
+    t[op::EMPTY_DICT as usize] = Some(Vm::empty);
+    t[op::TUPLE as usize] = Some(Vm::collect_to_mark);
+    t[op::LIST as usize] = Some(Vm::collect_to_mark);
+    t[op::DICT as usize] = Some(Vm::collect_to_mark);
+    t[op::TUPLE1 as usize] = Some(Vm::small_tuple);
+    t[op::TUPLE2 as usize] = Some(Vm::small_tuple);
+    t[op::TUPLE3 as usize] = Some(Vm::small_tuple);
+    t[op::APPEND as usize] = Some(Vm::append);
+    t[op::APPENDS as usize] = Some(Vm::append);
+    t[op::SETITEM as usize] = Some(Vm::set_items);
+    t[op::SETITEMS as usize] = Some(Vm::set_items);
+    t[op::REDUCE as usize] = Some(Vm::reduce);
+    t[op::NEWOBJ as usize] = Some(Vm::reduce);
+    t[op::BUILD as usize] = Some(Vm::build);
+    t[op::BINPERSID as usize] = Some(Vm::persid);
+    t
 }
 
 /// Parse a pickle into an object arena without executing it.
@@ -477,6 +527,7 @@ pub fn parse_pickle(bytes: &[u8]) -> Result<Parsed, PickleError> {
         stack: Vec::new(),
         memo: HashMap::new(),
         ops: 0,
+        table: handlers(),
     };
     loop {
         vm.ops += 1;
