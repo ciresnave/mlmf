@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.8] - 2026-10-25
+
+### Added
+- New crate `mlmf-pickle` (fuel row 42 slice E2): `parse_pth` reads a `torch.save` checkpoint's zip directory (zip64 aware, stored entries) and the tensor index in `data.pkl` with a bounded pickle reader that records what the pickle would build and executes nothing. Returns each tensor's name, dtype, shape, strides, storage offset and storage entry, plus the storage's byte range in the file; a tensor whose storage class has no dtype is an error, and non-tensor entries are listed rather than dropped. Objects live in an arena (a memo `GET` is an index, not a clone), every length is bounded by the remaining bytes, and `REDUCE`/`NEWOBJ` are gated by `ALLOWED_REDUCE_TARGETS`, whose exact content a test pins (spec AD-3). A rewrite, not a port, of Fuel's reader (itself derived from candle's `pickle.rs`); it does not carry over that reader's `DICT`-as-empty-dict or clone-on-GET. Checked against a real 3.5 MB checkpoint: all 152 tensors match Fuel's `read_pth_tensor_info` and an independent Python reader, storage byte sums included.
+
 ## [0.7.5] - 2026-10-25
 
 ### Added
