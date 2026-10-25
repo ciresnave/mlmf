@@ -1,0 +1,9 @@
+# C3: the std submodules mlmf-pt2 may name. Grows one commit at a time,
+# each entry landing beside the code that forced it.
+#
+# `error` -- `impl std::error::Error for Pt2Error`.
+# `fmt`   -- `impl std::fmt::Display for Pt2Error`.
+# `ops`   -- `std::ops::Range`, the byte ranges of entries in the file.
+error
+fmt
+ops

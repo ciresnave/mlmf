@@ -131,6 +131,28 @@ can be compared byte for byte against another implementation.
 
 
 ================================================================================
+
+The archive layout and config schema that `crates/mlmf-pt2` reads and writes
+(the entry names `archive_format`, `archive_version`, `byteorder`,
+`.data/version`, `models/`, `data/weights/`, `data/constants/`,
+`data/sample_inputs/`; the weights and constants config fields; and the
+`ScalarType` and `Layout` codes) were read from PyTorch 2.14.1 at tag `v2.14.1`
+(commit `5c4886908584029761b579af026dcfb627c84070`):
+`torch/export/pt2_archive/` (`constants.py`, `_package.py`) and
+`torch/_export/serde/schema.py` (blob `1715a72511bb2d6140ca2ae3b7972e1d0f6a6ad0`).
+PyTorch's `LICENSE` is a BSD-style licence listing several copyright holders
+(GitHub's licence API reports NOASSERTION for that reason); the text as the tag
+serves it, sha256
+`bd018feef8825e88181c84eb7e3aa4eafb8f08a20d9fd6ef948569610c4a3e43`, is
+`crates/mlmf-pt2/LICENSE-pytorch.txt`. No PyTorch source is copied: these are
+facts about a file format, and the code is original.
+
+`crates/mlmf-pt2/tests/fixtures/torch_export.pt2` is output of running PyTorch
+2.14.1 (`crates/mlmf-pt2/tests/make_fixture.py`) on a tiny module with invented
+weights; its `models/model.json` is torch's serialization of that program.
+`written_by_mlmf.pt2` is written by this crate from the same parts, and was
+loaded with `torch.export.load` (`tests/verify_with_torch.py`) to confirm it.
+=======
 llvm/llvm-project, MLIR bytecode format (layout of the StableHLO container)
 ================================================================================
 
@@ -154,3 +176,5 @@ constants; `mlir_resource.mlirbc` is bytecode MLIR wrote (through jaxlib) for a
 two-element `dense_resource` module; `rewritten_producer.mlirbc` is written by
 this crate from the JAX file's sections and was parsed by MLIR to confirm it
 (`verify_with_mlir.py`).
+pytorch/pytorch (layout of the `.pt2` archive)
+=========================================================================

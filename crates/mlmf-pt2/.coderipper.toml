@@ -1,0 +1,11 @@
+# Declared public API (reachability): mlmf-pt2 is a new published crate
+# (ROADMAP S-55). Its entry points, parse_pt2 and encode_pt2, have no in-repo
+# non-test caller yet: the consumer is Fuel, through crates.io, after the
+# first release. Declared, not deleted -- the code is documented and tested.
+[reachability]
+public_api = [
+  { file = "src/lib.rs", reason = "published API of mlmf-pt2 (crates.io); consumed by Fuel, not by this repository's own targets" },
+  { file = "src/read.rs", reason = "published API of mlmf-pt2 (crates.io); consumed by Fuel, not by this repository's own targets" },
+  { file = "src/write.rs", reason = "published API of mlmf-pt2 (crates.io); consumed by Fuel, not by this repository's own targets" },
+  { file = "src/scalar.rs", reason = "published API of mlmf-pt2 (crates.io); consumed by Fuel, not by this repository's own targets" },
+]
