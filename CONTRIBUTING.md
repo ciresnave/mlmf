@@ -8,7 +8,7 @@ Thank you for your interest in contributing to MLMF! We welcome contributions of
 2. Clone your fork: `git clone https://github.com/your-username/mlmf.git`
 3. Create a feature branch: `git checkout -b feature/your-feature-name`
 4. Make your changes
-5. Run the tests: `cargo test --all-features`
+5. Run the tests: `cargo test --workspace`
 6. Submit a pull request
 
 ## Development Setup
@@ -20,8 +20,8 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # Clone and build
 git clone https://github.com/CireSnave/mlmf.git
 cd mlmf
-cargo build --all-features
-cargo test --all-features
+cargo build --workspace
+cargo test --workspace
 ```
 
 ## Guidelines
@@ -30,7 +30,7 @@ cargo test --all-features
 - Add documentation for public APIs
 - Include tests for new functionality
 - Update the CHANGELOG.md for notable changes
-- Ensure all examples still compile and run
+- Ensure `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass
 
 ## Code Style
 

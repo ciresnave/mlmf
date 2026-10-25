@@ -17,22 +17,22 @@ This is a **2025-era snapshot of the legacy root crate against two proposals**, 
 | **Requirement**        | **Proposal Status** | **MLMF Status**     | **Implementation**                            | **Notes**                             |
 | ---------------------- | ------------------- | ------------------- | --------------------------------------------- | ------------------------------------- |
 | **Core Loading**       |                     |                     |                                               |                                       |
-| Safetensors loading    | ✅ Must-have         | ✅ **IMPLEMENTED**   | `src/loader.rs`; reader now `crates/mlmf-safetensors` | ⚠️ **NOT memory-mapped**; progress callbacks yes |
-| Config JSON parsing    | ✅ Must-have         | ✅ **IMPLEMENTED**   | `src/config.rs`                               | HFConfig → ModelConfig transformation |
-| TensorNameMapper       | ✅ Must-have         | ✅ **IMPLEMENTED**   | `src/name_mapping.rs`, `src/smart_mapping.rs` | Enhanced with ML-powered oracle       |
-| Architecture detection | ✅ Must-have         | ✅ **IMPLEMENTED**   | `src/name_mapping.rs`                         | LLaMA, GPT-2, GPT-NeoX, BERT, T5      |
-| Device management      | ✅ Must-have         | ✅ **IMPLEMENTED**   | `src/validation.rs`                           | CUDA validation, device selection     |
-| DType conversion       | ✅ Must-have         | ✅ **IMPLEMENTED**   | `src/loader.rs`                               | F32/F16/BF16/F64 support              |
-| Memory-mapped loading  | ✅ Must-have         | ✅ **IMPLEMENTED**   | `src/mmap_loader.rs`                          | Lazy loading, streaming support       |
-| Progress logging       | ✅ Should-have       | ✅ **IMPLEMENTED**   | `src/progress.rs`                             | Configurable callbacks                |
+| Safetensors loading    | ✅ Must-have         | ✅ **IMPLEMENTED**   | src/loader.rs; reader now `crates/mlmf-safetensors` | ⚠️ **NOT memory-mapped**; progress callbacks yes |
+| Config JSON parsing    | ✅ Must-have         | ✅ **IMPLEMENTED**   | src/config.rs                               | HFConfig → ModelConfig transformation |
+| TensorNameMapper       | ✅ Must-have         | ✅ **IMPLEMENTED**   | src/name_mapping.rs, src/smart_mapping.rs | Enhanced with ML-powered oracle       |
+| Architecture detection | ✅ Must-have         | ✅ **IMPLEMENTED**   | src/name_mapping.rs                         | LLaMA, GPT-2, GPT-NeoX, BERT, T5      |
+| Device management      | ✅ Must-have         | ✅ **IMPLEMENTED**   | src/validation.rs                           | CUDA validation, device selection     |
+| DType conversion       | ✅ Must-have         | ✅ **IMPLEMENTED**   | src/loader.rs                               | F32/F16/BF16/F64 support              |
+| Memory-mapped loading  | ✅ Must-have         | ✅ **IMPLEMENTED**   | src/mmap_loader.rs                          | Lazy loading, streaming support       |
+| Progress logging       | ✅ Should-have       | ✅ **IMPLEMENTED**   | src/progress.rs                             | Configurable callbacks                |
 | **Format Support**     |                     |                     |                                               |                                       |
-| GGUF loading           | ✅ Should-have       | ✅ **IMPLEMENTED**   | `src/formats/gguf.rs`                         | Metadata extraction, tokenizer        |
-| AWQ loading            | ✅ Should-have       | ⚠️ **NOT IMPLEMENTED — a stub** | `src/formats/awq.rs` | ⚠️ **Never loaded a tensor.** Until 2026-09-08 `load_awq` returned `Ok` with an **empty** `raw_tensors` while firing `ProgressEvent::Complete { tensor_count: 5 }` — zero weights, a reported five, and no error. It now returns `Err`. Detection, config parsing and `.safetensors` discovery exist around it. **"Marlin kernels" appears in no file but this one** (control: "activation-aware" matches 4 files) |
-| PyTorch `.pth`         | ✅ Nice-to-have      | ⚠️ **NOT IMPLEMENTED — a stub** | `src/formats/pytorch_loader.rs`   | ⚠️ Never parses a pickle: `load_zip_pickle` and `load_legacy_pickle` **both return `Err` unconditionally**. §12 step 6 plans `mlmf-pickle` |
-| ONNX loading           | ✅ Nice-to-have      | ✅ **IMPLEMENTED**   | `src/formats/onnx_import.rs`                  | Complete ONNX graph support           |
+| GGUF loading           | ✅ Should-have       | ✅ **IMPLEMENTED**   | src/formats/gguf.rs                         | Metadata extraction, tokenizer        |
+| AWQ loading            | ✅ Should-have       | ⚠️ **NOT IMPLEMENTED — a stub** | src/formats/awq.rs | ⚠️ **Never loaded a tensor.** Until 2026-09-08 `load_awq` returned `Ok` with an **empty** `raw_tensors` while firing `ProgressEvent::Complete { tensor_count: 5 }` — zero weights, a reported five, and no error. It now returns `Err`. Detection, config parsing and `.safetensors` discovery exist around it. **"Marlin kernels" appears in no file but this one** (control: "activation-aware" matches 4 files) |
+| PyTorch `.pth`         | ✅ Nice-to-have      | ⚠️ **NOT IMPLEMENTED — a stub** | src/formats/pytorch_loader.rs   | ⚠️ Never parses a pickle: `load_zip_pickle` and `load_legacy_pickle` **both return `Err` unconditionally**. §12 step 6 plans `mlmf-pickle` |
+| ONNX loading           | ✅ Nice-to-have      | ✅ **IMPLEMENTED**   | src/formats/onnx_import.rs                  | Complete ONNX graph support           |
 | **Advanced Features**  |                     |                     |                                               |                                       |
-| Validation utilities   | ✅ Required          | ✅ **IMPLEMENTED**   | `src/validation.rs`                           | CUDA checks, dtype validation         |
-| Error handling         | ✅ Required          | ✅ **IMPLEMENTED**   | `src/error.rs`                                | Comprehensive error types             |
+| Validation utilities   | ✅ Required          | ✅ **IMPLEMENTED**   | src/validation.rs                           | CUDA checks, dtype validation         |
+| Error handling         | ✅ Required          | ✅ **IMPLEMENTED**   | src/error.rs                                | Comprehensive error types             |
 | **Beyond Proposal**    |                     |                     |                                               |                                       |
 | Multi-modal support    | ❌ Not requested     | ✅ **BONUS FEATURE** | `src/multimodal*.rs`                          | Cross-modal attention, fusion         |
 | Distributed loading    | ❌ Not requested     | ⚠️ **OUT OF CHARTER (§10); the loader PANICS** | `src/distributed*.rs`     | ⚠️ 8 live `todo!()` in `distributed_loader.rs`; `DistributedModelLoader::new()` panics. `distributed.rs` and `distributed_core.rs` have 0 |
@@ -47,53 +47,53 @@ This is a **2025-era snapshot of the legacy root crate against two proposals**, 
 | **Requirement**                            | **Proposal Status** | **MLMF Status**   | **Implementation**              | **Notes**                        |
 | ------------------------------------------ | ------------------- | ----------------- | ------------------------------- | -------------------------------- |
 | **Core Loading Requirements**              |                     |                   |                                 |                                  |
-| Safetensors (primary)                      | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/loader.rs`                 | Memory-safe, memory-mapped       |
-| GGUF (future)                              | 🔄 Future need       | ✅ **IMPLEMENTED** | `src/formats/gguf.rs`           | Quantized model support          |
-| PyTorch (.pt/.pth)                         | ✅ Nice-to-have      | ✅ **IMPLEMENTED** | `src/formats/pytorch_loader.rs` | Legacy model support             |
-| Checkpoint directories                     | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/checkpoint.rs`             | Multi-file sharded models        |
+| Safetensors (primary)                      | ✅ Must-have         | ✅ **IMPLEMENTED** | src/loader.rs                 | Memory-safe, memory-mapped       |
+| GGUF (future)                              | 🔄 Future need       | ✅ **IMPLEMENTED** | src/formats/gguf.rs           | Quantized model support          |
+| PyTorch (.pt/.pth)                         | ✅ Nice-to-have      | ✅ **IMPLEMENTED** | src/formats/pytorch_loader.rs | Legacy model support             |
+| Checkpoint directories                     | ✅ Must-have         | ✅ **IMPLEMENTED** | src/checkpoint.rs             | Multi-file sharded models        |
 | ONNX (future)                              | 🔄 Future need       | ✅ **IMPLEMENTED** | `src/formats/onnx_*.rs`         | Full import/export               |
 | **Architecture Detection**                 |                     |                   |                                 |                                  |
-| Auto-detect from tensors                   | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/name_mapping.rs`           | Pattern-based detection          |
-| Parse config.json                          | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/config.rs`                 | Architecture field parsing       |
-| User-specified fallback                    | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/name_mapping.rs`           | Manual architecture override     |
-| Custom architectures                       | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/smart_mapping.rs`          | Extensible mapping system        |
+| Auto-detect from tensors                   | ✅ Must-have         | ✅ **IMPLEMENTED** | src/name_mapping.rs           | Pattern-based detection          |
+| Parse config.json                          | ✅ Must-have         | ✅ **IMPLEMENTED** | src/config.rs                 | Architecture field parsing       |
+| User-specified fallback                    | ✅ Must-have         | ✅ **IMPLEMENTED** | src/name_mapping.rs           | Manual architecture override     |
+| Custom architectures                       | ✅ Must-have         | ✅ **IMPLEMENTED** | src/smart_mapping.rs          | Extensible mapping system        |
 | **Configuration Parsing**                  |                     |                   |                                 |                                  |
-| LLaMA config parsing                       | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/config.rs`                 | All LLaMA variants               |
-| GPT-2 config parsing                       | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/config.rs`                 | Complete GPT-2 support           |
-| BERT config parsing                        | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/config.rs`                 | BERT architecture                |
-| Aliased field names                        | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/config.rs`                 | hidden_size vs n_embd            |
-| Optional fields/defaults                   | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/config.rs`                 | Comprehensive defaults           |
+| LLaMA config parsing                       | ✅ Must-have         | ✅ **IMPLEMENTED** | src/config.rs                 | All LLaMA variants               |
+| GPT-2 config parsing                       | ✅ Must-have         | ✅ **IMPLEMENTED** | src/config.rs                 | Complete GPT-2 support           |
+| BERT config parsing                        | ✅ Must-have         | ✅ **IMPLEMENTED** | src/config.rs                 | BERT architecture                |
+| Aliased field names                        | ✅ Must-have         | ✅ **IMPLEMENTED** | src/config.rs                 | hidden_size vs n_embd            |
+| Optional fields/defaults                   | ✅ Must-have         | ✅ **IMPLEMENTED** | src/config.rs                 | Comprehensive defaults           |
 | **Name Mapping Requirements**              |                     |                   |                                 |                                  |
-| Bidirectional mapping                      | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/name_mapping.rs`           | HF ↔ Internal                    |
-| Architecture-specific maps                 | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/name_mapping.rs`           | LLaMA, GPT-2, BERT               |
-| Component-level mapping                    | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/smart_mapping.rs`          | Semantic component mapping       |
-| Optional tensors                           | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/name_mapping.rs`           | Graceful missing tensor handling |
-| Regex/Pattern mapping                      | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/name_mapping.rs`           | Rule-based mapping system        |
+| Bidirectional mapping                      | ✅ Must-have         | ✅ **IMPLEMENTED** | src/name_mapping.rs           | HF ↔ Internal                    |
+| Architecture-specific maps                 | ✅ Must-have         | ✅ **IMPLEMENTED** | src/name_mapping.rs           | LLaMA, GPT-2, BERT               |
+| Component-level mapping                    | ✅ Must-have         | ✅ **IMPLEMENTED** | src/smart_mapping.rs          | Semantic component mapping       |
+| Optional tensors                           | ✅ Must-have         | ✅ **IMPLEMENTED** | src/name_mapping.rs           | Graceful missing tensor handling |
+| Regex/Pattern mapping                      | ✅ Must-have         | ✅ **IMPLEMENTED** | src/name_mapping.rs           | Rule-based mapping system        |
 | **Tensor Loading Requirements**            |                     |                   |                                 |                                  |
-| Memory-mapped loading                      | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/mmap_loader.rs`            | Large model support              |
-| Progress callbacks                         | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/progress.rs`               | Configurable progress            |
-| Lazy loading                               | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/mmap_loader.rs`            | Load on demand                   |
-| Device placement                           | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/loader.rs`                 | Target device during load        |
+| Memory-mapped loading                      | ✅ Must-have         | ✅ **IMPLEMENTED** | src/mmap_loader.rs            | Large model support              |
+| Progress callbacks                         | ✅ Must-have         | ✅ **IMPLEMENTED** | src/progress.rs               | Configurable progress            |
+| Lazy loading                               | ✅ Must-have         | ✅ **IMPLEMENTED** | src/mmap_loader.rs            | Load on demand                   |
+| Device placement                           | ✅ Must-have         | ✅ **IMPLEMENTED** | src/loader.rs                 | Target device during load        |
 | Multi-device split                         | ✅ Should-have       | ✅ **IMPLEMENTED** | `src/distributed*.rs`           | Tensor parallelism               |
-| Dtype conversion                           | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/loader.rs`                 | On-load conversion               |
-| Mixed precision                            | ✅ Should-have       | ✅ **IMPLEMENTED** | `src/loader.rs`                 | Per-component dtypes             |
+| Dtype conversion                           | ✅ Must-have         | ✅ **IMPLEMENTED** | src/loader.rs                 | On-load conversion               |
+| Mixed precision                            | ✅ Should-have       | ✅ **IMPLEMENTED** | src/loader.rs                 | Per-component dtypes             |
 | **Saving Requirements (Critical)**         |                     |                   |                                 |                                  |
-| Checkpoint saving                          | ✅ **CRITICAL**      | ✅ **IMPLEMENTED** | `src/checkpoint.rs`             | Model + optimizer state          |
-| Training metadata                          | ✅ **CRITICAL**      | ✅ **IMPLEMENTED** | `src/checkpoint.rs`             | Step, loss, hyperparameters      |
-| Sharded saving                             | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/saver.rs`                  | Large model support              |
-| Atomic writes                              | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/saver.rs`                  | Crash-safe operations            |
+| Checkpoint saving                          | ✅ **CRITICAL**      | ✅ **IMPLEMENTED** | src/checkpoint.rs             | Model + optimizer state          |
+| Training metadata                          | ✅ **CRITICAL**      | ✅ **IMPLEMENTED** | src/checkpoint.rs             | Step, loss, hyperparameters      |
+| Sharded saving                             | ✅ Must-have         | ✅ **IMPLEMENTED** | src/saver.rs                  | Large model support              |
+| Atomic writes                              | ✅ Must-have         | ✅ **IMPLEMENTED** | src/saver.rs                  | Crash-safe operations            |
 | **Export Formats**                         |                     |                   |                                 |                                  |
-| HuggingFace export                         | ✅ Must-have         | ✅ **IMPLEMENTED** | `src/saver.rs`                  | Complete HF format               |
-| GGUF export                                | ✅ Should-have       | ✅ **IMPLEMENTED** | `src/formats/gguf_export.rs`    | Quantization support             |
-| ONNX export                                | ✅ Should-have       | ✅ **IMPLEMENTED** | `src/formats/onnx_export.rs`    | Full graph export                |
+| HuggingFace export                         | ✅ Must-have         | ✅ **IMPLEMENTED** | src/saver.rs                  | Complete HF format               |
+| GGUF export                                | ✅ Should-have       | ✅ **IMPLEMENTED** | src/formats/gguf_export.rs    | Quantization support             |
+| ONNX export                                | ✅ Should-have       | ✅ **IMPLEMENTED** | src/formats/onnx_export.rs    | Full graph export                |
 | **Training Features (Cognition-Specific)** |                     |                   |                                 |                                  |
-| LoRA/PEFT support                          | ✅ **CRITICAL**      | ✅ **IMPLEMENTED** | `src/lora.rs`                   | Complete LoRA system             |
-| LoRA adapter loading                       | ✅ **CRITICAL**      | ✅ **IMPLEMENTED** | `src/lora.rs`                   | Base + adapter loading           |
-| LoRA merging                               | ✅ **CRITICAL**      | ✅ **IMPLEMENTED** | `src/lora.rs`                   | Inference-time merging           |
-| LoRA adapter saving                        | ✅ **CRITICAL**      | ✅ **IMPLEMENTED** | `src/lora.rs`                   | Separate adapter storage         |
+| LoRA/PEFT support                          | ✅ **CRITICAL**      | ✅ **IMPLEMENTED** | src/lora.rs                   | Complete LoRA system             |
+| LoRA adapter loading                       | ✅ **CRITICAL**      | ✅ **IMPLEMENTED** | src/lora.rs                   | Base + adapter loading           |
+| LoRA merging                               | ✅ **CRITICAL**      | ✅ **IMPLEMENTED** | src/lora.rs                   | Inference-time merging           |
+| LoRA adapter saving                        | ✅ **CRITICAL**      | ✅ **IMPLEMENTED** | src/lora.rs                   | Separate adapter storage         |
 | **Advanced Features**                      |                     |                   |                                 |                                  |
 | Quantization support                       | 🔄 Future need       | ✅ **IMPLEMENTED** | `src/quantization*.rs`          | AWQ, GPTQ, GGML, Dynamic         |
-| Model metadata                             | 🔄 Future need       | ✅ **IMPLEMENTED** | `src/metadata.rs`               | Comprehensive provenance         |
+| Model metadata                             | 🔄 Future need       | ✅ **IMPLEMENTED** | src/metadata.rs               | Comprehensive provenance         |
 | Model cards                                | 🔄 Future need       | ✅ **IMPLEMENTED** | `model_card` (removed 0.7.0)    | Auto-generated documentation     |
 
 **Cognition Compliance: ✅ 100% COMPLETE + ADVANCED FEATURES**
@@ -107,10 +107,10 @@ MLMF has implemented several advanced features that were not requested in either
 | **Multi-Modal Support**    | `src/multimodal*.rs`      | Cross-modal attention, fusion strategies for text/image/audio/video |
 | **Distributed Processing** | `src/distributed*.rs`     | Sharding, load balancing, cluster management                        |
 | **Advanced Caching**       | `src/cache*.rs`           | LRU eviction, memory pressure management, cache warming             |
-| **Model Conversion**       | `src/conversion.rs`       | Direct format conversion with batch processing                      |
-| **Universal Loader**       | `src/universal_loader.rs` | Auto-format detection and unified loading API                       |
-| **Smart Mapping Oracle**   | `src/smart_mapping.rs`    | ML-powered tensor name mapping with chat-based oracle               |
-| **Model Provenance**       | `src/metadata.rs`         | Complete lineage tracking and validation                            |
+| **Model Conversion**       | src/conversion.rs       | Direct format conversion with batch processing                      |
+| **Universal Loader**       | src/universal_loader.rs | Auto-format detection and unified loading API                       |
+| **Smart Mapping Oracle**   | src/smart_mapping.rs    | ML-powered tensor name mapping with chat-based oracle               |
+| **Model Provenance**       | src/metadata.rs         | Complete lineage tracking and validation                            |
 | **Memory Management**      | Multiple modules          | Sophisticated memory pressure detection and optimization            |
 
 ---

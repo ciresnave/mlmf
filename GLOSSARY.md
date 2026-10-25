@@ -17,7 +17,7 @@ safetensors guarantees nothing. Source: `crates/mlmf-core/src/align.rs`.
 
 **Architecture** -- The legacy root crate's enum of model families detected
 from tensor names: `LLaMA`, `GPT2`, `GPTNeoX` and `Unknown`. Source:
-`src/name_mapping.rs`.
+src/name_mapping.rs.
 
 **AWQ** -- A quantization scheme for safetensors checkpoints. `mlmf-awq`
 locates AWQ-packed linear layers and parses AWQ's quantization config; its
@@ -42,7 +42,7 @@ Implemented by source crates; `mlmf-core` never implements it. Source:
 
 **CalibrationMethod** -- How a quantized model was calibrated, as recorded in
 its metadata: `MinMax`,
-`Percentile`, `Entropy` or `KLDivergence`. Source: `src/metadata.rs`.
+`Percentile`, `Entropy` or `KLDivergence`. Source: src/metadata.rs.
 
 **Charter** -- The project's founding rule: "MLMF's job is to read and write
 model files. MLMF is never intended to be an interpreter of the content of
@@ -60,7 +60,7 @@ need two backends in one binary. Source:
 
 **ConversionFormat / ConversionOptions** -- The legacy root crate's target
 format and settings for `convert_model`, which converts a model file between
-formats. Source: `src/conversion.rs`.
+formats. Source: src/conversion.rs.
 
 **Declaration** -- What a `MetadataSource` knows about one key: `Absent`,
 `Unreadable` (declared but could not be decoded) or `Declared`. It lets a
@@ -124,7 +124,7 @@ Source: `crates/mlmf-awq/src/layer.rs`.
 
 **HFConfig / ModelConfig** -- The legacy root crate's parse of a HuggingFace
 `config.json` (with field aliases) and the model configuration derived from
-it. Source: `src/config.rs`.
+it. Source: src/config.rs.
 
 **HuggingFace layout** -- The directory convention of a HuggingFace
 checkpoint: shard index plus JSON sidecars. `mlmf-hf-layout` reads
@@ -144,11 +144,11 @@ reads only the GGUF-embedded layout, pairing `<name>.in_sum2` with
 **LoadedModel / LoadOptions** -- The legacy root crate's result of loading a
 model (var builder, config, name mapper, raw tensors, metadata) and the
 options controlling it (device, dtype, mmap, progress). Source:
-`src/loader.rs`.
+src/loader.rs.
 
 **LoRA** -- Low-Rank Adaptation: fine-tuning by learning low-rank updates to
-weight matrices. `src/lora.rs` detects, loads, merges and saves LoRA
-adapters. Source: `src/lora.rs`.
+weight matrices. src/lora.rs detects, loads, merges and saves LoRA
+adapters. Source: src/lora.rs.
 
 **MetaValue** -- The seam's metadata value type, whose variant reports how
 the format declared the value (GGUF's thirteen value types plus `Bytes`), not
@@ -160,8 +160,8 @@ implement it. Source: `crates/mlmf-core/src/traits.rs`.
 
 **ONNX** -- A model file format. The legacy root crate loads tensors from it
 and can export to it; its `ModelConfig` is partly guessed from tensor shapes.
-Source: `README.md`, `src/formats/onnx_import.rs`,
-`src/formats/onnx_export.rs`.
+Source: `README.md`, src/formats/onnx_import.rs,
+src/formats/onnx_export.rs.
 
 **Packed linear layer** -- A linear layer stored in a quantized, bit-packed
 form, located by `mlmf-gptq` or `mlmf-awq`; carries tensor names, not bytes.
@@ -206,7 +206,7 @@ name to the shard file that holds it. Source:
 `crates/mlmf-hf-layout/src/shards.rs`.
 
 **SmartTensorNameMapper** -- The legacy root crate's tensor name mapper with
-fallbacks, used by `LoadedModel`. Source: `src/smart_mapping.rs`.
+fallbacks, used by `LoadedModel`. Source: src/smart_mapping.rs.
 
 **Stage** -- The part of a parse that failed. GGUF has `Header`, `Metadata`
 and `TensorDirectory`; safetensors has `Header` and `TensorDirectory`. Only
@@ -225,7 +225,7 @@ still recorded; `tensor_bytes` is where it fails. Source:
 
 **TensorNameMapper** -- Maps tensor names from HuggingFace format to a target
 format, with `Architecture` detected from tensor names. Source:
-`src/name_mapping.rs`.
+src/name_mapping.rs.
 
 **TokenizerJson** -- `mlmf-hf-tokenizer`'s parse of `tokenizer.json`: the
 declared vocabulary, BPE merge rules and added tokens. Only model type `"BPE"`

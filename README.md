@@ -1,184 +1,88 @@
 # MLMF - Machine Learning Model Files
 
-[![Crates.io](https://img.shields.io/crates/v/mlmf.svg)](https://crates.io/crates/mlmf)
-[![Documentation](https://docs.rs/mlmf/badge.svg)](https://docs.rs/mlmf)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/CireSnave/mlmf#license)
 
-**MLMF** (Machine Learning Model Files) is a Rust crate for working with ML model files. MLMF provides loading, saving, conversion, and dynamic mapping capabilities for transformer models across SafeTensors, GGUF and ONNX. **PyTorch `.bin` / `.pt` reading is not implemented**: `load_zip_pickle` and `load_legacy_pickle` both return an error advising conversion in Python, and a real pickle VM lands with `mlmf-pickle`. **AWQ is not implemented in either direction**: `save_as_awq` returns an error, and `load_awq` now does too -- until it did, it returned `Ok` with zero tensors while reporting five. AWQ detection, config parsing and `.safetensors` discovery exist around it.
+**MLMF reads and writes machine learning model files.** It is a set of small
+crates, one per file format, that turn bytes into structure and structure into
+bytes. It does not interpret what a weight means, supply a value a file does
+not declare, quantize, dequantize, or run anything. See
+[CLAUDE.md](CLAUDE.md) for the rule and CireSnave's wording of it.
 
-⚠️ **ONNX loading reads tensors faithfully; its `ModelConfig` does not.** `vocab_size`, `hidden_size`, `num_hidden_layers` and `intermediate_size` are derived from tensor shapes, but **`num_attention_heads` is GUESSED** (`hidden_size / 64`, falling back to `/ 32`) and is copied into `num_key_value_heads`, so **every ONNX model is reported as non-GQA**. `rope_theta` (`10000.0`), `activation_function` (`"gelu"`), both dropouts and `layer_norm_eps` are constants asserted for every architecture -- an ONNX graph carries no vocabulary for them. Read the tensors; do not trust the config.
+Since 0.7.12 this repository is a workspace of the crates below; the old
+single `mlmf` package (a loader built on a tensor library) is retired.
+[MIGRATION.md](MIGRATION.md) says where each of its modules went.
 
-> **Note on this README.** MLMF is being rebuilt as a set of backend-agnostic crates under `crates/`, beginning with `mlmf-core`. See `docs/superpowers/specs/2026-08-14-backend-agnostic-mlmf-design.md`. The feature list below describes the legacy root crate, several parts of which that design schedules for deletion (calibration-based quantization, distributed loading, model cards, multimodal, architecture inference from tensor-name patterns).
+## Crates
 
-## Features
+All crates share one version number and are released together (0.7.12 at the
+time of writing). The `mlmf-*` crates published at that version are the
+supported ones; `mlmf` itself on crates.io stops at 0.2.0.
 
-- 🏗️ **Architecture Detection**: Automatically detects model architecture (LLaMA, GPT-2, GPT-NeoX) from tensor names
-- 📦 **Multiple Formats**: SafeTensors, GGUF and ONNX. AWQ is **not implemented** in either direction, and PyTorch pickle reading is **not implemented** — detection, options and progress exist around two functions that always return an error.
-- 🗺️ **Name Mapping**: Intelligent tensor name mapping between HuggingFace and custom formats
-- 💾 **Memory-mapped GGUF**: GGUF reading is memory-mapped (`memmap2`). ⚠️ **SafeTensors loading is NOT memory-mapped** — `use_mmap` selects a branch that currently forwards to regular file loading (`loader.rs`, "memory mapping API is different in this Candle version").
-- 🔧 **Device Management**: Automatic CUDA detection with CPU fallback
-- 📊 **Progress Reporting**: Optional progress callbacks for long-running operations
-- 🛡️ **Type Safety**: Comprehensive error handling with detailed context
-- 🔄 **Model Conversion**: Direct format conversion with batch processing and progress tracking
+| Crate | What it does | Axis |
+|---|---|---|
+| `mlmf-core` | The seam: `TensorContainer`, `MetadataSource`, dtypes, shapes, descriptors, write-time requirement checks | - |
+| `mlmf-safetensors` | Read safetensors headers and tensor directories; write a safetensors image | format |
+| `mlmf-gguf` | Read GGUF metadata and tensor directories, raw and GGUF-embedded imatrix, tokenizer keys; write GGUF | format |
+| `mlmf-ggml` | ggml type codes and block geometry | format |
+| `mlmf-pickle` | Read PyTorch `.pth`/`.bin` checkpoints: zip directory and tensor index, nothing executed | format |
+| `mlmf-onnx` | Write ONNX `ModelProto` files (nodes supplied as opaque bytes) | format |
+| `mlmf-awq`, `mlmf-gptq` | Locate packed AWQ / GPTQ layers and parse their quantization configs | format |
+| `mlmf-bnb` | Locate bitsandbytes 4-bit layers and read their raw pieces and `quant_state` | format |
+| `mlmf-exl2` | Detect and refuse EXL2 | format |
+| `mlmf-hf-layout` | HuggingFace shard index: where each tensor lives | format |
+| `mlmf-hf-tokenizer` | Read `tokenizer.json` vocabulary and merges | format |
+| `mlmf-meta` | Canonical metadata key vocabulary and declared-value extraction | format |
+| `mlmf-source-file` | Open local files (memory-mapped by default) as byte sources | source |
+| `mlmf-source-hub` | Fetch and cache from the HuggingFace Hub | source |
+| `mlmf-conformance` | Cross-backend and differential tests (not published) | - |
 
-## Quick Start
+Format-axis crates do no I/O: they take bytes and return structure (or the
+reverse). Source-axis crates do I/O and know no formats. Any source composes
+with any format.
 
-Add `mlmf` to your `Cargo.toml`:
+## The rule
 
-```toml
-[dependencies]
-mlmf = { git = "https://github.com/CireSnave/mlmf", tag = "v0.2.1" }
+> *"MLMF's job is to read and write model files. MLMF is never intended to be an
+> interpreter of the content of model files. That is for things like Fuel."*
+
+Absent fields are `Option`, never a default (a format's *documented* default is
+the one exception). Writers take data already encoded in its file dtype.
+Encoding, decoding, quantization and conversion between formats belong to a
+separate project (ML-ConvertAnt), not here.
+
+## Building and testing
+
+```bash
+cargo build --workspace
+cargo test --workspace
 ```
 
-### Basic Usage
-
-```rust
-use mlmf::{LoadOptions, loader};
-use candlelight::{Device, DType};
-
-// Load a LLaMA model from SafeTensors
-let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
-let options = LoadOptions {
-    device: device.clone(),
-    dtype: DType::F16,
-    use_mmap: true,
-    validate_cuda: false,
-    progress: Some(mlmf::progress::default_progress()),
-};
-
-let loaded_model = loader::load_safetensors("./models/llama-7b", options)?;
-
-// Access components
-let var_builder = loaded_model.var_builder;
-let config = loaded_model.config;
-let name_mapper = loaded_model.name_mapper;
-
-// Use name mapper to convert HF names to your format
-if let Some(mapped_name) = name_mapper.map_name("model.layers.0.self_attn.q_proj.weight") {
-    println!("Mapped name: {}", mapped_name);
-}
-```
-
-### Architecture Detection
-
-```rust
-use mlmf::name_mapping::{TensorNameMapper, Architecture};
-
-let tensor_names = vec![
-    "model.embed_tokens.weight".to_string(),
-    "model.layers.0.self_attn.q_proj.weight".to_string(),
-    "model.norm.weight".to_string(),
-];
-
-let mapper = TensorNameMapper::from_tensor_names(&tensor_names)?;
-assert_eq!(mapper.architecture(), Architecture::LLaMA);
-```
-
-### Model Conversion
-
-```rust
-use mlmf::conversion::{convert_model, ConversionFormat, ConversionOptions};
-use std::path::Path;
-
-// Convert from SafeTensors to ONNX
-let options = ConversionOptions::default();
-let result = convert_model(
-    Path::new("model.safetensors"),
-    Path::new("model.onnx"),
-    ConversionFormat::ONNX,
-    options,
-)?;
-
-println!("Conversion completed in {:.2}s", result.duration.as_secs_f64());
-```
-
-## Architecture Detection
-
-```rust
-use mlmf::name_mapping::{TensorNameMapper, Architecture};
-
-let tensor_names = vec![
-    "model.embed_tokens.weight".to_string(),
-    "model.layers.0.self_attn.q_proj.weight".to_string(),
-    "model.norm.weight".to_string(),
-];
-
-let mapper = TensorNameMapper::from_tensor_names(&tensor_names)?;
-assert_eq!(mapper.architecture(), Architecture::LLaMA);
-```
-
-### Model Conversion
-
-```rust
-use mlmf::conversion::{convert_model, ConversionFormat, ConversionOptions};
-use std::path::Path;
-
-// Convert from SafeTensors to ONNX
-let options = ConversionOptions::default();
-let result = convert_model(
-    Path::new("model.safetensors"),
-    Path::new("model.onnx"),
-    ConversionFormat::ONNX,
-    options,
-)?;
-
-println!("Conversion completed in {:.2}s", result.duration.as_secs_f64());
-```
-
-## Architecture
-
-MLMF provides a modular architecture with the following components:
-
-- **`loader`**: High-level loading API
-- **`conversion`**: Direct model format conversion with batch processing
-- **`name_mapping`**: Architecture detection and tensor name mapping
-- **`config`**: HuggingFace config parsing with field aliases
-- **`formats`**: Format-specific loaders and exporters (SafeTensors, GGUF, ONNX, PyTorch, AWQ)
-- **`validation`**: CUDA validation and dtype checking
-- **`progress`**: Progress reporting utilities
-
-## Supported Models
-
-- **LLaMA Family**: LLaMA 2/3, TinyLlama, Qwen, Mistral
-- **GPT Family**: GPT-2, GPT-J
-- **GPT-NeoX Family**: GPT-NeoX, Pythia, StableLM
-
-## Examples
-
-See the [`examples/`](examples/) directory for complete working examples:
-
-- [`load_llama.rs`](examples/load_llama.rs) - Loading LLaMA models from SafeTensors
-- [`test_gguf_loading.rs`](examples/test_gguf_loading.rs) - Loading quantized GGUF models
-- [`pytorch_support_example.rs`](examples/pytorch_support_example.rs) - Loading PyTorch models
-- [`onnx_export_example.rs`](examples/onnx_export_example.rs) - Exporting models to ONNX format
-
-## Performance
-
-⚠️ **The figures below are UNSOURCED.** They predate this README's audit, no
-benchmark in this repository produces them, and they are kept only because
-removing an unmeasured claim and removing a *false* one are different acts —
-the false one is gone, these are merely unverified. **Do not cite them.**
-
-- **Architecture detection**: Typically completes in <100ms
-- **Zero-copy**: Direct tensor access without unnecessary copying
-- **Incremental builds**: Changes compile in <10 seconds
+The tests that need real model files (a GGUF corpus, a PyTorch checkpoint, an
+imatrix file) read them from a local path named by an environment variable
+and print `SKIPPED` when the file is absent; a skip is not a pass. Each
+crate's `tests/` directory says which variable.
 
 ## Documentation
 
-- [GLOSSARY.md](GLOSSARY.md) - terms, types and format names used across MLMF
+- [MIGRATION.md](MIGRATION.md) - what happened to the old root package
+- [GLOSSARY.md](GLOSSARY.md) - terms, types and format names
+- [ROADMAP.md](ROADMAP.md) - what is done, open and out of scope
+- [CHANGELOG.md](CHANGELOG.md)
+- `docs/superpowers/specs/2026-08-14-backend-agnostic-mlmf-design.md` - the design
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Acknowledgements
 
-mlmf-ggml's type-geometry table and mlmf-gguf's required-key and
-version-support tables are measured from, and quote, the GGUF format and
-reference parser maintained by [ggml-org/ggml](https://github.com/ggml-org/ggml)
-and [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT
-licensed). See [NOTICE](NOTICE) for the full credit, pinned sources, and
-upstream licence text.
+Several tables and test fixtures are measured from, or quote, upstream
+projects: the GGUF format and reference parser of
+[ggml-org/ggml](https://github.com/ggml-org/ggml) and
+[ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp), the ONNX protobuf
+schema of [onnx/onnx](https://github.com/onnx/onnx), and the lineage of the
+pickle reader in [huggingface/candle](https://github.com/huggingface/candle).
+See [NOTICE](NOTICE) for the full credit, pinned sources and licence texts.
 
 ## License
 
