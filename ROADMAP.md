@@ -147,7 +147,7 @@ Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10
 | S-09 | Metadata-only GGUF entry point `metadata_only(bytes)` | INV §7.2.1 L295-302 | open | - |
 | S-10 | `parse_from(&dyn ByteSource, ..)` constructors for gguf and safetensors | GAP Item 3 step 3, L250-253 | open | - |
 | S-11 | Raw positional imatrix `.dat` reader (the GGUF-embedded half is done, #94) | SPEC OQ-3 L567; INV §1.4 | held (deferred, board 63a) | - |
-| S-12 | GGUF architecture-family classifier, new crate `mlmf-gguf-arch` | GAP Item 1, L49-132 | open (in scope: CireSnave, 2026-10-24, it finds how to read a file; a wrong guess must surface as an error or absent value) | - |
+| S-12 | GGUF architecture-family classifier, new crate `mlmf-gguf-arch` | GAP Item 1, L49-132 | DONE in 0.7.20: `classify`; declared names matched exactly, `blk.*` alone names no family (differs from fuel `arch.rs`) | - |
 | S-13 | `GgufMetadata::model_config()` convenience | GAP Item 2, L136-206 | open | CALL: shares Item 4's type or gets its own |
 | S-14 | `mlmf-hf-config` crate (HfConfig / ResolvedConfig port) | GAP Item 4, L278-351 | open | CALL: ports from a legacy crate that SPEC §11 schedules for rewrite |
 | S-15 | `mlmf-hf-layout` metadata half, remainder after #119: `tokenizer_config.json` and chat-template sidecars, `<filename>:<key>` keys, `BOS_TOKEN_TEXT`, the HF template object-list. Leaves `mlmf-meta`'s `Format::HuggingFace` vocab row dead | hf-layout-metadata-DEFERRED plan L8-12, L464; meta plan L111, L1737 | open | CALL: the plan says "NOT SCHEDULED, A RULING" |
@@ -194,6 +194,7 @@ Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10
 | S-56 | StableHLO read and write | same ruling | done (PR #159, 0.7.14) | read/write the serialized module bytes and structure; no interpretation |
 | S-57 | StableHLO dense-constant extraction (decode MLIR attribute/type encoding) | PM, 2026-10-25 (S-56 stopped at the envelope) | open, when a consumer asks | weights in a VHLO-form artifact are inline `dense` constants in the AttrType section; decoding MLIR attribute and type encoding is a large piece and blurs into interpretation, so it is not started without a consumer |
 | S-58 | ONNX model reading: `parse_model` reports a `ModelProto`'s versions, opsets, metadata, graph names, initializers (raw bytes as ranges; external and typed data reported, not decoded) and value infos | same ruling as S-54 | done (this PR, 0.7.17) | read, never interpret: nodes are byte ranges; typed `float_data` and the like stay undecoded (decoding is conversion) |
+| S-59 | Patent re-sweep for `mlmf-gguf-arch` (new capability family); mlmf 0.7.20+ publish waits for it | PM, 2026-10-25 (#164) | open | `docs/PATENT-SWEEP.md` updated on main; process `C:\Projects\PATENT-SWEEP-PROCESS.md` |
 
 ### Docs that contradict the code (13 rows)
 

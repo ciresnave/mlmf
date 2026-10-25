@@ -1,0 +1,13 @@
+[package]
+    description          = "Name the architecture family a GGUF file declares (general.architecture), or that its tensor names unambiguously show. No I/O; absent when neither says."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-gguf-arch"
+    repository.workspace = true
+    version.workspace    = true
+
+# NO [features] SECTION, matching mlmf-gptq and mlmf-awq: there is no
+# second configuration to lint or document.
+
+[dependencies]
+    mlmf-core = { path = "../mlmf-core", version = "0.7.0" }
