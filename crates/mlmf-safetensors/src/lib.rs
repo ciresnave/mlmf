@@ -16,12 +16,14 @@
 #![warn(missing_docs)]
 
 pub mod dtype;
+pub mod encode;
 pub mod error;
 pub mod header;
 pub mod metadata;
 pub mod tensors;
 
-pub use dtype::dtype_of;
+pub use dtype::{dtype_of, name_of};
+pub use encode::{EncodeError, EncodedHeader, TensorToWrite, encode_header, encode_safetensors};
 pub use error::{SafetensorsError, Stage};
 pub use header::{Header, parse_header};
 pub use metadata::{SafetensorsMetadata, parse_metadata};

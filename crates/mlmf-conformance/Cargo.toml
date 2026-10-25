@@ -90,6 +90,9 @@
     # hand-rolled JSON escaping is exactly the thing that goes subtly wrong.
     # sha2 because the contract is sha256 OF THE UTF-8 BODY, and no crate in
     # this workspace hashes anything.
+    # Independent reader and writer for tests/safetensors_writer_differential.rs:
+    # the upstream implementation shares no code with mlmf-safetensors.
+    safetensors      = "0.8"
     serde_json       = { version = "1.0", default-features = false, features = ["std"] }
     sha2             = "0.11"
 
