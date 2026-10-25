@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-10-24
+
+### Removed (breaking)
+CireSnave, 2026-10-24: MLMF's code must add to its ability to read or write model files,
+without interpreting or guessing about them. The rule is now in `CLAUDE.md`. Removed because
+it does not:
+- Multi-modal support: `multimodal`, `multimodal_loader`, `multimodal_processor` (cross-modal
+  attention, fusion, `MultiModalModel::infer`), their exports and examples. Fixes #143.
+- Distributed loading: `distributed`, `distributed_core`, `distributed_loader`, including
+  `ShardingStrategy` and its `ModalitySpecific` variant, and the distributed examples.
+- Post-training quantization: `quantization` (`QuantizationEngine`, calibration datasets,
+  activation statistics) and its examples. The metadata types that DESCRIBE a file's
+  quantization (`ModelQuantizationInfo`, `CalibrationMethod`) stay.
+- Model caching: `cache`, `cached_loader` (`ModelCache`, `CachedModelLoader`).
+- Model cards: `model_card` (`ModelCardGenerator` and its types), and its example.
+- The Feature 6 and Feature 8 summary docs.
+
+The removed code is at `ciresnave/mlmf` commit `bfc84ac`, for any project that wants it.
+`impl Display for Architecture`, which lived in `model_card`, moved to `name_mapping`.
+
+### Changed
+- All inter-crate `version` requirements are 0.7.0.
+- `ROADMAP.md`: the integrate-or-retire section is replaced by CireSnave's ruling that AWQ
+  loading and saving stay in MLMF, with an inventory of what exists.
+
 ## [0.6.22] - 2026-10-24
 
 ### Documentation
@@ -43,7 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.18] - 2026-10-24
 
 ### Changed
-- `src/distributed_loader.rs`: the nine parameters of the private `todo!()` stubs
+- `distributed_loader.rs` (removed in 0.7.0): the nine parameters of the private `todo!()` stubs
   (`deploy_model`, `scale_cluster`, `NodeManager::new`, `ShardManager::new` and
   `migrate_shard`, `LoadBalancer::new`, `HealthMonitor::new`) are underscore-prefixed.
   Resolves 9 of the root crate's 17 `unused-parameters` findings; no behaviour change,
@@ -252,7 +277,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Calibration methods: minmax, percentile, entropy, KL divergence
   - Advanced features: block-wise quantization, symmetric quantization
   - Progress reporting and comprehensive configuration options
-  - `examples/advanced_quantization.rs` demonstrating the API
+  - `advanced_quantization.rs` example (removed in 0.7.0) demonstrating the API
 - **Candlelight Integration**: Migrated from direct candle dependencies to unified candlelight wrapper
   - Simplified dependency management
   - Consistent API across all Candle ecosystem crates

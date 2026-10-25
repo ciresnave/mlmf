@@ -21,41 +21,65 @@ from 169 of 169).
 | `lint-suppression` (allow/ignore with no reason) | 14 (corrected from an earlier miscount of 12 — recounted directly off the sweep log) | DONE | 12 of 14 got a `reason = "..."`; the other 2 (`src/validation.rs`, both `unreachable_patterns`) had their `#[allow(...)]` removed outright after `cargo check` with the attribute removed showed no warning either way — the suppression was already unnecessary, so a fabricated reason would have been worse than deleting it. Confirmed by the second sweep: 12 passing, 0 failing. |
 | `licence` | 2 | SPDX done, copyright wording open | SPDX: every git-tracked `.rs` file (165, via `git ls-files`) plus the 3 tracked `.py` files and 2 tracked `.sh` files (CodeRipper's "source file" count of 169 includes those 5, which `git ls-files '*.rs'` alone does not) now carry an SPDX comment. The second sweep, run before the `.py`/`.sh` fix was pushed, still showed "5 of 169" missing — exactly those 5; not yet re-confirmed at 0. Copyright-holder wording in `LICENSE-MIT` waits on board 263 (CireSnave). |
 | `reachability` (no caller found within its own crate) | 73 across `mlmf-awq` (23), `mlmf-gptq` (23), `mlmf-hf-tokenizer` (18), `mlmf-exl2` (4), `mlmf-core` (3), `mlmf-gguf` (1), `mlmf-safetensors` (1) | 73 of 73 DONE (declared) | `mlmf-awq`/`mlmf-gptq`/`mlmf-hf-tokenizer` (64 findings) all trace back to 1-2 public entry points each (`parse_standalone`/`parse_from_model_config`/`locate_layers`/`parse`) that have no in-repo caller — verified all three crates are independently published to crates.io (checked the crates.io API directly, 2026-10-23: `mlmf-awq` 0.5.11/30 downloads, `mlmf-gptq` 0.5.11/30, `mlmf-hf-tokenizer` 0.5.11/20) as standalone "bytes to structure" readers per this repo's own charter quote, each exercised only by its own `#[cfg(test)]` unit tests (which this check, by design, doesn't count as production reachability — unlike a separate `tests/*.rs` file, example or bench). None has an in-repo consumer: root `mlmf`'s `awq` feature is still `awq = []`, and its `tokenizers` feature wraps the external `tokenizers` crate, not `mlmf-hf-tokenizer`. **Declared in `.coderipper.toml`, not deleted** — the code is correct, documented and tested, just unintegrated, the same judgment call this row already called out ("a planned call site"). The remaining 9 (`mlmf-exl2` 4, `mlmf-core` 3, `mlmf-gguf` 1, `mlmf-safetensors` 1) are the same shape — `pub` items of published crates (`cargo search`, 2026-10-24: 0.5.11 each) that no in-repo non-test target calls — and are declared the same way, in each crate's own `crates/<name>/.coderipper.toml` (a per-member check reads only that file). Verified with `coderipper` 0.9.14 (the version CI installs): each of the four reports "no findings (n waived)". |
-| `unused-parameters` / `unused-return-values` | **17 / 1** at `8481863` (was 0 / 0 before the protoc fix) | open | Counted off the sweep log of run 40068424658 (`coderipper` 0.9.14, root crate `mlmf` now analysable): 17 `unused-parameters` (`src/distributed_core.rs` 2, `src/distributed_loader.rs` 9, `src/formats/gguf_export.rs` 1, `onnx_export.rs` 1, `onnx_import.rs` 1, `src/multimodal_loader.rs` 3) and 1 `unused-return-values` (`complete`, `src/progress.rs:414`, discarded at 2 of 3 call sites). **Triage at `ad6669a`: 9 of the 17 (the `todo!()` stubs in `distributed_loader.rs`) fixed by underscore-prefix in 0.6.18. The remaining 8 are NOT renames:** `save_as_gguf`'s `model` is discarded and it writes an empty tensor map (`gguf_export.rs:787`, called from `conversion.rs:494`; the same shape as the ONNX discard fixed earlier, a LIVE section 6 defect); `save_as_onnx`'s `export_options` is a documented second discard; `infer_model_config`'s `name_mapper`, `load_distributed_modality`/`load_single_modality`'s `modality`, `process_modality`'s `model`, `deploy_shard_to_node`'s `model_path` and `select_node`'s `request` are unimplemented behaviour. **Update at `f8f6a00`: `save_as_gguf` (#141) and `save_as_onnx` (#142) fixed; 5 more resolved in 0.6.21; the last, `process_modality`'s `model`, is #143.** Each needs a look before any fix: a parameter of a stub that a planned call site will use is a different case from a dead one. *Superseded history — the 0 / 0 below was true only while the root crate could not run:* A peer notice reported 17 unused-parameters findings; recounting raw finding lines directly from the sweep job log on `origin/main` at `09d8321` (run 40034994212, job 120692157236) found **0** for both rules across all 13 workspace members that analysed successfully. The PM traced its "17" to an earlier, different-method baseline (root-package-only, pre-workspace-split) and confirmed 0/0 is correct for the current sweep; no fix work needed. |
+| `unused-parameters` / `unused-return-values` | **17 / 1** at `8481863` (was 0 / 0 before the protoc fix) | open | Counted off the sweep log of run 40068424658 (`coderipper` 0.9.14, root crate `mlmf` now analysable): 17 `unused-parameters` (`distributed_core` 2, `distributed_loader` 9 (both removed in 0.7.0), `src/formats/gguf_export.rs` 1, `onnx_export.rs` 1, `onnx_import.rs` 1, 3 in the multimodal loader, since removed with the rest of the multimodal code in 0.7.0) and 1 `unused-return-values` (`complete`, `src/progress.rs:414`, discarded at 2 of 3 call sites). **Triage at `ad6669a`: 9 of the 17 (the `todo!()` stubs in `distributed_loader.rs`) fixed by underscore-prefix in 0.6.18. The remaining 8 are NOT renames:** `save_as_gguf`'s `model` is discarded and it writes an empty tensor map (`gguf_export.rs:787`, called from `conversion.rs:494`; the same shape as the ONNX discard fixed earlier, a LIVE section 6 defect); `save_as_onnx`'s `export_options` is a documented second discard; `infer_model_config`'s `name_mapper`, `load_distributed_modality`/`load_single_modality`'s `modality`, `process_modality`'s `model`, `deploy_shard_to_node`'s `model_path` and `select_node`'s `request` are unimplemented behaviour. **Update at `f8f6a00`: `save_as_gguf` (#141) and `save_as_onnx` (#142) fixed; 5 more resolved in 0.6.21; the last, `process_modality`'s `model`, was #143 and is resolved by removing the multimodal code (0.7.0).** Each needs a look before any fix: a parameter of a stub that a planned call site will use is a different case from a dead one. *Superseded history — the 0 / 0 below was true only while the root crate could not run:* A peer notice reported 17 unused-parameters findings; recounting raw finding lines directly from the sweep job log on `origin/main` at `09d8321` (run 40034994212, job 120692157236) found **0** for both rules across all 13 workspace members that analysed successfully. The PM traced its "17" to an earlier, different-method baseline (root-package-only, pre-workspace-split) and confirmed 0/0 is correct for the current sweep; no fix work needed. |
 
-## Decision needed (CireSnave): integrate or retire mlmf-awq/mlmf-gptq/mlmf-hf-tokenizer
+## What belongs in MLMF (CireSnave, 2026-10-24; full quotes in `CLAUDE.md`)
 
-Surfaced while disposing the `reachability` row above (#135/#136). The
-facts, not a recommendation — this is a decision about a *published*
-crate's lifecycle, not a code fix this lane can make unilaterally:
+Code stays if it adds to MLMF's ability to read or write model files without
+interpreting or guessing about them. Detecting HOW a file is stored (architecture
+detection, tensor-name mapping, the oracle) is in; supplying a value the file does
+not declare is out. Applied in 0.7.0, which removed multimodal, distributed,
+quantization, caching and model-card code.
 
-- All three crates (`mlmf-awq`, `mlmf-gptq`, `mlmf-hf-tokenizer`) are
-  independently published to crates.io (verified via the crates.io API,
-  2026-10-23: `mlmf-awq` 0.5.11/30 downloads, `mlmf-gptq` 0.5.11/30,
-  `mlmf-hf-tokenizer` 0.5.11/20 — real external downloads, not zero).
-- None has an in-repo consumer. The root `mlmf` crate's `awq` feature is
-  still a stub (`awq = []`, no dependency on `mlmf-awq` at all). Its
-  `tokenizers` feature wraps the external `tokenizers` crate, not
-  `mlmf-hf-tokenizer`. No workspace member depends on `mlmf-gptq`.
-- Each crate's own code is complete, documented, and covered by its own
-  unit tests — this isn't abandoned or broken work, just unwired.
-- **Option A — integrate**: wire each crate into the root `mlmf` crate's
-  corresponding feature (`awq`, and a new or existing path for GPTQ/
-  tokenizer support), making the published crates' existence match what
-  `mlmf` actually does. Real engineering work, scope not yet sized.
-- **Option B — retire**: yank/deprecate the published crates if they
-  were speculative and integration isn't planned. Yanking a published
-  crate is a decision this lane should not make unilaterally — flagged to
-  CireSnave's board per the PM, 2026-10-23.
-- Not actionable by this lane without a decision between A and B; parked
-  here rather than left unrecorded.
+Follow-ups from that ruling, none started:
+
+- **Memory estimation** moves to Fuel; MLMF keeps what feeds it (shapes, dtypes, byte
+  sizes, declared layer count, hidden size, KV heads, head dim, context length, all
+  `Option`). The estimator code in the removed `cache` and `model_card` modules is at
+  commit `bfc84ac`.
+- **A conversion project** (proposed, PM to decide) for quantization and calibration,
+  Q8_0 and other encoding, LoRA merging, and conversion with measured error. MLMF
+  readers and writers should accept and return data already encoded in the file's
+  dtype.
+- **Offers of the removed code:** distributed loading to Fuel if it has nothing
+  similar; quantization to Fuel or the conversion project; caching and model cards as
+  possible small projects built on MLMF. All pending the PM.
+- The design spec's section 10 still bans architecture inference and schedules the
+  oracle for removal; CireSnave's ruling reverses that part and the spec needs
+  amending.
+
+## AWQ stays; gptq and hf-tokenizer undecided
+
+CireSnave, 2026-10-24, verbatim: *"We are keeping AWQ loading and saving in MLMF."*
+The "integrate or retire" decision this section used to pose (PR #137,
+2026-10-23) was written by this lane while disposing of a `reachability`
+finding, not asked for by CireSnave, and it never appeared on his decisions
+list. It is withdrawn for AWQ.
+
+What exists for AWQ, and what does not:
+
+- `crates/mlmf-awq` (published, 0.5.11): config parsing (`parse_standalone`,
+  `parse_from_model_config`) and `locate_layers`. It reads **no weights**.
+- `src/formats/awq.rs` (root crate): loading. **Not implemented**; it refuses
+  with `AWQ loading is NOT IMPLEMENTED`.
+- `src/formats/awq_export.rs` (root crate): saving. **Not implemented**; it
+  returns `Err`.
+- The root `awq` feature is `awq = []` and is in `default`; it does not depend
+  on `mlmf-awq`. Routing and detection around AWQ sit in `universal_loader.rs`,
+  `loader.rs`, `validation.rs` and `conversion.rs`.
+
+Work this implies, none started: real AWQ tensor loading, real AWQ saving, and
+wiring the root `awq` feature to `mlmf-awq` (audit rows S-05 and the GGUF
+export summary's AWQ item). `mlmf-gptq` and `mlmf-hf-tokenizer` have had no
+ruling either way; their `reachability` declarations in `.coderipper.toml`
+stand until one is made.
 
 ## File-length (Codacy, on PR #132 at `e411340`, https://github.com/ciresnave/mlmf/pull/132)
 
 Codacy flagged these files for length while PR #132 only touched them to add
 an SPDX header and/or a lint-suppression reason — pre-existing, not caused by
 that PR (PM disposition, 2026-10-23: "none of those files was lengthened
-beyond that \[SPDX/reason\] line... pre-existing"). **15 files, not the 8 a
+beyond that \[SPDX/reason\] line... pre-existing"). **15 files (13 after 0.7.0 removed `model_card` and `distributed`), not the 8 a
 peer notice first named** — pulled the real count from the check run's own
 annotations (`gh api repos/ciresnave/mlmf/check-runs/<id>/annotations`)
 rather than the notice, which undercounted. One row per file, biggest
@@ -67,7 +91,6 @@ non-comment-LOC first, to split — none started.
 | `src/formats/gguf.rs` | 1091 | open |
 | `src/lora.rs` | 1011 | open |
 | `crates/mlmf-gguf/src/tensors.rs` | 822 | open |
-| `src/model_card.rs` | 723 | open |
 | `src/formats/gguf_export.rs` | 700 | open |
 | `src/config.rs` | 645 | open |
 | `src/formats/onnx_import.rs` | 644 | open |
@@ -76,7 +99,6 @@ non-comment-LOC first, to split — none started.
 | `crates/mlmf-gguf/src/metadata.rs` | 616 | open |
 | `src/metadata.rs` | 528 | open |
 | `crates/mlmf-gguf/src/value.rs` | 515 | open |
-| `src/distributed.rs` | 515 | open |
 | `src/validation.rs` | 513 | open |
 
 ## Known infrastructure defect in the same run (not a code finding)
@@ -107,9 +129,9 @@ Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10
 | Row | Work | Where the doc says it | Status | CireSnave call |
 |---|---|---|---|---|
 | S-01 | Backend-agnostic writers for GGUF and safetensors in `mlmf-gguf` / `mlmf-safetensors` (the root crate's `saver.rs`, `gguf_export.rs` and `safetensors_export.rs` are the only writers) | SPEC §11 `gguf_export`/`safetensors_export` rows; INV §7.2.3, §8.6; gguf-metadata plan L3862 | open | CALL: new crate or module layout, and how it relates to the legacy crate |
-| S-02 | GGUF quantizers beyond F32: F16, Q8_0, Q4_0, Q4_K_M and Q6_K all return `NOT IMPLEMENTED` (`gguf_export.rs:616`). `save_as_gguf` defaults to F16, so default options return an error since #141 | GGUF_EXPORT_SUMMARY.md:18-23,148 | open | CALL: implement the quantizers, or narrow the writer to F32 and drop the variants |
+| S-02 | GGUF quantizers beyond F32: F16, Q8_0, Q4_0, Q4_K_M and Q6_K all return `NOT IMPLEMENTED` (`gguf_export.rs:616`). `save_as_gguf` defaults to F16, so default options return an error since #141 | GGUF_EXPORT_SUMMARY.md:18-23,148 | open | CALL: implement the quantizers, or narrow the writer to F32 and drop the variants; per CireSnave, 2026-10-24 the writer should take data already encoded in the file's dtype, and the encoding math belongs to a conversion project (board 284) |
 | S-03 | GGUF `preserve_metadata` writes only a placeholder `preserved="true"`, and `general.architecture` is written as `"unknown"` (section 6 fence) | `gguf_export.rs`, `save_as_gguf` placeholder comment | open | CALL: section 6 and the `Option<T>` policy |
-| S-04 | GGUF calibration data support | GGUF_EXPORT_SUMMARY.md:149 | open | CALL: arguably interpreting content |
+| S-04 | GGUF calibration data support | GGUF_EXPORT_SUMMARY.md:149 | out of scope (CireSnave, 2026-10-24: computing on values is conversion) | - |
 | S-05 | AWQ export (`awq_export.rs` returns `Err`); batch, streaming and compression export | GGUF_EXPORT_SUMMARY.md:154-157 | held (by the awq/gptq/hf-tokenizer decision above) | - |
 | S-06 | GGUF v1 reading (`UnsupportedVersion`; detector `crates/mlmf-gguf/tests/v1_deferral.rs`; the one corpus file is unmeasured) | SPEC §9 §7 L403; gguf plans L87, L1517 | held (accepted loss, CireSnave 2026-09-25) | CALL: build it or re-defer |
 | S-07 | Non-native-endian GGUF: refused by name (`ByteSwapped`), no transcoder | gguf-metadata plan L3865 | open (by design) | CALL: low priority, no corpus file exhibits it |
@@ -117,7 +139,7 @@ Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10
 | S-09 | Metadata-only GGUF entry point `metadata_only(bytes)` | INV §7.2.1 L295-302 | open | - |
 | S-10 | `parse_from(&dyn ByteSource, ..)` constructors for gguf and safetensors | GAP Item 3 step 3, L250-253 | open | - |
 | S-11 | Raw positional imatrix `.dat` reader (the GGUF-embedded half is done, #94) | SPEC OQ-3 L567; INV §1.4 | held (deferred, board 63a) | - |
-| S-12 | GGUF architecture-family classifier, new crate `mlmf-gguf-arch` | GAP Item 1, L49-132 | open | CALL: GAP flags it as possibly outside the charter (SPEC §10 bans architecture inference from tensor names) |
+| S-12 | GGUF architecture-family classifier, new crate `mlmf-gguf-arch` | GAP Item 1, L49-132 | open (in scope: CireSnave, 2026-10-24, it finds how to read a file; a wrong guess must surface as an error or absent value) | - |
 | S-13 | `GgufMetadata::model_config()` convenience | GAP Item 2, L136-206 | open | CALL: shares Item 4's type or gets its own |
 | S-14 | `mlmf-hf-config` crate (HfConfig / ResolvedConfig port) | GAP Item 4, L278-351 | open | CALL: ports from a legacy crate that SPEC §11 schedules for rewrite |
 | S-15 | `mlmf-hf-layout` metadata half, remainder after #119: `tokenizer_config.json` and chat-template sidecars, `<filename>:<key>` keys, `BOS_TOKEN_TEXT`, the HF template object-list. Leaves `mlmf-meta`'s `Format::HuggingFace` vocab row dead | hf-layout-metadata-DEFERRED plan L8-12, L464; meta plan L111, L1737 | open | CALL: the plan says "NOT SCHEDULED, A RULING" |
@@ -126,19 +148,19 @@ Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10
 | S-18 | `mlmf-meta` drops three malformed template-name shapes silently, with no loss entry | meta plan L1739 | open | - |
 | S-19 | `mlmf-pickle` (port Fuel's 754-line VM with the AD-3 allowlist test); `load_zip_pickle` is still an unconditional `Err` | SPEC §9 §7 L405, §11 L479, §12 step 6; core plan L1885 | open (accepted loss, CireSnave 2026-09-25) | CALL: build order |
 | S-20 | `mlmf-onnx`: move `onnx_import` and `onnx_export` out of the root crate | SPEC §11 L461, L472; ONNX_SUPPORT.md:1 | open | CALL: whether to extract |
-| S-21 | `mlmf-oracle`, and removal of the oracle from the load path (`loader.rs:35`) | SPEC §10 L419, §12 step 7, OQ-4 L568 | open | CALL: same workspace or a separate repo (OQ-4) |
+| S-21 | `mlmf-oracle`, and removal of the oracle from the load path (`loader.rs:35`) | SPEC §10 L419, §12 step 7, OQ-4 L568 | open (in scope: CireSnave, 2026-10-24, same reasoning as S-12) | - |
 | S-22 | `mlmf` umbrella rewrite and legacy-crate lifecycle: retire the root crate, switch CI to `--workspace`, delete `ci_coverage.rs` | SPEC §11 L488, §12 step 7; gguf-metadata plan Step 6b | open | CALL: lifecycle of the legacy crate |
 | S-23 | MLX support (QSF: resolve the packing order at implementation time) | QSF §3.4 L298-306, §1.5 | open | - |
 | S-24 | EXL2 geometry (`locate_layers`); `mlmf-exl2` is detect-and-refuse (#108) | QSF §1.3 L153-157 | held (deferred by the PM; trigger: read the `q_groups` encoding from ExLlamaV2 source) | - |
 | S-25 | EXL3 | QSF §1.4 L189-194 | held (trigger: a reachable EXL3 `.safetensors`) | - |
-| S-26 | Delete-disposition legacy modules still present: `distributed*` (8 live `todo!()` in `distributed_loader.rs`, panics on construction), `multimodal*`, `model_card`, `quantization*`; `AlertManager` has no impl; feature 6 and 8 "next steps" | SPEC §10 L423, §11; FEATURE_6 L39-45, L215-219; FEATURE_8 L179-192 | open | CALL: timing of the deletion (scheduled, not executed) |
-| S-27 | Undecided legacy modules: `cache.rs`, `cached_loader.rs`, `checkpoint.rs`, `saver.rs`, `progress.rs` home, `validation.rs` structural half | SPEC §11 L456-486; OQ-1 L558 | open | CALL: keep or delete each (OQ-1 is deferred until a second trainer appears) |
+| S-26 | Delete-disposition legacy modules still present: `distributed*` (8 live `todo!()` in `distributed_loader.rs`, panics on construction), `multimodal*`, `model_card`, `quantization*`; `AlertManager` has no impl; feature 6 and 8 "next steps" | SPEC §10 L423, §11; FEATURE_6 L39-45, L215-219; FEATURE_8 L179-192 | DONE in 0.7.0 (#146): multimodal, distributed, quantization and model_card removed | - |
+| S-27 | Undecided legacy modules: `cache.rs` and `cached_loader.rs` (removed in 0.7.0, #146), `checkpoint.rs`, `saver.rs`, `progress.rs` home, `validation.rs` structural half | SPEC §11 L456-486; OQ-1 L558 | open | CALL: keep or delete each (OQ-1 is deferred until a second trainer appears) |
 | S-28 | Retire `src/mmap_loader.rs` (475 lines) | core plan L1870; source-file plan L816 ("deleting the legacy implementation is CireSnave's") | held (CireSnave) | - |
 | S-29 | Legacy `error.rs` (261 call sites) versus `mlmf-core::ErrorKind`: keep a loading-policy error type, or grow core | SPEC §11 `error.rs` row L487 | open | CALL: the row itself says "OPEN QUESTION, not work" |
-| S-30 | Promote tensor-name mapping out of the root crate (`name_mapping.rs`, `smart_mapping.rs`) | INV §7.2.4, §8.7 (low priority, L375) | open | - |
+| S-30 | Promote tensor-name mapping out of the root crate (`name_mapping.rs`, `smart_mapping.rs`) | INV §7.2.4, §8.7 (low priority, L375) | open (in scope: CireSnave, 2026-10-24, same reasoning as S-12) | - |
 | S-31 | ONNX: write real protobuf (`export_graph` returns `NOT IMPLEMENTED`), encoder / encoder-decoder / CNN export, LayerNorm and Attention operators; import Phase 2 (`candle-onnx`, operator support, `load_model(.onnx)`); Phase 3 (optimisation, custom operators, dynamic graph execution) | ONNX_SUPPORT.md:20-22, 40, 43, 105-118 | open | CALL: implement or delete the writer; adopt `candle-onnx`; Phase 3 is interpreting content |
 | S-32 | PyTorch `.pth` / `.bin` loading and saving: `pytorch_loader.rs` is a stub, and `save_model` supports only safetensors, gguf and onnx | ONNX_SUPPORT.md:76-80, 92-95; `pytorch_loader.rs:257-262` | open | CALL: ties to S-19 |
-| S-33 | Conversion with measured-error semantics (CV-1..5); `ConversionResult` has no measured-error field | SPEC §8, §11 L469 | open | - |
+| S-33 | Conversion with measured-error semantics (CV-1..5); `ConversionResult` has no measured-error field | SPEC §8, §11 L469 | out of scope for MLMF (CireSnave, 2026-10-24: a conversion project, proposed, board 284) | - |
 | S-34 | Provenance stamp (source hash, re-hash check, PV-1) | SPEC §8.2 L287-297 | open | - |
 | S-35 | U-2 corpus currency: a test that fails on staleness against a recorded source URL and fetch date | core plan L1870; SPEC §7 L262-265 | open | CALL: sets the corpus lifecycle policy |
 | S-36 | Corpus roots default to `C:/Models`; the two large files are local-only; nothing counts how often skips fire | safetensors plan, carried items | open | CALL: a self-hosted runner for the local-only files (portfolio rule on tests that cannot run on GitHub) |
@@ -162,8 +184,8 @@ Doc corrections: docs-only work that needs no decision. Recorded as rows, not ed
 | D-01 | README.md:9 says ONNX `num_attention_heads` is GUESSED (`hidden_size / 64`) and `rope_theta`, `activation_function` and the dropouts are asserted constants | `onnx_import.rs` sets them all to `None` (#78); the paragraph is false. Re-checked. | open |
 | D-02 | ONNX_SUPPORT.md:1, 9, 24-36 says export is "genuinely implemented" and `save_model(..., "my_model.onnx")` works; L43, 70 say import is "PLANNED" | `export_graph` returns `NOT IMPLEMENTED` (`onnx_export.rs:671`); import exists (`onnx_import.rs:99, 693`) | open |
 | D-03 | GGUF_EXPORT_SUMMARY.md:12, 19-21, 32, 86, 159-168 says F16, Q8_0 and Q4_0 work, gives a size table and says "production-ready"; L15 claims streaming writes while L156 lists streaming as future | only F32 writes (`gguf_export.rs:616-620`); every other type, F16 included, returns `NOT IMPLEMENTED`. Re-checked. | open |
-| D-04 | FEATURE_8_MULTIMODAL_SUMMARY.md:99-114 shows a working `model.infer(input)`; FEATURE_8_COMPILATION_SUCCESS.md:126, 139 says "production-ready" and ticks Feature 6 | `process_modality` ignores its model (#143); `DistributedModelLoader::new` panics through `todo!` (`distributed_loader.rs:811`) | open |
-| D-05 | FEATURE_6_DISTRIBUTED_SUMMARY.md:223-236 says "COMPLETED ... production-ready" | 8 live `todo!()`; its own banner retracts this, but FEATURE_8's tick of Feature 6 does not | open |
+| D-04 | FEATURE_8_MULTIMODAL_SUMMARY.md:99-114 shows a working `model.infer(input)`; FEATURE_8_COMPILATION_SUCCESS.md:126, 139 says "production-ready" and ticks Feature 6 | `process_modality` ignores its model (#143); `DistributedModelLoader::new` panics through `todo!` (`distributed_loader.rs:811`) | resolved: the docs and the code were removed in 0.7.0 (#146) |
+| D-05 | FEATURE_6_DISTRIBUTED_SUMMARY.md:223-236 says "COMPLETED ... production-ready" | 8 live `todo!()`; its own banner retracts this, but FEATURE_8's tick of Feature 6 does not | resolved: the docs and the code were removed in 0.7.0 (#146) |
 | D-06 | hf-layout-metadata-DEFERRED plan L8-12 and `mlmf-hf-layout`'s `lib.rs` and `config.rs` cite the Part B deferral detector test as existing and say the metadata half "has not been rewritten" | the file is absent on `origin/main` (re-checked); `ConfigJson` shipped in #119 (board #111) | open |
 | D-07 | INV L188 says `ModelConfig` cannot represent an absent field (#48, open); L189 says `tokenizer.json` is "HAS"; L191-192 say `generation_config.json` and `special_tokens_map.json` are "MISSING"; L76 says mmap is "not yet wired" | fields are `Option<T>` (#77); GAP L359-364 retracts the tokenizer claim; both readers exist in `mlmf-hf-layout`; zero-copy is verified (#115) | open |
 | D-08 | SPEC L441 says `mlmf-source-file` has not landed and `mlmf-hf-layout` does not exist; L483, 487 say the root crate has no `mlmf-*` dependency | both crates exist; `Cargo.toml` depends on `mlmf-gguf` and `mlmf-core` (#36); `gguf.rs:85` calls `mlmf_gguf::GgufMetadata::parse` | open |

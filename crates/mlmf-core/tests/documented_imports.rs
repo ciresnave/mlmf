@@ -476,7 +476,7 @@ fn the_crate_surface_is_read_and_not_assumed() {
         mods.len()
     );
     assert!(
-        mods.contains("distributed"),
+        mods.contains("name_mapping"),
         "a known `pub mod` went missing"
     );
     assert!(

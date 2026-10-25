@@ -16,7 +16,6 @@
 - 📦 **Multiple Formats**: SafeTensors, GGUF and ONNX. AWQ is **not implemented** in either direction, and PyTorch pickle reading is **not implemented** — detection, options and progress exist around two functions that always return an error.
 - 🗺️ **Name Mapping**: Intelligent tensor name mapping between HuggingFace and custom formats
 - 💾 **Memory-mapped GGUF**: GGUF reading is memory-mapped (`memmap2`). ⚠️ **SafeTensors loading is NOT memory-mapped** — `use_mmap` selects a branch that currently forwards to regular file loading (`loader.rs`, "memory mapping API is different in this Candle version").
-- ⚡ **Quantization**: Advanced post-training quantization with multiple schemes (INT8, INT4, Mixed)
 - 🔧 **Device Management**: Automatic CUDA detection with CPU fallback
 - 📊 **Progress Reporting**: Optional progress callbacks for long-running operations
 - 🛡️ **Type Safety**: Comprehensive error handling with detailed context
@@ -93,27 +92,37 @@ let result = convert_model(
 println!("Conversion completed in {:.2}s", result.duration.as_secs_f64());
 ```
 
-### Advanced Quantization
+## Architecture Detection
 
 ```rust
-use mlmf::CalibrationMethod;
-use mlmf::quantization::{QuantizationConfig, QuantizationEngine, QuantizationType};
+use mlmf::name_mapping::{TensorNameMapper, Architecture};
 
-// Configure quantization
-let config = QuantizationConfig {
-    quantization_type: QuantizationType::Int8,
-    calibration_method: CalibrationMethod::KlDivergence,
-    calibration_samples: 256,
-    block_wise: true,
-    symmetric: true,
-    ..Default::default()
-};
+let tensor_names = vec![
+    "model.embed_tokens.weight".to_string(),
+    "model.layers.0.self_attn.q_proj.weight".to_string(),
+    "model.norm.weight".to_string(),
+];
 
-// Create quantization engine
-let engine = QuantizationEngine::new(config, device)?;
+let mapper = TensorNameMapper::from_tensor_names(&tensor_names)?;
+assert_eq!(mapper.architecture(), Architecture::LLaMA);
+```
 
-// Quantize a loaded model (placeholder - requires actual model)
-// let quantized_model = engine.quantize_model(&loaded_model, progress_callback)?;
+### Model Conversion
+
+```rust
+use mlmf::conversion::{convert_model, ConversionFormat, ConversionOptions};
+use std::path::Path;
+
+// Convert from SafeTensors to ONNX
+let options = ConversionOptions::default();
+let result = convert_model(
+    Path::new("model.safetensors"),
+    Path::new("model.onnx"),
+    ConversionFormat::ONNX,
+    options,
+)?;
+
+println!("Conversion completed in {:.2}s", result.duration.as_secs_f64());
 ```
 
 ## Architecture
@@ -139,11 +148,9 @@ MLMF provides a modular architecture with the following components:
 See the [`examples/`](examples/) directory for complete working examples:
 
 - [`load_llama.rs`](examples/load_llama.rs) - Loading LLaMA models from SafeTensors
-- [`advanced_quantization.rs`](examples/advanced_quantization.rs) - Advanced quantization API usage
 - [`test_gguf_loading.rs`](examples/test_gguf_loading.rs) - Loading quantized GGUF models
 - [`pytorch_support_example.rs`](examples/pytorch_support_example.rs) - Loading PyTorch models
 - [`onnx_export_example.rs`](examples/onnx_export_example.rs) - Exporting models to ONNX format
-- [`multimodal_demo.rs`](examples/multimodal_demo.rs) - Multi-modal model handling
 
 ## Performance
 

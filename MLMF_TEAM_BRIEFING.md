@@ -72,34 +72,15 @@ let model = lora::load_model_with_adapter(
 )?;
 ```
 
-### **3. Multimodal Models**
-```rust
-use mlmf::multimodal::Modality;
-use mlmf::multimodal_loader::MultiModalLoader;
+### **3. Multimodal Models** — removed
 
-// Handle text, image, audio, video modalities
-let loader = MultiModalLoader::new(config, base_options)
-    .with_modality_path(Modality::Text, "./text-model")
-    .with_modality_path(Modality::Image, "./vision-model");
-```
+Multi-modal processing (cross-modal attention, fusion, inference) was removed from MLMF in 0.7.0: it is not model-file loading or saving. Use a runtime such as Fuel.
 
-### **4. Distributed Loading** — ⚠️ **DO NOT INTEGRATE: out of charter, and the loader panics**
+### **4. Distributed Loading** — removed
 
-**Spec §10 dispositions `distributed.rs`, `distributed_loader.rs` and `distributed_core.rs` as Delete — *"not model-file work under any reading of the charter"*.** Do not build against them.
-
-⚠️ **And `distributed_loader` does not run.** Measured at `4e688b11`: **8 live `todo!()`**, including all four manager constructors, so **`DistributedModelLoader::new()` panics on the first call** — `deploy_model`, `load_distributed_model`, `scale_cluster` and `migrate_shard` likewise. `distributed.rs` (configuration types) and `distributed_core.rs` (`SimpleDistributedManager`) contain **zero** `todo!()` and are real, but they are dispositioned for deletion too.
-
-> ⚠️ **DISCHARGED 2026-09-06.** This section carried a worked example:
-> ```rust
-> use mlmf::distributed::{DistributedLoader, ShardingStrategy};
-> let distributed_loader = DistributedLoader::new(
->     DistributedConfig::new().sharding_strategy(ShardingStrategy::LayerWise)
-> )?;
-> ```
-> **Every load-bearing name in it was wrong, and the type it constructs panics.** `DistributedLoader` is declared nowhere in `src/` — the type is `DistributedModelLoader`, in `mlmf::distributed_loader`, not `mlmf::distributed`. `ShardingStrategy::LayerWise` does not exist either; the variant is `LayerSharding { layers_per_shard }`, and `LayerWise` occurred exactly once in this repository — in this example. ⚠️ **The `distributed` module DOES exist, which is what made the line survive: a reader checking "is there a `distributed` module?" gets yes.** `crates/mlmf-core/tests/documented_imports.rs` now fails on any `use mlmf::…` in a root-level document that names a path which does not resolve. Found by the Claim Auditor, 2026-09-06.
+Distributed loading, quantization, model caching and model cards were removed from MLMF in 0.7.0: none of them reads or writes a model file. Their code is at `ciresnave/mlmf` commit `bfc84ac` (`src/distributed*.rs`, `quantization.rs`, `cache.rs`, `cached_loader.rs`, `model_card.rs`).
 
 ### **5-8. Additional Systems**
-- **Dynamic Quantization**: Runtime model compression/decompression
 - **Metadata Management**: Rich model provenance and quality tracking  
 - **Checkpoint Management**: Advanced versioning and rollback capabilities
 - **Universal API**: Unified interface across all supported formats
@@ -140,21 +121,6 @@ assert_eq!(mapper.architecture(), Architecture::LLaMA);
 let mapped = mapper.map_name("model.layers.0.self_attn.q_proj.weight");
 ```
 
-### **Cached Loading (Performance Critical)**
-```rust
-use mlmf::{CacheConfig, CachedModelLoader};
-
-let cache_config = CacheConfig::new()
-    .max_models(10)
-    .max_memory_gb(32)
-    .ttl(Duration::from_hours(2));
-    
-let cached_loader = CachedModelLoader::with_config(cache_config);
-let model = cached_loader.load("./model", options)?;
-
-// Subsequent loads are instant from cache
-```
-
 ---
 
 ## 📊 **Performance & Quality Metrics**
@@ -163,7 +129,6 @@ let model = cached_loader.load("./model", options)?;
 - **70B Model Loading**: ~10 seconds (130GB SafeTensors)
 - **Architecture Detection**: <100ms for most models
 - **Memory Efficiency**: Zero-copy tensor access
-- **Cache Hit Ratio**: >95% in typical workloads
 - **Compilation**: Incremental builds <10 seconds
 
 ### **Quality Assurance**  
@@ -178,7 +143,6 @@ let model = cached_loader.load("./model", options)?;
 
 ### **For Lightbulb Team**
 1. **Replace existing loaders** with `mlmf::loader::load_safetensors()` 
-2. **Integrate caching** using `CachedModelLoader` for performance
 3. **Add progress bars** using MLMF's built-in progress reporting
 4. **Memory optimization** with automatic memory-mapped loading
 
@@ -207,9 +171,6 @@ let model = cached_loader.load("./model", options)?;
 ### **Example Files Available**
 - **`load_llama.rs`** - Basic LLaMA model loading (Lightbulb)
 - **`smart_mapping_test.rs`** - Architecture detection (Cognition) 
-- **`cache_system_test.rs`** - Performance optimization
-- **`multimodal_demo.rs`** - Advanced multimodal usage
-- **`distributed_demo.rs`** - Enterprise distributed loading
 - **`quantization_demo.rs`** - Dynamic compression examples
 
 ### **Getting Started**
