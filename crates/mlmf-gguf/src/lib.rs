@@ -117,6 +117,7 @@ pub mod cursor;
 pub mod error;
 pub mod header;
 pub mod imatrix;
+pub mod imatrix_raw;
 pub mod metadata;
 pub mod requirements;
 pub mod tensors;
@@ -124,6 +125,7 @@ pub mod value;
 
 pub use error::{GgufError, Stage};
 pub use header::{Header, parse_header};
+pub use imatrix_raw::{RawImatrix, RawImatrixEntry, RawImatrixError, parse_raw_imatrix};
 pub use metadata::GgufMetadata;
 pub use tensors::{GgufTensors, parse_tensors};
 pub use value::ValueType;
