@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Writes ONNX model files: a `ModelProto` holding tensors, metadata and
-//! graph structure the caller supplies. No I/O.
+//! Reads and writes ONNX model files: a `ModelProto` holding tensors,
+//! metadata and graph structure. No I/O.
 //!
 //! CireSnave, 2026-10-25 (board 282 item 69): *"All of the formats
 //! matter...but they should be handled only abstractly in Fuel as the reading
 //! and writing of model files should be entirely within MLMF."* This is the
-//! writing half for ONNX.
+//! writing half and the reading half for ONNX.
 //!
 //! # What this writes, and what it will not
 //!
@@ -29,8 +29,14 @@
 #![warn(missing_docs)]
 
 mod encode;
+mod read;
+mod scan;
 mod wire;
 
 pub use encode::{
     Dim, EncodeError, Initializer, OnnxModel, OpsetImport, ValueInfo, encode_model, onnx_data_type,
+};
+pub use read::{
+    OnnxFile, OnnxTensor, ParseError, ParsedOpset, ParsedValue, TensorData, dtype_of_onnx,
+    parse_model,
 };
