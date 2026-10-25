@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.20] - 2026-10-25
+
+### Added
+- `mlmf-gguf-arch` (ROADMAP S-12): `classify(&dyn MetadataSource, &[TensorDescriptor])` names a GGUF file's family (`Llama`, `Qwen2`, `Qwen3`, `Qwen3Moe`, `Phi`, `Phi3`, `Gemma`, `Gemma3`, `Glm4`, `Lfm2`, `SmolLm3`, `Gpt2`, `GptNeoX`) with a `Basis` saying whether `general.architecture` declared it or tensor names showed it. The answer is `None` when the file does not say: an unlisted, non-string or undecodable declaration is never replaced by a tensor-name guess, an absent key in a partial metadata view is not inferred from, and `blk.*` names alone (the layout of nearly every llama.cpp architecture) name no family. Only the distinctive GPT-2 and GPT-NeoX layouts are inferred, and a file showing both is `None`. Differs from fuel's `arch.rs`, which answers `Llama`/`Qwen3Moe` from `blk.*`. Mutating each guard (partial-view check, declared-value precedence, the `blk.*` arm, the both-layouts arm) turns a test red.
+
 ## [0.7.19] - 2026-10-25
 
 ### Changed

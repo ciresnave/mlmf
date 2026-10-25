@@ -390,7 +390,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-awq"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -398,7 +398,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-bnb"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -406,7 +406,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-conformance"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "fuel-formats",
  "mlmf-bnb",
@@ -423,7 +423,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-core"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "bytemuck",
  "smallvec",
@@ -432,29 +432,36 @@ dependencies = [
 
 [[package]]
 name = "mlmf-exl2"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "mlmf-ggml"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "mlmf-core",
 ]
 
 [[package]]
 name = "mlmf-gguf"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "mlmf-core",
  "mlmf-ggml",
 ]
 
 [[package]]
+name = "mlmf-gguf-arch"
+version = "0.7.20"
+dependencies = [
+ "mlmf-core",
+]
+
+[[package]]
 name = "mlmf-gptq"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -462,7 +469,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-hf-layout"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -470,35 +477,35 @@ dependencies = [
 
 [[package]]
 name = "mlmf-hf-tokenizer"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "mlmf-meta"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "mlmf-core",
 ]
 
 [[package]]
 name = "mlmf-onnx"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "mlmf-core",
 ]
 
 [[package]]
 name = "mlmf-pickle"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "mlmf-core",
 ]
 
 [[package]]
 name = "mlmf-pt2"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "mlmf-core",
  "mlmf-pickle",
@@ -507,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-safetensors"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -515,7 +522,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-source-file"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "memmap2",
  "mlmf-core",
@@ -523,7 +530,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-source-hub"
-version = "0.7.19"
+version = "0.7.20"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -532,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-stablehlo"
-version = "0.7.19"
+version = "0.7.20"
 
 [[package]]
 name = "num-traits"

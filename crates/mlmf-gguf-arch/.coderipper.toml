@@ -1,0 +1,7 @@
+# Declared public API (reachability): mlmf-gguf-arch is a standalone
+# classifier published as a library; `classify` has no in-repo caller, only
+# this crate's own #[cfg(test)] tests, which this check does not count.
+[reachability]
+public_api = [
+  { file = "src/lib.rs", reason = "published API of mlmf-gguf-arch; no in-repo consumer, only this crate's own unit tests" },
+]
