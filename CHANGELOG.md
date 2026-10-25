@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-10-25
+
+### Changed
+- `ROADMAP.md`: rows S-47..S-53 record CireSnave's ruling on fuel row 42 (slices E and F come to MLMF as file I/O; slice C and the i-quant decoders go to ml-convertant). Docs only.
+
 ## [0.7.0] - 2026-10-24
 
 ### Removed (breaking)
