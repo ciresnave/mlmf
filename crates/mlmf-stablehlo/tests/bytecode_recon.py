@@ -21,7 +21,8 @@ def varint(b, pos):
 
 for path in sys.argv[1:]:
     b = open(path, "rb").read()
-    assert b[:4] == b"ML\xefR"
+    if b[:4] != b"ML\xefR":
+        sys.exit(path + ": not MLIR bytecode")
     ver, pos = varint(b, 4)
     end = b.index(0, pos)
     print("file", os.path.basename(path), ver, b[pos:end].decode(), len(b), sep="\t")
@@ -33,7 +34,8 @@ for path in sys.argv[1:]:
         if ida & 0x80:
             al, pos = varint(b, pos)
             while pos % al:
-                assert b[pos] == 0xCB
+                if b[pos] != 0xCB:
+                    sys.exit(path + ": bad padding byte")
                 pos += 1
         print("section", os.path.basename(path), ida & 0x7F, al, pos, ln, sep="\t")
         pos += ln
