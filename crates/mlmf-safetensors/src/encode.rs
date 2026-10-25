@@ -125,6 +125,59 @@ pub struct EncodedHeader {
     pub data_len: u64,
 }
 
+/// Widest dtype first, then name: the order the data region follows.
+fn data_order(tensors: &[TensorToWrite<'_>]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..tensors.len()).collect();
+    order.sort_by(|&a, &b| {
+        let (ta, tb) = (&tensors[a], &tensors[b]);
+        tb.dtype
+            .size()
+            .cmp(&ta.dtype.size())
+            .then_with(|| ta.name.cmp(tb.name))
+    });
+    order
+}
+
+/// The `__metadata__` object, keys sorted; `None` for an absent or empty map.
+fn metadata_block<K: AsRef<str>, V: AsRef<str>>(
+    metadata: Option<&[(K, V)]>,
+) -> Option<serde_json::Value> {
+    let meta = metadata.filter(|m| !m.is_empty())?;
+    let sorted: BTreeMap<&str, &str> = meta.iter().map(|(k, v)| (k.as_ref(), v.as_ref())).collect();
+    let block = sorted
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), serde_json::Value::String(v.to_string())))
+        .collect();
+    Some(serde_json::Value::Object(block))
+}
+
+/// Check one tensor and return the byte length its shape and dtype require.
+fn checked_len(t: &TensorToWrite<'_>) -> Result<u64, EncodeError> {
+    if t.name == METADATA_KEY {
+        return Err(EncodeError::ReservedName);
+    }
+    let overflow = || EncodeError::SizeOverflow {
+        tensor: t.name.to_string(),
+    };
+    let numel = t
+        .shape
+        .iter()
+        .try_fold(1u64, |acc, &d| acc.checked_mul(d as u64))
+        .ok_or_else(overflow)?;
+    let expected = numel
+        .checked_mul(t.dtype.size() as u64)
+        .ok_or_else(overflow)?;
+    let got = t.data.len() as u64;
+    if got != expected {
+        return Err(EncodeError::LengthMismatch {
+            tensor: t.name.to_string(),
+            expected,
+            got,
+        });
+    }
+    Ok(expected)
+}
+
 /// Build the length prefix and JSON header for `tensors`.
 ///
 /// `metadata` is the `__metadata__` string map; `None` and `Some(empty)` both
@@ -141,56 +194,25 @@ where
     K: AsRef<str>,
     V: AsRef<str>,
 {
-    let mut order: Vec<usize> = (0..tensors.len()).collect();
-    order.sort_by(|&a, &b| {
-        let (ta, tb) = (&tensors[a], &tensors[b]);
-        tb.dtype
-            .size()
-            .cmp(&ta.dtype.size())
-            .then_with(|| ta.name.cmp(tb.name))
-    });
-
+    let order = data_order(tensors);
     let mut entries = serde_json::Map::new();
-    if let Some(meta) = metadata.filter(|m| !m.is_empty()) {
-        let sorted: BTreeMap<&str, &str> =
-            meta.iter().map(|(k, v)| (k.as_ref(), v.as_ref())).collect();
-        let block = sorted
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), serde_json::Value::String(v.to_string())))
-            .collect();
-        entries.insert(METADATA_KEY.to_string(), serde_json::Value::Object(block));
+    if let Some(block) = metadata_block(metadata) {
+        entries.insert(METADATA_KEY.to_string(), block);
     }
 
     let mut offset: u64 = 0;
     for &i in &order {
         let t = &tensors[i];
-        if t.name == METADATA_KEY {
-            return Err(EncodeError::ReservedName);
-        }
+        let len = checked_len(t)?;
         let dtype_name = name_of(t.dtype).ok_or_else(|| EncodeError::UnspelledDtype {
             tensor: t.name.to_string(),
             dtype: t.dtype,
         })?;
-        let overflow = || EncodeError::SizeOverflow {
-            tensor: t.name.to_string(),
-        };
-        let numel = t
-            .shape
-            .iter()
-            .try_fold(1u64, |acc, &d| acc.checked_mul(d as u64))
-            .ok_or_else(overflow)?;
-        let expected = numel
-            .checked_mul(t.dtype.size() as u64)
-            .ok_or_else(overflow)?;
-        let got = t.data.len() as u64;
-        if got != expected {
-            return Err(EncodeError::LengthMismatch {
+        let end = offset
+            .checked_add(len)
+            .ok_or_else(|| EncodeError::SizeOverflow {
                 tensor: t.name.to_string(),
-                expected,
-                got,
-            });
-        }
-        let end = offset.checked_add(expected).ok_or_else(overflow)?;
+            })?;
         let record = serde_json::json!({
             "dtype": dtype_name,
             "shape": t.shape,
