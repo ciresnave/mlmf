@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.9] - 2026-10-25
+
+### Added
+- New crate `mlmf-bnb` (fuel row 42 slice E4, reading only): `locate_layers` finds bitsandbytes 4-bit layers in an open container by their `quant_state.bitsandbytes__<type>` tensor; `read_layer` returns the packed weight, `absmax`, `quant_map`, `nested_absmax` and `nested_quant_map` as the file's bytes (each `None` if absent) and the parsed `quant_state` JSON; `parse_quant_state` returns every field as `Option`, with `quant_type` unjudged and unknown keys listed. No dequantization (that is the conversions project's) and no check that a blocksize divides a row. Checked against real bitsandbytes output (16 rows of a Qwen3-0.6B NF4 double-quant layer, Apache-2.0, vendored with its licence and provenance), whose pieces were also re-read from the real 576 MB checkpoint by HTTP range requests and found byte-identical.
+
 ## [0.7.8] - 2026-10-25
 
 ### Added

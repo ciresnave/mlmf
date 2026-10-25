@@ -1,0 +1,3 @@
+# C2 allow-list for mlmf-bnb. Sorted.
+mlmf-core
+serde_json

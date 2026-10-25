@@ -1,0 +1,11 @@
+# Declared public API (reachability): mlmf-bnb is a new published crate
+# (fuel row 42 slice E4). Its entry points, locate_layers, read_layer and
+# parse_quant_state, have no in-repo non-test caller yet: the consumer is Fuel,
+# through crates.io, after the first release. Declared, not deleted -- the code
+# is documented and tested.
+[reachability]
+public_api = [
+  { file = "src/lib.rs", reason = "published API of mlmf-bnb (crates.io); consumed by Fuel, not by this repository's own targets" },
+  { file = "src/layer.rs", reason = "published API of mlmf-bnb (crates.io); consumed by Fuel, not by this repository's own targets" },
+  { file = "src/quant_state.rs", reason = "published API of mlmf-bnb (crates.io); consumed by Fuel, not by this repository's own targets" },
+]
