@@ -1,0 +1,7 @@
+# Declared public API (reachability): mlmf-tensor-names is a standalone
+# name-translation library; its functions have no in-repo caller, only this
+# crate's own #[cfg(test)] tests, which this check does not count.
+[reachability]
+public_api = [
+  { file = "src/lib.rs", reason = "published API of mlmf-tensor-names; no in-repo consumer, only this crate's own unit tests" },
+]

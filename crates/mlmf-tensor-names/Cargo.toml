@@ -1,0 +1,9 @@
+[package]
+    description          = "Translate tensor names between HuggingFace and GGUF spellings for the dense Llama-style layout, from a declared table. A name with no entry is reported, never guessed."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-tensor-names"
+    repository.workspace = true
+    version.workspace    = true
+
+# NO [features] SECTION and no dependencies: a pure function over strings.

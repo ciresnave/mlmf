@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.22] - 2026-10-25
+
+### Added
+- `mlmf-tensor-names` (ROADMAP S-30): `translate(Direction, name)` and `translate_all` convert tensor names between HuggingFace and GGUF spellings for the dense Llama-style layout (embedding, norms, Q/K/V/O, gate/up/down, Qwen3 Q/K norms, output head; `.weight` and `.bias`) from a declared table. A name with no entry is `None`, and `translate_all` refuses naming every missing name rather than returning a partial map. Names only: the Q/K permutation llama.cpp applies when converting Llama weights is value conversion and is not done. Not ported from the removed `name_mapping.rs`: `Architecture`/`uses_rope` (interpretation), the invented `wte`/`h.N` target naming (a consumer's convention), and detection (see `mlmf-gguf-arch`).
+
 ## [0.7.21] - 2026-10-25
 
 ### Changed
