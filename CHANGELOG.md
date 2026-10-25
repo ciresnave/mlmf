@@ -5,10 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.4] - 2026-10-25
+## [0.7.5] - 2026-10-25
 
 ### Added
 - `mlmf-gguf`: `parse_raw_imatrix`, `RawImatrix`, `RawImatrixEntry`, `RawImatrixError` read `llama-imatrix`'s raw positional layout (fuel row 42 slice E1). Pure, no I/O; every length is bounded against the remaining bytes before allocation. Values come back as stored: unlike fuel's reader this does not divide by `ncall`; `ncall`, the trailer's `last_call` and the dataset name are returned beside them. Checked against a real 1.3 MB file (`bartowski/Llama-3.2-1B-Instruct-GGUF`) with facts measured by an independent reader; the test announces `SKIPPED` when the file is absent.
+
+## [0.7.3] - 2026-10-25
+
+### Changed
+- `ROADMAP.md`: rows S-54..S-56 (ONNX writing, `.pt2`, StableHLO) from CireSnave's board 282 ruling. Docs only.
 
 ## [0.7.1] - 2026-10-25
 
