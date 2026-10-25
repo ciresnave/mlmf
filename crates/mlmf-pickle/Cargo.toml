@@ -1,0 +1,10 @@
+[package]
+    description          = "Reads PyTorch .pth/.bin checkpoints: the zip directory and the tensor index in data.pkl, by a bounded pickle reader that never executes anything. No I/O."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-pickle"
+    repository.workspace = true
+    version.workspace    = true
+
+[dependencies]
+    mlmf-core = { path = "../mlmf-core", version = "0.7.0" }
