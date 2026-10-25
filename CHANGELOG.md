@@ -30,6 +30,13 @@ The removed code is at `ciresnave/mlmf` commit `bfc84ac`, for any project that w
 - `ROADMAP.md`: the integrate-or-retire section is replaced by CireSnave's ruling that AWQ
   loading and saving stay in MLMF, with an inventory of what exists.
 
+## [0.6.22] - 2026-10-24
+
+### Documentation
+- `ROADMAP.md`: spec-to-roadmap audit. 46 rows for work the specs, plans and summary docs
+  describe and the roadmap did not list (25 need a CireSnave call), 13 rows for docs that
+  contradict the code, and a list of items verified done. Docs only; nothing started.
+
 ## [0.6.21] - 2026-10-24
 
 ### Changed
