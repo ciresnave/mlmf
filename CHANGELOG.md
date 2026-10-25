@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.16] - 2026-10-25
+
+### Changed
+- ROADMAP: S-54 (ONNX writer, PR #156), S-55 (`.pt2`, PR #158) and S-56 (StableHLO envelope, PR #159) marked done; new row S-57 records the cost of reading weights out of a StableHLO module (MLIR attribute decoding) and leaves it open until a consumer asks.
+
 ## [0.7.15] - 2026-10-25
 
 ### Added
