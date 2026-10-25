@@ -226,6 +226,23 @@ jobs:
       - name: cargo clippy -p mlmf-gguf-arch
         run: cargo clippy -p mlmf-gguf-arch --all-targets -- -D warnings
 
+      # mlmf-tensor-names translates tensor names between HuggingFace and GGUF spellings from
+      # a declared table. Format axis: pure functions over strings, no
+      # dependencies, `default = []`, so the plain four steps.
+      - name: cargo test -p mlmf-tensor-names
+        run: cargo test -p mlmf-tensor-names
+
+      - name: cargo test -p mlmf-tensor-names --no-default-features
+        run: cargo test -p mlmf-tensor-names --no-default-features
+
+      - name: cargo doc -p mlmf-tensor-names --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-tensor-names --no-deps
+
+      - name: cargo clippy -p mlmf-tensor-names
+        run: cargo clippy -p mlmf-tensor-names --all-targets -- -D warnings
+
       # mlmf-pickle reads a torch.save checkpoint's zip directory and tensor
       # index with a bounded pickle reader that executes nothing. Format axis:
       # no I/O, `default = []`, so the plain four steps. The real-checkpoint

@@ -26,10 +26,11 @@ default-members = [
     "crates/mlmf-source-file",
     "crates/mlmf-stablehlo",
     "crates/mlmf-source-hub",
+    "crates/mlmf-tensor-names",
 ]
 
 [workspace.package]
 edition    = "2024"
 license    = "MIT OR Apache-2.0"
 repository = "https://github.com/CireSnave/mlmf"
-version    = "0.7.21"
+version    = "0.7.22"
