@@ -82,6 +82,35 @@ pub fn dtype_of(declared: &str) -> Option<DType> {
     })
 }
 
+/// The safetensors `dtype` string for `dtype`: the inverse of [`dtype_of`].
+///
+/// `None` for a [`DType`] this format has no spelling for (`C128`), never a
+/// guess; [`crate::encode_header`] turns that into an error.
+#[must_use]
+pub fn name_of(dtype: DType) -> Option<&'static str> {
+    Some(match dtype {
+        DType::F64 => "F64",
+        DType::F32 => "F32",
+        DType::F16 => "F16",
+        DType::BF16 => "BF16",
+        DType::F8E4M3 => "F8_E4M3",
+        DType::F8E5M2 => "F8_E5M2",
+        DType::I64 => "I64",
+        DType::I32 => "I32",
+        DType::I16 => "I16",
+        DType::I8 => "I8",
+        DType::U64 => "U64",
+        DType::U32 => "U32",
+        DType::U16 => "U16",
+        DType::U8 => "U8",
+        DType::Bool => "BOOL",
+        DType::C64 => "C64",
+        // `DType` is `#[non_exhaustive]`, so a wildcard is required; the
+        // gate below walks `DType::ALL` so a new variant cannot hide here.
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,6 +185,19 @@ mod tests {
          safetensors crate's Dtype enum has no variant this wide -- only \
          C64 (pair of F32). Measured 2026-09-26 against safetensors 0.8.0.",
     )];
+
+    /// `name_of` is `dtype_of`'s inverse on every spelled row, pinned by
+    /// identity, and declines exactly the unspelled ones.
+    #[test]
+    fn name_of_inverts_dtype_of_on_every_row() {
+        for (s, d) in SPELLINGS {
+            assert_eq!(name_of(d), Some(s), "{d:?}");
+            assert_eq!(dtype_of(s), Some(d), "{s}");
+        }
+        for (d, _) in UNSPELLED {
+            assert_eq!(name_of(d), None, "{d:?}");
+        }
+    }
 
     #[test]
     fn every_declared_spelling_maps_to_its_own_dtype() {
