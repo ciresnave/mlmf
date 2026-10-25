@@ -178,6 +178,57 @@ fn checked_len(t: &TensorToWrite<'_>) -> Result<u64, EncodeError> {
     Ok(expected)
 }
 
+/// One tensor's header record and the offset its data ends at.
+fn tensor_entry(
+    t: &TensorToWrite<'_>,
+    offset: u64,
+) -> Result<(serde_json::Value, u64), EncodeError> {
+    let len = checked_len(t)?;
+    let dtype_name = name_of(t.dtype).ok_or_else(|| EncodeError::UnspelledDtype {
+        tensor: t.name.to_string(),
+        dtype: t.dtype,
+    })?;
+    let end = offset
+        .checked_add(len)
+        .ok_or_else(|| EncodeError::SizeOverflow {
+            tensor: t.name.to_string(),
+        })?;
+    let record = serde_json::json!({
+        "dtype": dtype_name,
+        "shape": t.shape,
+        "data_offsets": [offset, end],
+    });
+    Ok((record, end))
+}
+
+/// Insert `record` under `name`, refusing a name already present.
+fn insert_unique(
+    entries: &mut serde_json::Map<String, serde_json::Value>,
+    name: &str,
+    record: serde_json::Value,
+) -> Result<(), EncodeError> {
+    match entries.insert(name.to_string(), record) {
+        None => Ok(()),
+        Some(_) => Err(EncodeError::DuplicateName {
+            tensor: name.to_string(),
+        }),
+    }
+}
+
+/// The 8-byte length prefix and the JSON header, space-padded to a multiple
+/// of 8 bytes.
+fn assemble_header(entries: serde_json::Map<String, serde_json::Value>) -> Vec<u8> {
+    let mut json = serde_json::to_vec(&serde_json::Value::Object(entries))
+        .expect("a map of strings, integers and arrays always serialises");
+    while !json.len().is_multiple_of(8) {
+        json.push(b' ');
+    }
+    let mut bytes = Vec::with_capacity(8 + json.len());
+    bytes.extend_from_slice(&(json.len() as u64).to_le_bytes());
+    bytes.extend_from_slice(&json);
+    bytes
+}
+
 /// Build the length prefix and JSON header for `tensors`.
 ///
 /// `metadata` is the `__metadata__` string map; `None` and `Some(empty)` both
@@ -199,43 +250,15 @@ where
     if let Some(block) = metadata_block(metadata) {
         entries.insert(METADATA_KEY.to_string(), block);
     }
-
     let mut offset: u64 = 0;
     for &i in &order {
         let t = &tensors[i];
-        let len = checked_len(t)?;
-        let dtype_name = name_of(t.dtype).ok_or_else(|| EncodeError::UnspelledDtype {
-            tensor: t.name.to_string(),
-            dtype: t.dtype,
-        })?;
-        let end = offset
-            .checked_add(len)
-            .ok_or_else(|| EncodeError::SizeOverflow {
-                tensor: t.name.to_string(),
-            })?;
-        let record = serde_json::json!({
-            "dtype": dtype_name,
-            "shape": t.shape,
-            "data_offsets": [offset, end],
-        });
-        if entries.insert(t.name.to_string(), record).is_some() {
-            return Err(EncodeError::DuplicateName {
-                tensor: t.name.to_string(),
-            });
-        }
+        let (record, end) = tensor_entry(t, offset)?;
+        insert_unique(&mut entries, t.name, record)?;
         offset = end;
     }
-
-    let mut json = serde_json::to_vec(&serde_json::Value::Object(entries))
-        .expect("a map of strings, integers and arrays always serialises");
-    while !json.len().is_multiple_of(8) {
-        json.push(b' ');
-    }
-    let mut bytes = Vec::with_capacity(8 + json.len());
-    bytes.extend_from_slice(&(json.len() as u64).to_le_bytes());
-    bytes.extend_from_slice(&json);
     Ok(EncodedHeader {
-        bytes,
+        bytes: assemble_header(entries),
         order,
         data_len: offset,
     })
