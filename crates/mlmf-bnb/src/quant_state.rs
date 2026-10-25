@@ -84,6 +84,28 @@ const KNOWN: [&str; 7] = [
     "nested_offset",
 ];
 
+/// `quant_type`, `dtype` and `nested_dtype`, the string fields.
+fn strings(m: &Map) -> Result<[Option<String>; 3], BnbError> {
+    Ok([
+        string(m, "quant_type")?,
+        string(m, "dtype")?,
+        string(m, "nested_dtype")?,
+    ])
+}
+
+/// `blocksize` and `nested_blocksize`, the count fields.
+fn counts(m: &Map) -> Result<[Option<u64>; 2], BnbError> {
+    Ok([count(m, "blocksize")?, count(m, "nested_blocksize")?])
+}
+
+/// Top-level keys this version does not know, in file order.
+fn other_keys(m: &Map) -> Vec<String> {
+    m.keys()
+        .filter(|k| !KNOWN.contains(&k.as_str()))
+        .cloned()
+        .collect()
+}
+
 /// Parse a `quant_state` blob.
 ///
 /// # Errors
@@ -96,18 +118,16 @@ pub fn parse_quant_state(json: &[u8]) -> Result<BnbQuantState, BnbError> {
     let m = value
         .as_object()
         .ok_or_else(|| BnbError::QuantStateJson("top level is not an object".to_string()))?;
+    let [quant_type, dtype, nested_dtype] = strings(m)?;
+    let [blocksize, nested_blocksize] = counts(m)?;
     Ok(BnbQuantState {
-        quant_type: string(m, "quant_type")?,
-        blocksize: count(m, "blocksize")?,
+        quant_type,
+        blocksize,
         shape: shape(m)?,
-        dtype: string(m, "dtype")?,
-        nested_blocksize: count(m, "nested_blocksize")?,
-        nested_dtype: string(m, "nested_dtype")?,
+        dtype,
+        nested_blocksize,
+        nested_dtype,
         nested_offset: float(m, "nested_offset")?,
-        other_keys: m
-            .keys()
-            .filter(|k| !KNOWN.contains(&k.as_str()))
-            .cloned()
-            .collect(),
+        other_keys: other_keys(m),
     })
 }
