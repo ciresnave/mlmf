@@ -132,7 +132,7 @@ Read at `origin/main` `bfc84ac`: 30 of the 32 tracked markdown files (all but `C
 
 Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10-01-quantized-safetensors-formats-design.md`, GAP = `2026-10-03-fuel-gap-plan.md`, INV = `fuel-migration-inventory.md`.
 
-### Work in a doc and not in this roadmap (56 rows; S-47..S-56 added 2026-10-25 from fuel row 42 and board 282)
+### Work in a doc and not in this roadmap (57 rows; S-47..S-57 added 2026-10-25 from fuel row 42 and board 282)
 
 | Row | Work | Where the doc says it | Status | CireSnave call |
 |---|---|---|---|---|
@@ -189,9 +189,10 @@ Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10
 | S-51 | E2: pickle / `.pth` tensor-info reader (`mlmf-pickle`, port of fuel's 754-line VM); returns MLMF dtype and shape types | fuel row 42 slice E; SPEC §11, §12 step 6, AD-3 | DONE in 0.7.8 (#153): new crate `mlmf-pickle`, AD-3 allowlist pinned by a test | gate: identical infos on a `.pth` corpus |
 | S-52 | E4: NF4 (bitsandbytes) reading only: locate a layer's tensors, return the raw packed blocks, absmax (plain or nested), `quant_map`, shape, blocksize, parsed quant-state JSON; no dequantization | fuel row 42 slice E (CireSnave: "other than the quantization") | DONE in 0.7.9 (#154): new crate `mlmf-bnb`, reading only | gate: raw bytes equal on the real bnb NF4 checkpoint |
 | S-53 | Slice C (HF-AWQ unpack / repack) and the i-quant decoders of #52 are conversions, not MLMF | CireSnave via PM, 2026-10-25: "conversions like quantization/dequantization, packing/unpacking ... should be in" a conversions project; ML-ConvertAnt (`ml-convertant`, 0.0.0) | out of MLMF; hand to ml-convertant | MLMF exposes the inputs (raw blocks, shapes, dtypes) |
-| S-54 | ONNX writing (real protobuf; fuel only evaluates ONNX, it does not write it); supersedes the writer half of S-31 | CireSnave, board 282 item 69, 2026-10-25: "All of the formats matter...but they should be handled only abstractly in Fuel as the reading and writing of model files should be entirely within MLMF." | open, after the E/F slices (S-47..S-52) | bytes and structure only; graph topology stays opaque payload (SPEC §10) |
-| S-55 | PyTorch `torch.export` (`.pt2`) read and write | same ruling | open, after E/F | read/write the archive and its tensors; no interpretation of the exported program |
-| S-56 | StableHLO read and write | same ruling | open, after E/F | read/write the serialized module bytes and structure; no interpretation |
+| S-54 | ONNX writing (real protobuf; fuel only evaluates ONNX, it does not write it); supersedes the writer half of S-31 | CireSnave, board 282 item 69, 2026-10-25: "All of the formats matter...but they should be handled only abstractly in Fuel as the reading and writing of model files should be entirely within MLMF." | done (PR #156, 0.7.11) | bytes and structure only; graph topology stays opaque payload (SPEC §10) |
+| S-55 | PyTorch `torch.export` (`.pt2`) read and write | same ruling | done (PR #158, 0.7.15) | read/write the archive and its tensors; no interpretation of the exported program |
+| S-56 | StableHLO read and write | same ruling | done (PR #159, 0.7.14) | read/write the serialized module bytes and structure; no interpretation |
+| S-57 | StableHLO dense-constant extraction (decode MLIR attribute/type encoding) | PM, 2026-10-25 (S-56 stopped at the envelope) | open, when a consumer asks | weights in a VHLO-form artifact are inline `dense` constants in the AttrType section; decoding MLIR attribute and type encoding is a large piece and blurs into interpretation, so it is not started without a consumer |
 
 ### Docs that contradict the code (13 rows)
 
