@@ -98,9 +98,8 @@ fn zip64_location(bytes: &[u8], eocd: usize) -> Result<(u64, u64), PickleError> 
     Ok((le64(rec, 32), le64(rec, 48)))
 }
 
-/// Read the zip64 extra field's values for the fields that overflowed.
-fn zip64_extra(extra: &[u8], need: [bool; 3]) -> Result<[Option<u64>; 3], PickleError> {
-    let mut out = [None; 3];
+/// The body of the zip64 extra field (id 1), if the extra data holds one.
+fn zip64_body(extra: &[u8]) -> Result<Option<&[u8]>, PickleError> {
     let mut at = 0usize;
     while at + 4 <= extra.len() {
         let (id, len) = (le16(extra, at), usize::from(le16(extra, at + 2)));
@@ -108,16 +107,28 @@ fn zip64_extra(extra: &[u8], need: [bool; 3]) -> Result<[Option<u64>; 3], Pickle
             .get(at + 4..at + 4 + len)
             .ok_or_else(|| bad("extra field runs past its entry"))?;
         if id == 1 {
-            let mut p = 0usize;
-            for (i, wanted) in need.iter().enumerate() {
-                if *wanted {
-                    let v = body.get(p..p + 8).ok_or_else(|| bad("short zip64 extra"))?;
-                    out[i] = Some(le64(v, 0));
-                    p += 8;
-                }
-            }
+            return Ok(Some(body));
         }
         at += 4 + len;
+    }
+    Ok(None)
+}
+
+/// Read the zip64 extra field's values for the fields that overflowed.
+fn zip64_extra(extra: &[u8], need: [bool; 3]) -> Result<[Option<u64>; 3], PickleError> {
+    let Some(body) = zip64_body(extra)? else {
+        return Ok([None; 3]);
+    };
+    let mut out = [None; 3];
+    let mut at = 0usize;
+    for (slot, wanted) in out.iter_mut().zip(need) {
+        if wanted {
+            let v = body
+                .get(at..at + 8)
+                .ok_or_else(|| bad("short zip64 extra"))?;
+            *slot = Some(le64(v, 0));
+            at += 8;
+        }
     }
     Ok(out)
 }

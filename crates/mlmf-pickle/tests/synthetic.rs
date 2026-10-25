@@ -6,6 +6,29 @@
 use mlmf_core::DType;
 use mlmf_pickle::{ALLOWED_REDUCE_TARGETS, PickleError, parse_pth};
 
+/// Pickle opcode bytes, in hex: see `mlmf-pickle`'s own `op` module for why.
+mod op {
+    pub const STOP: u8 = 0x2e;
+    pub const GLOBAL: u8 = 0x63;
+    pub const NONE: u8 = 0x4e;
+    pub const BININT: u8 = 0x4a;
+    pub const BINUNICODE: u8 = 0x58;
+    pub const BINPUT: u8 = 0x71;
+    pub const BINGET: u8 = 0x68;
+    pub const MARK: u8 = 0x28;
+    pub const EMPTY_TUPLE: u8 = 0x29;
+    pub const EMPTY_DICT: u8 = 0x7d;
+    pub const TUPLE: u8 = 0x74;
+    pub const SETITEMS: u8 = 0x75;
+    pub const REDUCE: u8 = 0x52;
+    pub const BINPERSID: u8 = 0x51;
+    pub const PROTO: u8 = 0x80;
+    pub const TUPLE1: u8 = 0x85;
+    pub const TUPLE2: u8 = 0x86;
+    pub const NEWFALSE: u8 = 0x89;
+    pub const LONG1: u8 = 0x8a;
+}
+
 // ---- a stored-only zip writer -------------------------------------------
 
 fn zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
@@ -48,26 +71,33 @@ fn zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
 // ---- pickle opcode helpers ----------------------------------------------
 
 fn global(module: &str, name: &str) -> Vec<u8> {
-    [b"c", module.as_bytes(), b"\n", name.as_bytes(), b"\n"].concat()
+    [
+        &[op::GLOBAL][..],
+        module.as_bytes(),
+        b"\n",
+        name.as_bytes(),
+        b"\n",
+    ]
+    .concat()
 }
 
 fn unicode(s: &str) -> Vec<u8> {
-    let mut v = vec![b'X'];
+    let mut v = vec![op::BINUNICODE];
     v.extend_from_slice(&(s.len() as u32).to_le_bytes());
     v.extend_from_slice(s.as_bytes());
     v
 }
 
 fn int(n: u32) -> Vec<u8> {
-    let mut v = vec![b'J'];
+    let mut v = vec![op::BININT];
     v.extend_from_slice(&n.to_le_bytes());
     v
 }
 
 fn tuple_of(items: &[Vec<u8>]) -> Vec<u8> {
-    let mut v = vec![b'('];
+    let mut v = vec![op::MARK];
     items.iter().for_each(|i| v.extend_from_slice(i));
-    v.push(b't');
+    v.push(op::TUPLE);
     v
 }
 
@@ -94,7 +124,7 @@ fn tensor_value(t: &T<'_>) -> Vec<u8> {
             unicode("cpu"),
             int(t.numel),
         ]),
-        vec![b'Q'],
+        vec![op::BINPERSID],
     ]
     .concat();
     let args = tuple_of(&[
@@ -102,26 +132,30 @@ fn tensor_value(t: &T<'_>) -> Vec<u8> {
         int(t.offset),
         dims(t.shape),
         dims(t.stride),
-        vec![0x89],
-        [global("collections", "OrderedDict"), vec![b')', b'R']].concat(),
+        vec![op::NEWFALSE],
+        [
+            global("collections", "OrderedDict"),
+            vec![op::EMPTY_TUPLE, op::REDUCE],
+        ]
+        .concat(),
     ]);
     [
         global("torch._utils", "_rebuild_tensor_v2"),
         args,
-        vec![b'R'],
+        vec![op::REDUCE],
     ]
     .concat()
 }
 
 fn state_dict(ts: &[T<'_>]) -> Vec<u8> {
-    let mut v = vec![0x80, 2];
+    let mut v = vec![op::PROTO, 2];
     v.extend(global("collections", "OrderedDict"));
-    v.extend(*b")R(");
+    v.extend([op::EMPTY_TUPLE, op::REDUCE, op::MARK]);
     for t in ts {
         v.extend(unicode(t.name));
         v.extend(tensor_value(t));
     }
-    v.extend(*b"u.");
+    v.extend([op::SETITEMS, op::STOP]);
     v
 }
 
@@ -217,12 +251,12 @@ fn a_tensor_whose_storage_entry_is_missing_is_an_error() {
 
 #[test]
 fn non_tensor_entries_are_named_not_dropped() {
-    let mut pkl = vec![0x80, 2];
+    let mut pkl = vec![op::PROTO, 2];
     pkl.extend(global("collections", "OrderedDict"));
-    pkl.extend(*b")R(");
+    pkl.extend([op::EMPTY_TUPLE, op::REDUCE, op::MARK]);
     pkl.extend(unicode("epoch"));
     pkl.extend(int(3));
-    pkl.extend(*b"u.");
+    pkl.extend([op::SETITEMS, op::STOP]);
     let bytes = zip(&[("archive/data.pkl", &pkl)]);
     let idx = parse_pth(&bytes, None).unwrap();
     assert_eq!(
@@ -248,10 +282,10 @@ fn the_allowlist_is_exactly_these_entries() {
 
 #[test]
 fn a_reduce_of_anything_else_is_refused_not_described() {
-    let mut pkl = vec![0x80, 2];
+    let mut pkl = vec![op::PROTO, 2];
     pkl.extend(global("os", "system"));
     pkl.extend(tuple_of(&[unicode("echo hi")]));
-    pkl.extend(*b"R.");
+    pkl.extend([op::REDUCE, op::STOP]);
     let bytes = zip(&[("archive/data.pkl", &pkl)]);
     assert_eq!(
         parse_pth(&bytes, None).unwrap_err(),
@@ -262,27 +296,31 @@ fn a_reduce_of_anything_else_is_refused_not_described() {
     );
 }
 
+/// A pickle that starts `PROTO 2`, followed by `body`, inside a checkpoint zip.
+fn with_body(body: &[u8]) -> Vec<u8> {
+    let pkl = [&[op::PROTO, 2][..], body].concat();
+    zip(&[("archive/data.pkl", &pkl)])
+}
+
+fn refused(body: &[u8]) -> bool {
+    parse_pth(&with_body(body), None).is_err()
+}
+
 #[test]
-fn hostile_pickles_fail_cleanly() {
-    let cases: Vec<(&str, Vec<u8>)> = vec![
-        (
-            "huge string length",
-            [vec![0x80, 2, b'X'], u32::MAX.to_le_bytes().to_vec()].concat(),
-        ),
-        ("empty stack stop", vec![0x80, 2, b'.']),
-        ("unknown opcode", vec![0x80, 2, 0xFF]),
-        ("get of nothing", vec![0x80, 2, b'h', 7, b'.']),
-        ("no mark", vec![0x80, 2, b't', b'.']),
-        ("truncated", vec![0x80, 2, b'J', 1]),
-        (
-            "wide long",
-            vec![0x80, 2, 0x8a, 9, 1, 1, 1, 1, 1, 1, 1, 1, 1, b'.'],
-        ),
-    ];
-    for (what, pkl) in cases {
-        let bytes = zip(&[("archive/data.pkl", &pkl)]);
-        assert!(parse_pth(&bytes, None).is_err(), "{what}");
-    }
+fn hostile_lengths_and_widths_fail_cleanly() {
+    let huge = [&[op::BINUNICODE][..], &u32::MAX.to_le_bytes()].concat();
+    assert!(refused(&huge), "huge string length");
+    assert!(refused(&[op::BININT, 1]), "truncated int");
+    let wide = [&[op::LONG1, 9][..], &[1u8; 9], &[op::STOP]].concat();
+    assert!(refused(&wide), "9-byte long");
+}
+
+#[test]
+fn hostile_structure_fails_cleanly() {
+    assert!(refused(&[op::STOP]), "stop on an empty stack");
+    assert!(refused(&[0xFF]), "unknown opcode");
+    assert!(refused(&[op::BINGET, 7, op::STOP]), "get of nothing");
+    assert!(refused(&[op::TUPLE, op::STOP]), "tuple with no mark");
 }
 
 #[test]
@@ -290,11 +328,19 @@ fn a_memo_reference_repeated_many_times_costs_one_index_each() {
     // Build  x = ();  x2 = (x, x);  x4 = (x2, x2) ... 30 doublings through the
     // memo. A reader that clones on GET holds 2^30 leaves; this one holds ~90
     // nodes and finishes at once.
-    let mut pkl = vec![0x80, 2, b')', b'q', 0];
+    let mut pkl = vec![op::PROTO, 2, op::EMPTY_TUPLE, op::BINPUT, 0];
     for i in 1..=30u8 {
-        pkl.extend([b'h', i - 1, b'h', i - 1, 0x86, b'q', i]);
+        pkl.extend([
+            op::BINGET,
+            i - 1,
+            op::BINGET,
+            i - 1,
+            op::TUPLE2,
+            op::BINPUT,
+            i,
+        ]);
     }
-    pkl.push(b'.');
+    pkl.push(op::STOP);
     let bytes = zip(&[("archive/data.pkl", &pkl)]);
     // Not a dict, so it is refused at extraction, after parsing succeeded.
     assert!(matches!(
@@ -320,10 +366,10 @@ fn not_a_zip_and_a_missing_data_pickle_are_named() {
 fn a_nested_state_dict_is_read_through_its_key() {
     let inner = state_dict(&[t("w", "FloatStorage", "0")]);
     // outer = {"state_dict": <inner>}: splice the inner dict value in place.
-    let mut pkl = vec![0x80, 2, b'}', b'('];
+    let mut pkl = vec![op::PROTO, 2, op::EMPTY_DICT, op::MARK];
     pkl.extend(unicode("state_dict"));
     pkl.extend(&inner[2..inner.len() - 1]);
-    pkl.extend(*b"u.");
+    pkl.extend([op::SETITEMS, op::STOP]);
     let bytes = zip(&[("archive/data.pkl", &pkl), ("archive/data/0", &[0u8; 24])]);
     assert!(parse_pth(&bytes, None).unwrap().tensors.is_empty());
     let idx = parse_pth(&bytes, Some("state_dict")).unwrap();
@@ -338,16 +384,16 @@ fn a_nested_state_dict_is_read_through_its_key() {
 fn a_very_deep_wrapper_chain_is_skipped_without_overflowing_the_stack() {
     // {"x": _rebuild_parameter(_rebuild_parameter(... (None,) ...))}, 200k deep.
     let depth = 200_000;
-    let mut pkl = vec![0x80, 2, b'}', b'('];
+    let mut pkl = vec![op::PROTO, 2, op::EMPTY_DICT, op::MARK];
     pkl.extend(unicode("x"));
     for _ in 0..depth {
         pkl.extend(global("torch._utils", "_rebuild_parameter"));
     }
-    pkl.push(b'N');
+    pkl.push(op::NONE);
     for _ in 0..depth {
-        pkl.extend([0x85, b'R']);
+        pkl.extend([op::TUPLE1, op::REDUCE]);
     }
-    pkl.extend(*b"u.");
+    pkl.extend([op::SETITEMS, op::STOP]);
     let bytes = zip(&[("archive/data.pkl", &pkl)]);
     let idx = parse_pth(&bytes, None).unwrap();
     assert_eq!((idx.tensors.len(), idx.skipped), (0, vec!["x".to_string()]));
@@ -356,16 +402,16 @@ fn a_very_deep_wrapper_chain_is_skipped_without_overflowing_the_stack() {
 #[test]
 fn wrappers_are_looked_through_up_to_the_bound_and_no_further() {
     let one = |k: usize| {
-        let mut pkl = vec![0x80, 2, b'}', b'('];
+        let mut pkl = vec![op::PROTO, 2, op::EMPTY_DICT, op::MARK];
         pkl.extend(unicode("w"));
         for _ in 0..k {
             pkl.extend(global("torch._utils", "_rebuild_parameter"));
         }
         pkl.extend(tensor_value(&t("w", "FloatStorage", "0")));
         for _ in 0..k {
-            pkl.extend([0x85, b'R']);
+            pkl.extend([op::TUPLE1, op::REDUCE]);
         }
-        pkl.extend(*b"u.");
+        pkl.extend([op::SETITEMS, op::STOP]);
         zip(&[("archive/data.pkl", &pkl), ("archive/data/0", &[0u8; 24])])
     };
     // torch writes one wrapper; four are tolerated; a fifth is not looked through.

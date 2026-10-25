@@ -97,34 +97,56 @@ pub fn dtype_of_storage(class: &str) -> Option<DType> {
     })
 }
 
-/// `('storage', torch.XStorage, key, location, numel)` behind a persistent id.
-fn storage_of(p: &Parsed, name: &str, id: Id) -> Result<(String, String, u64), PickleError> {
+fn need<T>(v: Option<T>, name: &str, detail: &str) -> Result<T, PickleError> {
+    v.ok_or_else(|| bad(name, detail))
+}
+
+fn count(p: &Parsed, id: Id) -> Option<u64> {
+    int(p, id).and_then(|n| u64::try_from(n).ok())
+}
+
+/// The tuple behind a persistent id: `('storage', class, key, location, numel)`.
+fn storage_ref<'a>(p: &'a Parsed, name: &str, id: Id) -> Result<&'a [Id], PickleError> {
     let Node::PersId(inner) = p.arena[id] else {
         return Err(bad(name, "storage is not a persistent id"));
     };
-    let t = tuple(p, inner).ok_or_else(|| bad(name, "persistent id is not a tuple"))?;
-    let (class, key, numel) = match t {
-        [kind, class, key, _loc, numel, ..] if string(p, *kind) == Some("storage") => {
-            (*class, *key, *numel)
-        }
-        _ => return Err(bad(name, "persistent id is not a storage reference")),
+    let t = need(tuple(p, inner), name, "persistent id is not a tuple")?;
+    let is_storage = t.len() >= 5 && string(p, t[0]) == Some("storage");
+    need(
+        is_storage.then_some(t),
+        name,
+        "persistent id is not a storage reference",
+    )
+}
+
+/// `(class, key, numel)` of the storage a persistent id names.
+fn storage_of(p: &Parsed, name: &str, id: Id) -> Result<(String, String, u64), PickleError> {
+    let t = storage_ref(p, name, id)?;
+    let class = match &p.arena[t[1]] {
+        Node::Global(module, class) if module == "torch" => class.clone(),
+        _ => return Err(bad(name, "storage class is not a torch global")),
     };
-    let Node::Global(module, class) = &p.arena[class] else {
-        return Err(bad(name, "storage class is not a global"));
-    };
-    if module != "torch" {
-        return Err(bad(name, "storage class is not in module torch"));
-    }
-    let key = string(p, key).ok_or_else(|| bad(name, "storage key is not a string"))?;
-    let numel = int(p, numel)
-        .and_then(|n| u64::try_from(n).ok())
-        .ok_or_else(|| bad(name, "storage size is not a count"))?;
-    Ok((class.clone(), key.to_string(), numel))
+    let key = need(string(p, t[2]), name, "storage key is not a string")?;
+    let numel = need(count(p, t[4]), name, "storage size is not a count")?;
+    Ok((class, key.to_string(), numel))
+}
+
+/// Shape, strides and storage offset from `_rebuild_tensor_v2`'s arguments.
+fn geometry(
+    p: &Parsed,
+    name: &str,
+    [offset, size, stride]: [Id; 3],
+) -> Result<(Vec<usize>, Vec<usize>, u64), PickleError> {
+    Ok((
+        need(dims(p, size), name, "shape is not a tuple of counts")?,
+        need(dims(p, stride), name, "strides are not a tuple of counts")?,
+        need(count(p, offset), name, "storage offset is not a count")?,
+    ))
 }
 
 /// The arguments of `_rebuild_tensor_v2`, as the record they describe.
 fn rebuild_args(p: &Parsed, name: &str, args: Id, prefix: &str) -> Result<Rebuilt, PickleError> {
-    let a = tuple(p, args).ok_or_else(|| bad(name, "arguments are not a tuple"))?;
+    let a = need(tuple(p, args), name, "arguments are not a tuple")?;
     let [storage, offset, size, stride, ..] = a else {
         return Err(bad(name, "too few arguments to _rebuild_tensor_v2"));
     };
@@ -133,15 +155,13 @@ fn rebuild_args(p: &Parsed, name: &str, args: Id, prefix: &str) -> Result<Rebuil
         name: name.to_string(),
         storage: class.clone(),
     })?;
-    let storage_offset = int(p, *offset)
-        .and_then(|o| u64::try_from(o).ok())
-        .ok_or_else(|| bad(name, "storage offset is not a count"))?;
+    let (shape, strides, storage_offset) = geometry(p, name, [*offset, *size, *stride])?;
     Ok(Rebuilt {
         name: name.to_string(),
         dtype,
         storage_class: class,
-        shape: dims(p, *size).ok_or_else(|| bad(name, "shape is not a tuple of counts"))?,
-        strides: dims(p, *stride).ok_or_else(|| bad(name, "strides are not a tuple of counts"))?,
+        shape,
+        strides,
         storage_offset,
         storage_path: format!("{prefix}data/{key}"),
         storage_numel: numel,
@@ -152,25 +172,41 @@ fn rebuild_args(p: &Parsed, name: &str, args: Id, prefix: &str) -> Result<Rebuil
 /// one; the bound keeps a crafted chain from recursing to the stack's end.
 const MAX_WRAPPERS: usize = 4;
 
+/// One step of unwrapping a tensor value.
+enum Unwrapped {
+    /// The `_rebuild_tensor_v2` arguments: done.
+    Args(Id),
+    /// A wrapped value to look through.
+    Inner(Id),
+}
+
+fn unwrap_once(p: &Parsed, value: Id) -> Option<Unwrapped> {
+    let Node::Reduce(callable, args) = p.arena[value] else {
+        return None;
+    };
+    if is_global(p, callable, "torch._utils", "_rebuild_tensor_v2") {
+        return Some(Unwrapped::Args(args));
+    }
+    let a = tuple(p, args)?;
+    if is_global(p, callable, "torch._utils", "_rebuild_parameter") {
+        return a.first().map(|&i| Unwrapped::Inner(i));
+    }
+    let typed = is_global(p, callable, "torch._tensor", "_rebuild_from_type_v2")
+        && is_global(p, *a.first()?, "torch._utils", "_rebuild_tensor_v2");
+    typed
+        .then(|| a.get(2).copied())
+        .flatten()
+        .map(Unwrapped::Args)
+}
+
 /// Unwrap `_rebuild_parameter` and `_rebuild_from_type_v2` down to the
 /// `_rebuild_tensor_v2` call, if that is what the value is.
 fn tensor_call(p: &Parsed, mut value: Id) -> Option<Id> {
     for _ in 0..=MAX_WRAPPERS {
-        let Node::Reduce(callable, args) = p.arena[value] else {
-            return None;
-        };
-        if is_global(p, callable, "torch._utils", "_rebuild_tensor_v2") {
-            return Some(args);
+        match unwrap_once(p, value)? {
+            Unwrapped::Args(args) => return Some(args),
+            Unwrapped::Inner(next) => value = next,
         }
-        let a = tuple(p, args)?;
-        if is_global(p, callable, "torch._utils", "_rebuild_parameter") {
-            value = *a.first()?;
-            continue;
-        }
-        return (is_global(p, callable, "torch._tensor", "_rebuild_from_type_v2")
-            && is_global(p, *a.first()?, "torch._utils", "_rebuild_tensor_v2"))
-        .then(|| a.get(2).copied())
-        .flatten();
     }
     None
 }

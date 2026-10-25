@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - New crate `mlmf-pickle` (fuel row 42 slice E2): `parse_pth` reads a `torch.save` checkpoint's zip directory (zip64 aware, stored entries) and the tensor index in `data.pkl` with a bounded pickle reader that records what the pickle would build and executes nothing. Returns each tensor's name, dtype, shape, strides, storage offset and storage entry, plus the storage's byte range in the file; a tensor whose storage class has no dtype is an error, and non-tensor entries are listed rather than dropped. Objects live in an arena (a memo `GET` is an index, not a clone), every length is bounded by the remaining bytes, and `REDUCE`/`NEWOBJ` are gated by `ALLOWED_REDUCE_TARGETS`, whose exact content a test pins (spec AD-3). A rewrite, not a port, of Fuel's reader (itself derived from candle's `pickle.rs`); it does not carry over that reader's `DICT`-as-empty-dict or clone-on-GET. Checked against a real 3.5 MB checkpoint: all 152 tensors match Fuel's `read_pth_tensor_info` and an independent Python reader, storage byte sums included.
 
+## [0.7.6] - 2026-10-25
+
+### Added
+- `mlmf-gguf`: `encode_gguf`, `encode_gguf_head`, `GgufTensorToWrite`, `GgufVersion`, `GgufEncodeError`, `GgufHead` (fuel row 42 slice F2). Pure, no I/O. Tensors arrive already encoded in their ggml type and are laid down untouched, dims as stored (innermost first, what this crate's readers report), each tensor padded to the alignment (`general.alignment`, else the spec's 32). Refuses a missing `general.architecture` (and `general.quantization_version` when any tensor is quantized) rather than writing a guess, an empty or mixed array, duplicate keys or tensor names, and a byte length that is not what the type and dims require. For the same inputs the v2 output is byte-identical to a port of fuel's `write_gguf`, checked in `mlmf-conformance`.
+
+### Removed
+- The `write_check_has_no_consumer` test in `mlmf-core` (deleted; its path is not cited here because the documented-paths guard rejects a deleted file), the deferral detector for `WriteCheck`, and the "Nothing consumes this yet" section of `write_check.rs`: `encode_gguf` now consumes `WriteCheck`, which is the event the detector's header says to delete both on. The module doc now says who consumes it.
+
 ## [0.7.5] - 2026-10-25
 
 ### Added

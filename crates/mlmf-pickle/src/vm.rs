@@ -41,6 +41,50 @@ pub const ALLOWED_REDUCE_TARGETS: [(&str, &str); 4] = [
 const MAX_OPS: usize = 20_000_000;
 const MAX_NODES: usize = 4_000_000;
 
+/// Pickle opcode bytes, named. (Spelled in hex rather than as `b'('`-style
+/// literals: a bracket or brace inside a char literal defeats the brace
+/// counting of simple analysers, which then report absurd function lengths.)
+mod op {
+    pub const STOP: u8 = 0x2e;
+    pub const GLOBAL: u8 = 0x63;
+    pub const NONE: u8 = 0x4e;
+    pub const BININT1: u8 = 0x4b;
+    pub const BININT2: u8 = 0x4d;
+    pub const BININT: u8 = 0x4a;
+    pub const BINFLOAT: u8 = 0x47;
+    pub const BINUNICODE: u8 = 0x58;
+    pub const BINPUT: u8 = 0x71;
+    pub const LONG_BINPUT: u8 = 0x72;
+    pub const BINGET: u8 = 0x68;
+    pub const LONG_BINGET: u8 = 0x6a;
+    pub const MARK: u8 = 0x28;
+    pub const EMPTY_TUPLE: u8 = 0x29;
+    pub const EMPTY_LIST: u8 = 0x5d;
+    pub const EMPTY_DICT: u8 = 0x7d;
+    pub const TUPLE: u8 = 0x74;
+    pub const LIST: u8 = 0x6c;
+    pub const DICT: u8 = 0x64;
+    pub const APPEND: u8 = 0x61;
+    pub const SETITEM: u8 = 0x73;
+    pub const APPENDS: u8 = 0x65;
+    pub const SETITEMS: u8 = 0x75;
+    pub const REDUCE: u8 = 0x52;
+    pub const BUILD: u8 = 0x62;
+    pub const BINPERSID: u8 = 0x51;
+    pub const PROTO: u8 = 0x80;
+    pub const FRAME: u8 = 0x95;
+    pub const STACK_GLOBAL: u8 = 0x93;
+    pub const NEWTRUE: u8 = 0x88;
+    pub const NEWFALSE: u8 = 0x89;
+    pub const LONG1: u8 = 0x8a;
+    pub const SHORT_BINUNICODE: u8 = 0x8c;
+    pub const MEMOIZE: u8 = 0x94;
+    pub const TUPLE1: u8 = 0x85;
+    pub const TUPLE2: u8 = 0x86;
+    pub const TUPLE3: u8 = 0x87;
+    pub const NEWOBJ: u8 = 0x81;
+}
+
 /// Index of an object in the arena.
 pub type Id = usize;
 
@@ -196,33 +240,38 @@ impl<'a> Vm<'a> {
     }
 
     fn global(&mut self, op: u8) -> Result<(), PickleError> {
-        let (module, name) = if op == b'c' {
+        let (module, name) = if op == op::GLOBAL {
             (self.line()?, self.line()?)
         } else {
-            let name = self.pop()?;
-            let module = self.pop()?;
-            match (self.node(module).clone(), self.node(name).clone()) {
-                (Node::Str(m), Node::Str(n)) => (m, n),
-                _ => return Err(self.malformed("STACK_GLOBAL needs two strings")),
-            }
+            self.stack_global_names()?
         };
         self.push(Node::Global(module, name))
     }
 
+    /// `STACK_GLOBAL`: the module and name are two strings already pushed.
+    fn stack_global_names(&mut self) -> Result<(String, String), PickleError> {
+        let name = self.pop()?;
+        let module = self.pop()?;
+        match (self.node(module).clone(), self.node(name).clone()) {
+            (Node::Str(m), Node::Str(n)) => Ok((m, n)),
+            _ => Err(self.malformed("STACK_GLOBAL needs two strings")),
+        }
+    }
+
     fn constant(&mut self, op: u8) -> Result<(), PickleError> {
         match op {
-            b'N' => self.push(Node::None),
-            0x88 => self.push(Node::Bool(true)),
+            op::NONE => self.push(Node::None),
+            op::NEWTRUE => self.push(Node::Bool(true)),
             _ => self.push(Node::Bool(false)),
         }
     }
 
     fn number(&mut self, op: u8) -> Result<(), PickleError> {
         let node = match op {
-            b'K' => Node::Int(self.le(1)? as i64),
-            b'M' => Node::Int(self.le(2)? as i64),
-            b'J' => Node::Int(i64::from(self.le(4)? as u32 as i32)),
-            b'G' => {
+            op::BININT1 => Node::Int(self.le(1)? as i64),
+            op::BININT2 => Node::Int(self.le(2)? as i64),
+            op::BININT => Node::Int(i64::from(self.le(4)? as u32 as i32)),
+            op::BINFLOAT => {
                 let raw = self.take(8)?;
                 let mut a = [0u8; 8];
                 a.copy_from_slice(raw);
@@ -242,24 +291,28 @@ impl<'a> Vm<'a> {
         }
         let raw = self.take(n)?;
         let mut v = raw.iter().rev().fold(0u64, |a, &b| (a << 8) | u64::from(b));
-        if n > 0 && n < 8 && raw[n - 1] & 0x80 != 0 {
+        if n > 0 && n < 8 && raw[n - 1] & op::PROTO != 0 {
             v |= u64::MAX << (8 * n);
         }
         Ok(Node::Int(v as i64))
     }
 
     fn text(&mut self, op: u8) -> Result<(), PickleError> {
-        let len = if op == b'X' { self.le(4)? } else { self.le(1)? };
+        let len = if op == op::BINUNICODE {
+            self.le(4)?
+        } else {
+            self.le(1)?
+        };
         let s = self.string(len)?;
         self.push(Node::Str(s))
     }
 
     fn memo_op(&mut self, op: u8) -> Result<(), PickleError> {
         match op {
-            b'q' | b'r' | 0x94 => {
+            op::BINPUT | op::LONG_BINPUT | op::MEMOIZE => {
                 let key = match op {
-                    b'q' => self.le(1)? as u32,
-                    b'r' => self.le(4)? as u32,
+                    op::BINPUT => self.le(1)? as u32,
+                    op::LONG_BINPUT => self.le(4)? as u32,
                     _ => u32::try_from(self.memo.len())
                         .map_err(|_| PickleError::LimitExceeded { limit: "memo size" })?,
                 };
@@ -271,7 +324,11 @@ impl<'a> Vm<'a> {
                 Ok(())
             }
             _ => {
-                let key = (if op == b'h' { self.le(1)? } else { self.le(4)? }) as u32;
+                let key = (if op == op::BINGET {
+                    self.le(1)?
+                } else {
+                    self.le(4)?
+                }) as u32;
                 let id = *self
                     .memo
                     .get(&key)
@@ -284,17 +341,17 @@ impl<'a> Vm<'a> {
 
     fn container(&mut self, op: u8) -> Result<(), PickleError> {
         let node = match op {
-            b'(' => Node::Mark,
-            b')' => Node::Tuple(Vec::new()),
-            b']' => Node::List(Vec::new()),
-            b'}' => Node::Dict(Vec::new()),
-            b't' => Node::Tuple(self.pop_to_mark()?),
-            b'l' => Node::List(self.pop_to_mark()?),
-            b'd' => {
+            op::MARK => Node::Mark,
+            op::EMPTY_TUPLE => Node::Tuple(Vec::new()),
+            op::EMPTY_LIST => Node::List(Vec::new()),
+            op::EMPTY_DICT => Node::Dict(Vec::new()),
+            op::TUPLE => Node::Tuple(self.pop_to_mark()?),
+            op::LIST => Node::List(self.pop_to_mark()?),
+            op::DICT => {
                 let items = self.pop_to_mark()?;
                 Node::Dict(self.pairs(&items)?)
             }
-            _ => Node::Tuple(self.pop_n(usize::from(op - 0x84))?),
+            _ => Node::Tuple(self.pop_n(usize::from(op - op::TUPLE1 + 1))?),
         };
         self.push(node)
     }
@@ -310,15 +367,15 @@ impl<'a> Vm<'a> {
     /// `APPEND`/`APPENDS`/`SETITEM`/`SETITEMS`: extend the container below.
     fn fill(&mut self, op: u8) -> Result<(), PickleError> {
         let items = match op {
-            b'a' => self.pop_n(1)?,
-            b's' => self.pop_n(2)?,
+            op::APPEND => self.pop_n(1)?,
+            op::SETITEM => self.pop_n(2)?,
             _ => self.pop_to_mark()?,
         };
         let target = *self
             .stack
             .last()
             .ok_or_else(|| self.malformed("no container to fill"))?;
-        let pairs = if matches!(op, b's' | b'u') {
+        let pairs = if matches!(op, op::SETITEM | op::SETITEMS) {
             Some(self.pairs(&items)?)
         } else {
             None
@@ -344,7 +401,7 @@ impl<'a> Vm<'a> {
 
     fn object(&mut self, op: u8) -> Result<(), PickleError> {
         match op {
-            b'R' | 0x81 => {
+            op::REDUCE | op::NEWOBJ => {
                 let args = self.pop()?;
                 let callable = self.pop()?;
                 self.check_callable(callable)?;
@@ -355,7 +412,7 @@ impl<'a> Vm<'a> {
                 }
                 self.push(Node::Reduce(callable, args))
             }
-            b'b' => {
+            op::BUILD => {
                 let state = self.pop()?;
                 let obj = self.pop()?;
                 self.push(Node::Build(obj, state))
@@ -372,17 +429,28 @@ impl<'a> Vm<'a> {
         self.op_at = self.pos;
         let op = self.u8()?;
         match op {
-            0x80 => drop(self.u8()?),
-            0x95 => drop(self.take(8)?),
-            b'.' => return Ok(Some(self.pop()?)),
-            b'c' | 0x93 => self.global(op)?,
-            b'N' | 0x88 | 0x89 => self.constant(op)?,
-            b'K' | b'M' | b'J' | b'G' | 0x8a => self.number(op)?,
-            b'X' | 0x8c => self.text(op)?,
-            b'q' | b'r' | b'h' | b'j' | 0x94 => self.memo_op(op)?,
-            b'(' | b')' | b']' | b'}' | b't' | b'l' | b'd' | 0x85..=0x87 => self.container(op)?,
-            b'a' | b's' | b'e' | b'u' => self.fill(op)?,
-            b'R' | 0x81 | b'b' | b'Q' => self.object(op)?,
+            op::PROTO => drop(self.u8()?),
+            op::FRAME => drop(self.take(8)?),
+            op::STOP => return Ok(Some(self.pop()?)),
+            op::GLOBAL | op::STACK_GLOBAL => self.global(op)?,
+            op::NONE | op::NEWTRUE | op::NEWFALSE => self.constant(op)?,
+            op::BININT1 | op::BININT2 | op::BININT | op::BINFLOAT | op::LONG1 => self.number(op)?,
+            op::BINUNICODE | op::SHORT_BINUNICODE => self.text(op)?,
+            op::BINPUT | op::LONG_BINPUT | op::BINGET | op::LONG_BINGET | op::MEMOIZE => {
+                self.memo_op(op)?
+            }
+            op::MARK
+            | op::EMPTY_TUPLE
+            | op::EMPTY_LIST
+            | op::EMPTY_DICT
+            | op::TUPLE
+            | op::LIST
+            | op::DICT
+            | op::TUPLE1
+            | op::TUPLE2
+            | op::TUPLE3 => self.container(op)?,
+            op::APPEND | op::SETITEM | op::APPENDS | op::SETITEMS => self.fill(op)?,
+            op::REDUCE | op::NEWOBJ | op::BUILD | op::BINPERSID => self.object(op)?,
             _ => {
                 return Err(PickleError::UnsupportedOpcode {
                     opcode: op,
