@@ -128,3 +128,29 @@ copied: they are facts about a file format, and the writer is original code.
 make_golden.py` (`pip install onnx==1.23.2`, then `python make_golden.py
 golden.onnx`). It is a 240-byte model of invented values, kept so the writer
 can be compared byte for byte against another implementation.
+
+
+================================================================================
+llvm/llvm-project, MLIR bytecode format (layout of the StableHLO container)
+================================================================================
+
+The container `crates/mlmf-stablehlo` reads and writes (the four-byte magic,
+the version varint, the NUL-terminated producer, sections with their
+id-and-alignment byte, `0xCB` padding, and the prefix variable-width integer)
+is specified in `mlir/docs/BytecodeFormat.md` of `llvm/llvm-project`, read at
+commit `cced08fcc92db61044c0e32ef35444fa48246345` (blob
+`27ce718fa3a62a2a730de3027b923a028f7fce91`). The LLVM project is under the
+Apache License v2.0 with LLVM Exceptions; the text as that commit serves it
+(`LICENSE.TXT`), sha256
+`8d85c1057d742e597985c7d4e6320b015a9139385cff4cbae06ffc0ebe89afee`, is
+`crates/mlmf-stablehlo/LICENSE-llvm.txt`. The section ids' names come from the
+same document. No LLVM source is copied; the layout was also checked against
+files written by MLIR itself.
+
+`crates/mlmf-stablehlo/tests/fixtures/jax_export.mlirbc` is a StableHLO
+portable artifact written by `jax.export` (JAX 0.12.0.1 / jaxlib 0.12.0.1,
+Apache-2.0, producer `StableHLO_v1.18.0`) for a two-op function with invented
+constants; `mlir_resource.mlirbc` is bytecode MLIR wrote (through jaxlib) for a
+two-element `dense_resource` module; `rewritten_producer.mlirbc` is written by
+this crate from the JAX file's sections and was parsed by MLIR to confirm it
+(`verify_with_mlir.py`).

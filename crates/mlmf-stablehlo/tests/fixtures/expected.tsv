@@ -1,0 +1,18 @@
+file	jax_export.mlirbc	6	StableHLO_v1.18.0	947
+section	jax_export.mlirbc	1		25	16
+section	jax_export.mlirbc	3		43	78
+section	jax_export.mlirbc	2		124	317
+section	jax_export.mlirbc	4		443	84
+section	jax_export.mlirbc	6		529	1
+section	jax_export.mlirbc	5		532	0
+section	jax_export.mlirbc	0		535	377
+section	jax_export.mlirbc	8		914	33
+file	mlir_resource.mlirbc	6	MLIR24.0.0git	230
+section	mlir_resource.mlirbc	1		21	15
+section	mlir_resource.mlirbc	3		38	17
+section	mlir_resource.mlirbc	2		57	34
+section	mlir_resource.mlirbc	4		93	32
+section	mlir_resource.mlirbc	6		127	6
+section	mlir_resource.mlirbc	5	4	136	12
+section	mlir_resource.mlirbc	0		150	65
+section	mlir_resource.mlirbc	8		217	13

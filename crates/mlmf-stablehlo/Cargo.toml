@@ -1,0 +1,9 @@
+[package]
+    description          = "Reads and writes the MLIR bytecode container that StableHLO portable artifacts use: header, producer string and sections. Section contents are opaque. No I/O."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-stablehlo"
+    repository.workspace = true
+    version.workspace    = true
+
+[dependencies]

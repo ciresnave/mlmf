@@ -1,0 +1,12 @@
+# C3: the std submodules mlmf-stablehlo may name. Grows one commit at a time,
+# each entry landing beside the code that forced it.
+#
+# `error` -- `impl std::error::Error for BytecodeError`.
+# `fmt`   -- `impl std::fmt::Display for BytecodeError`.
+# `ops`   -- `std::ops::Range`, the byte range of a section in the file.
+# `str`   -- `std::str::from_utf8` on the producer string, spelled with the
+#   `std::` prefix on purpose so the gate sees it.
+error
+fmt
+ops
+str

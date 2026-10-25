@@ -261,6 +261,23 @@ jobs:
       - name: cargo clippy -p mlmf-onnx
         run: cargo clippy -p mlmf-onnx --all-targets -- -D warnings
 
+      # mlmf-stablehlo reads and writes the MLIR bytecode container of
+      # StableHLO portable artifacts (section contents opaque). Format axis:
+      # no I/O, `default = []`, so the plain four steps.
+      - name: cargo test -p mlmf-stablehlo
+        run: cargo test -p mlmf-stablehlo
+
+      - name: cargo test -p mlmf-stablehlo --no-default-features
+        run: cargo test -p mlmf-stablehlo --no-default-features
+
+      - name: cargo doc -p mlmf-stablehlo --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-stablehlo --no-deps
+
+      - name: cargo clippy -p mlmf-stablehlo
+        run: cargo clippy -p mlmf-stablehlo --all-targets -- -D warnings
+
       - name: cargo test -p mlmf-safetensors
         run: cargo test -p mlmf-safetensors
 
