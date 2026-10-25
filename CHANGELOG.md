@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.12] - 2026-10-25
+
+### Removed (breaking)
+- The legacy root `mlmf` package: `src/` (26 files), `examples/`, the build script, the vendored ONNX schema, `.cargo/config.toml`, the `root-crate-tests` CI job, `documented_imports` and `model_config_literals` (guards whose only subject was the root crate), and three root documents that described only that code (`FIXES_SUMMARY.md`, `GGUF_EXPORT_SUMMARY.md`, `ONNX_SUPPORT.md`). The repository root is now a virtual workspace. The package could not be published (its `candlelight` dependency was a git dependency, which crates.io refuses and which breaks the portfolio's no-git-dependencies rule), crates.io `mlmf` stays at 0.2.0, and nothing in the portfolio depended on it. The code is at tag `v0.7.11`; `MIGRATION.md` maps each module to its replacement or says why it was removed.
+
+### Changed
+- `README.md` rewritten for the workspace; `CONTRIBUTING.md` uses `--workspace`; `ROADMAP.md` says the root was retired. Backticks were removed from citations of root source files in the root documents (the documented-paths guard rejects backticked paths that no longer exist); the text is otherwise unchanged.
+
 ## [0.7.11] - 2026-10-25
 
 ### Added
@@ -193,7 +201,7 @@ The removed code is at `ciresnave/mlmf` commit `bfc84ac`, for any project that w
 ### Fixed
 - `lint-suppression` baseline rows (ROADMAP.md): 12 of 14 `#[allow(...)]`
   attributes across src and tests now carry a `reason = "..."`; the other
-  2 (`src/validation.rs`'s `unreachable_patterns` allows) had the
+  2 (src/validation.rs's `unreachable_patterns` allows) had the
   attribute removed outright after `cargo check` confirmed, with the
   attribute removed, that neither produces a warning — the suppression
   was unneeded, not just unexplained.

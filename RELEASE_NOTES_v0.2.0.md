@@ -48,15 +48,15 @@ if let Some(ref qtensors) = model.quantized_tensors {
 ```
 
 ### Files Modified
-- `src/loader.rs` - Added quantization preservation infrastructure
-- `src/formats/gguf.rs` - Enhanced GGUF loader with QTensor preservation
-- `src/universal_loader.rs` - Updated LoadedModel constructor
-- `src/formats/onnx_import.rs` - Updated LoadedModel constructor  
-- `src/formats/awq.rs` - Updated LoadedModel constructor
+- src/loader.rs - Added quantization preservation infrastructure
+- src/formats/gguf.rs - Enhanced GGUF loader with QTensor preservation
+- src/universal_loader.rs - Updated LoadedModel constructor
+- src/formats/onnx_import.rs - Updated LoadedModel constructor  
+- src/formats/awq.rs - Updated LoadedModel constructor
 
 ### New Examples
-- `examples/test_phi3_detection.rs` - Validates Phi-3 architecture detection
-- `examples/test_quantized_tensors.rs` - Demonstrates quantized tensor preservation
+- examples/test_phi3_detection.rs - Validates Phi-3 architecture detection
+- examples/test_quantized_tensors.rs - Demonstrates quantized tensor preservation
 
 ## 🔄 Backward Compatibility
 - **Fully Backward Compatible**: All existing code continues to work unchanged
