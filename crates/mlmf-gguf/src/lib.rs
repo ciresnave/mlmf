@@ -114,6 +114,7 @@
 #![warn(missing_docs)]
 
 pub mod cursor;
+pub mod encode;
 pub mod error;
 pub mod header;
 pub mod imatrix;
@@ -123,6 +124,9 @@ pub mod requirements;
 pub mod tensors;
 pub mod value;
 
+pub use encode::{
+    GgufEncodeError, GgufHead, GgufTensorToWrite, GgufVersion, encode_gguf, encode_gguf_head,
+};
 pub use error::{GgufError, Stage};
 pub use header::{Header, parse_header};
 pub use imatrix_raw::{RawImatrix, RawImatrixEntry, RawImatrixError, parse_raw_imatrix};
