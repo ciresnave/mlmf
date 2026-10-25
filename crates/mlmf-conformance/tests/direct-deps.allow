@@ -25,6 +25,7 @@
 # behind `fuel-differential` (default off). See its manifest comment --
 # NOT the migration edge, never resolved by a bare cargo build/test.
 fuel-formats
+mlmf-bnb
 mlmf-core
 mlmf-ggml
 mlmf-gguf

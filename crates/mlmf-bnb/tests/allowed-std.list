@@ -1,0 +1,10 @@
+# C3: the std submodules mlmf-bnb may name. Grows one commit at a time,
+# each entry landing beside the code that forced it.
+#
+# `borrow` -- `std::borrow::Cow`, the return type of TensorContainer::tensor_bytes
+#   as mlmf-core spells it, carried through to `BnbLayerBytes`.
+# `error`  -- `impl std::error::Error for BnbError`.
+# `fmt`    -- `impl std::fmt::Display for BnbError`.
+borrow
+error
+fmt

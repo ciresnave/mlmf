@@ -23,6 +23,7 @@ default-members = [
     # deletion would be typed.
     ".",
     "crates/mlmf-awq",
+    "crates/mlmf-bnb",
     "crates/mlmf-conformance",
     "crates/mlmf-core",
     "crates/mlmf-exl2",
@@ -41,7 +42,7 @@ default-members = [
 edition    = "2024"
 license    = "MIT OR Apache-2.0"
 repository = "https://github.com/CireSnave/mlmf"
-version    = "0.7.5"
+version    = "0.7.9"
 
 [package]
     authors = ["Eric Evans <CireSnave@gmail.com>"]

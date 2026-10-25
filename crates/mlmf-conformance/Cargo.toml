@@ -62,6 +62,7 @@
     # differential's target does not move out from under it silently --
     # re-pin deliberately when Fuel's GGUF/GGML parser changes.
     fuel-formats     = { git = "https://github.com/CireSnave/fuel", rev = "6609d1598939b90e4ca49528f735987eb69b3895", package = "fuel-formats", optional = true }
+    mlmf-bnb         = { path = "../mlmf-bnb", version = "0.7.0" }
     mlmf-core        = { path = "../mlmf-core", version = "0.7.0" }
     # For tests/fuel_differential.rs: round-tripping fuel's raw ggml type
     # code through mlmf's own geometry table (GgmlType::from_code/nbytes),
