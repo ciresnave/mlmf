@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `mlmf-safetensors`: `encode_safetensors`, `encode_header`, `TensorToWrite`, `EncodeError`, `name_of`. Lays tensors already encoded in their file dtype into a safetensors image (fuel row 42 slice F1, CireSnave 2026-10-25). Pure, no I/O: the caller writes the bytes. Tensors are ordered widest dtype first then by name so each starts aligned; length, duplicate-name, `__metadata__` and overflow errors refuse rather than write. Checked in `mlmf-conformance` against the upstream `safetensors` crate in both directions.
 
+## [0.7.1] - 2026-10-25
+
+### Changed
+- `ROADMAP.md`: rows S-47..S-53 record CireSnave's ruling on fuel row 42 (slices E and F come to MLMF as file I/O; slice C and the i-quant decoders go to ml-convertant). Docs only.
+
 ## [0.7.0] - 2026-10-24
 
 ### Removed (breaking)

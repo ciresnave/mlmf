@@ -124,7 +124,7 @@ Read at `origin/main` `bfc84ac`: 30 of the 32 tracked markdown files (all but `C
 
 Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10-01-quantized-safetensors-formats-design.md`, GAP = `2026-10-03-fuel-gap-plan.md`, INV = `fuel-migration-inventory.md`.
 
-### Work in a doc and not in this roadmap (46 rows, 25 need a CireSnave call)
+### Work in a doc and not in this roadmap (53 rows; S-47..S-53 added 2026-10-25 from fuel row 42)
 
 | Row | Work | Where the doc says it | Status | CireSnave call |
 |---|---|---|---|---|
@@ -174,6 +174,13 @@ Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10
 | S-44 | OQ-2 naive round-to-nearest quantization | SPEC L559 | held (until an operator asks) | - |
 | S-45 | `mlmf-source-hub`'s range implementation and Fuel's use of `ShardIndex` are unchecked | core plan L1886; shards plan L631 | open (NOT VERIFIED; the second is consumer-side) | - |
 | S-46 | `MLMF_TEAM_BRIEFING.md`: rewrite or delete (its header warns it is stale, its body claims v0.1.0 production-ready) | MLMF_TEAM_BRIEFING.md L1-7 | open | CALL: a document with a named audience |
+| S-47 | F1: `write_safetensors(path, tensors: impl IntoIterator<Item=(String, dtype, shape, &[u8])>, metadata: Option<HashMap<String,String>>)`; tensors arrive already encoded in the file dtype | fuel row 42 slice F (CireSnave, 2026-10-25: "Definitely move to MLMF"); fuel `[TASK]` 2026-10-25 | open (take) | gate (fuel's): MLMF write read back by old and new readers, tensors byte-identical |
+| S-48 | E1: raw positional `.imatrix` reader (`parse`, `parse_bytes`, `load_path` to a name to `Vec<f32>` map); `mlmf-gguf` `imatrix.rs` covers the GGUF-embedded layout only | fuel row 42 slice E; SPEC OQ-3 | open (take) | gate: same map on every `.imatrix` fuel holds |
+| S-49 | F2: `write_gguf(path, metadata, tensors)`, v2, alignment padding, tensors already encoded; shares work with the `save_as_gguf` repair (S-02) | fuel row 42 slice F; reference `fuel-tensor-tools/src/main.rs write_gguf` | open (take) | gate: byte-identical file to fuel's output for the same inputs |
+| S-50 | E3: `GgufTokenizerData` from `tokenizer.ggml.*` (tokens, merges, unk/bos/eos ids, flags, `pre`); absent keys are `None`, no guessed values; building `tokenizers::Tokenizer` stays in fuel | fuel row 42 slice E | open (take) | gate: data equal on the GGUF corpus |
+| S-51 | E2: pickle / `.pth` tensor-info reader (`mlmf-pickle`, port of fuel's 754-line VM); returns MLMF dtype and shape types | fuel row 42 slice E; SPEC §11, §12 step 6, AD-3 | open (take; AD-3 adoption gate applies) | gate: identical infos on a `.pth` corpus |
+| S-52 | E4: NF4 (bitsandbytes) reading only: locate a layer's tensors, return the raw packed blocks, absmax (plain or nested), `quant_map`, shape, blocksize, parsed quant-state JSON; no dequantization | fuel row 42 slice E (CireSnave: "other than the quantization") | open (take; reading only) | gate: raw bytes equal on the real bnb NF4 checkpoint |
+| S-53 | Slice C (HF-AWQ unpack / repack) and the i-quant decoders of #52 are conversions, not MLMF | CireSnave via PM, 2026-10-25: "conversions like quantization/dequantization, packing/unpacking ... should be in" a conversions project; ML-ConvertAnt (`ml-convertant`, 0.0.0) | out of MLMF; hand to ml-convertant | MLMF exposes the inputs (raw blocks, shapes, dtypes) |
 
 ### Docs that contradict the code (13 rows)
 
