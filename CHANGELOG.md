@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.10] - 2026-10-25
+
+### Changed
+- `.github/workflows/ci.yml`: the coderipper `portfolio.yml` caller is repinned to `ee9c3950c510fae136d316fed3bd9ecda343cede` (`# 0.9.24`), the commit whose workflow installs coderipper 0.9.24 (the PM's coderipper notice of 2026-10-24; the commit exists and is one ahead of the `v0.9.24` tag).
+- Design spec section 10: amended. Architecture detection, tensor-name mapping and the oracle are no longer non-goals (CireSnave 2026-10-24: detecting how a file is stored is in scope; supplying a value the file does not declare is not).
+- `ROADMAP.md`: S-47 to S-52 (fuel row 42 slices F1, E1, F2, E3, E2, E4) marked done.
+
 ## [0.7.9] - 2026-10-25
 
 ### Added
