@@ -1,0 +1,12 @@
+[package]
+    description          = "Reads and writes PyTorch torch.export .pt2 archives: the zip layout, the weights and constants configs, and the raw tensor bytes. The exported graph is an opaque JSON payload. No I/O, nothing executed."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-pt2"
+    repository.workspace = true
+    version.workspace    = true
+
+[dependencies]
+    mlmf-core   = { path = "../mlmf-core", version = "0.7.0" }
+    mlmf-pickle = { path = "../mlmf-pickle", version = "0.7.0" }
+    serde_json  = { version = "1.0", default-features = false, features = ["std"] }

@@ -1,0 +1,4 @@
+# C2 allow-list for mlmf-pt2. Sorted.
+mlmf-core
+mlmf-pickle
+serde_json

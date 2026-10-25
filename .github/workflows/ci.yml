@@ -261,6 +261,23 @@ jobs:
       - name: cargo clippy -p mlmf-onnx
         run: cargo clippy -p mlmf-onnx --all-targets -- -D warnings
 
+      # mlmf-pt2 reads and writes torch.export .pt2 archives (zip layout,
+      # weights/constants configs, raw tensor bytes; the graph is opaque).
+      # Format axis: no I/O, `default = []`, so the plain four steps.
+      - name: cargo test -p mlmf-pt2
+        run: cargo test -p mlmf-pt2
+
+      - name: cargo test -p mlmf-pt2 --no-default-features
+        run: cargo test -p mlmf-pt2 --no-default-features
+
+      - name: cargo doc -p mlmf-pt2 --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-pt2 --no-deps
+
+      - name: cargo clippy -p mlmf-pt2
+        run: cargo clippy -p mlmf-pt2 --all-targets -- -D warnings
+
       - name: cargo test -p mlmf-safetensors
         run: cargo test -p mlmf-safetensors
 

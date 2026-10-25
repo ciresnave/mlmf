@@ -1,0 +1,7 @@
+kind	model	name	path	is_param	dtype	sizes	strides	offset	requires_grad	bytes	byte_sum
+weight	model	lin.weight	m2/data/weights/weight_0	true	7	3,4	4,1	0	true	48	4812
+weight	model	lin.bias	m2/data/weights/weight_1	true	7	3	1	0	true	12	1743
+weight	model	scale	m2/data/weights/weight_2	false	7	3	1	0	false	12	382
+weight	model	idx	m2/data/weights/weight_3	false	5	3	1	0	false	24	3
+weight	model	h16	m2/data/weights/weight_4	false	6	3	1	0	false	6	190
+constant	model	k	m2/data/constants/tensor_0	false	7	3	1	0	false	12	573
