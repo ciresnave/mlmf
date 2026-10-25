@@ -77,7 +77,20 @@ impl<'a> Fields<'a> {
                 offset: self.base + tag_at,
             });
         }
-        let (kind, end) = match wire {
+        let (kind, end) = self.payload(wire, after, tag_at)?;
+        self.pos = end;
+        Ok(Field {
+            number,
+            tag: self.base + tag_at,
+            kind,
+            data: self.data,
+            base: self.base,
+        })
+    }
+
+    /// The payload that follows a tag, and where it ends.
+    fn payload(&self, wire: u64, after: usize, tag_at: usize) -> Result<(Kind, usize), ParseError> {
+        Ok(match wire {
             VARINT => {
                 let (v, end) = varint(self.data, after, self.base)?;
                 (Kind::Varint(v), end)
@@ -108,14 +121,6 @@ impl<'a> Fields<'a> {
                     wire_type: wire,
                 });
             }
-        };
-        self.pos = end;
-        Ok(Field {
-            number,
-            tag: self.base + tag_at,
-            kind,
-            data: self.data,
-            base: self.base,
         })
     }
 }

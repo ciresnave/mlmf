@@ -269,6 +269,25 @@ fn narrow(v: i64) -> i32 {
     i32::try_from(v).unwrap_or(i32::MIN)
 }
 
+/// Call `each` on every field of the message at `body`.
+fn walk(body: &[u8], base: usize, mut each: impl FnMut(&Field<'_>) -> Res<()>) -> Res<()> {
+    for f in Fields::new(body, base) {
+        each(&f?)?;
+    }
+    Ok(())
+}
+
+/// `TypeProto`: its `tensor_type` (1) fills `out`'s element type and shape.
+fn type_proto(body: &[u8], base: usize, out: &mut ParsedValue) -> Res<()> {
+    walk(body, base, |t| {
+        if t.number == 1 {
+            let (b, at) = t.bytes("TypeProto.tensor_type")?;
+            (out.elem_type, out.shape) = tensor_type(b, at)?;
+        }
+        Ok(())
+    })
+}
+
 fn value_info(body: &[u8], base: usize) -> Res<ParsedValue> {
     let mut out = ParsedValue {
         name: None,
@@ -276,23 +295,17 @@ fn value_info(body: &[u8], base: usize) -> Res<ParsedValue> {
         dtype: None,
         shape: None,
     };
-    for f in Fields::new(body, base) {
-        let f = f?;
-        match f.number {
-            1 => out.name = Some(string(&f, "ValueInfoProto.name")?),
-            2 => {
-                let (ty, at) = f.bytes("ValueInfoProto.type")?;
-                for t in Fields::new(ty, at) {
-                    let t = t?;
-                    if t.number == 1 {
-                        let (b, a2) = t.bytes("TypeProto.tensor_type")?;
-                        (out.elem_type, out.shape) = tensor_type(b, a2)?;
-                    }
-                }
-            }
-            _ => {}
+    walk(body, base, |f| match f.number {
+        1 => {
+            out.name = Some(string(f, "ValueInfoProto.name")?);
+            Ok(())
         }
-    }
+        2 => {
+            let (ty, at) = f.bytes("ValueInfoProto.type")?;
+            type_proto(ty, at, &mut out)
+        }
+        _ => Ok(()),
+    })?;
     out.dtype = out.elem_type.and_then(dtype_of_onnx);
     Ok(out)
 }
@@ -303,6 +316,49 @@ struct TensorFields {
     typed: Option<u64>,
     external: Vec<(String, String)>,
     location: Option<i64>,
+}
+
+/// `dims` (1), `data_type` (2) and `name` (8).
+fn tensor_identity(t: &mut OnnxTensor, f: &Field<'_>) -> Res<()> {
+    match f.number {
+        1 => f.ints("TensorProto.dims", &mut t.dims),
+        2 => {
+            t.data_type = Some(narrow(f.int("TensorProto.data_type")?));
+            Ok(())
+        }
+        8 => {
+            t.name = Some(string(f, "TensorProto.name")?);
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+/// `raw_data` (9), `external_data` (13), `data_location` (14) and the typed
+/// element fields.
+fn tensor_data(x: &mut TensorFields, f: &Field<'_>) -> Res<()> {
+    match f.number {
+        9 => x.raw = Some(f.span("TensorProto.raw_data")?),
+        13 => {
+            let (b, at) = f.bytes("TensorProto.external_data")?;
+            x.external
+                .push(pair(b, at, "StringStringEntryProto", 1, 2)?);
+        }
+        14 => x.location = Some(f.int("TensorProto.data_location")?),
+        n if TYPED_FIELDS.contains(&n) => x.typed = Some(n),
+        _ => {}
+    }
+    Ok(())
+}
+
+/// External data wins over a stray `raw_data`; then raw; then typed.
+fn data_of(x: TensorFields) -> TensorData {
+    match (x.location, x.raw, x.typed) {
+        (Some(EXTERNAL), _, _) => TensorData::External(x.external),
+        (_, Some(r), _) => TensorData::Raw(r),
+        (_, None, Some(n)) => TensorData::Typed(n),
+        _ => TensorData::Absent,
+    }
 }
 
 fn tensor(body: &[u8], base: usize) -> Res<OnnxTensor> {
@@ -319,44 +375,29 @@ fn tensor(body: &[u8], base: usize) -> Res<OnnxTensor> {
         external: Vec::new(),
         location: None,
     };
-    for f in Fields::new(body, base) {
-        let f = f?;
-        match f.number {
-            1 => f.ints("TensorProto.dims", &mut t.dims)?,
-            2 => t.data_type = Some(narrow(f.int("TensorProto.data_type")?)),
-            8 => t.name = Some(string(&f, "TensorProto.name")?),
-            9 => x.raw = Some(f.span("TensorProto.raw_data")?),
-            13 => {
-                let (b, at) = f.bytes("TensorProto.external_data")?;
-                x.external
-                    .push(pair(b, at, "StringStringEntryProto", 1, 2)?);
-            }
-            14 => x.location = Some(f.int("TensorProto.data_location")?),
-            n if TYPED_FIELDS.contains(&n) => x.typed = Some(n),
-            _ => {}
-        }
-    }
+    walk(body, base, |f| {
+        tensor_identity(&mut t, f)?;
+        tensor_data(&mut x, f)
+    })?;
     t.dtype = t.data_type.and_then(dtype_of_onnx);
-    t.data = match (x.location, x.raw, x.typed) {
-        (Some(EXTERNAL), _, _) => TensorData::External(x.external),
-        (_, Some(r), _) => TensorData::Raw(r),
-        (_, None, Some(n)) => TensorData::Typed(n),
-        _ => TensorData::Absent,
-    };
+    t.data = data_of(x);
     Ok(t)
 }
 
-fn opset(body: &[u8], base: usize) -> Res<(Option<String>, Option<i64>)> {
-    let (mut domain, mut version) = (None, None);
-    for f in Fields::new(body, base) {
-        let f = f?;
+fn opset(body: &[u8], base: usize) -> Res<ParsedOpset> {
+    let mut out = ParsedOpset {
+        domain: None,
+        version: None,
+    };
+    walk(body, base, |f| {
         match f.number {
-            1 => domain = Some(string(&f, "OperatorSetIdProto.domain")?),
-            2 => version = Some(f.int("OperatorSetIdProto.version")?),
+            1 => out.domain = Some(string(f, "OperatorSetIdProto.domain")?),
+            2 => out.version = Some(f.int("OperatorSetIdProto.version")?),
             _ => {}
         }
-    }
-    Ok((domain, version))
+        Ok(())
+    })?;
+    Ok(out)
 }
 
 struct Graph {
@@ -367,6 +408,36 @@ struct Graph {
     outputs: Vec<ParsedValue>,
 }
 
+/// `node` (1) and `name` (2).
+fn graph_head(g: &mut Graph, f: &Field<'_>) -> Res<()> {
+    match f.number {
+        1 => g.nodes.push(f.span("GraphProto.node")?),
+        2 => g.name = Some(string(f, "GraphProto.name")?),
+        _ => {}
+    }
+    Ok(())
+}
+
+/// `initializer` (5), `input` (11) and `output` (12).
+fn graph_lists(g: &mut Graph, f: &Field<'_>) -> Res<()> {
+    match f.number {
+        5 => {
+            let (b, at) = f.bytes("GraphProto.initializer")?;
+            g.initializers.push(tensor(b, at)?);
+        }
+        11 => {
+            let (b, at) = f.bytes("GraphProto.input")?;
+            g.inputs.push(value_info(b, at)?);
+        }
+        12 => {
+            let (b, at) = f.bytes("GraphProto.output")?;
+            g.outputs.push(value_info(b, at)?);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn graph(body: &[u8], base: usize) -> Res<Graph> {
     let mut g = Graph {
         name: None,
@@ -375,27 +446,48 @@ fn graph(body: &[u8], base: usize) -> Res<Graph> {
         inputs: Vec::new(),
         outputs: Vec::new(),
     };
-    for f in Fields::new(body, base) {
-        let f = f?;
-        match f.number {
-            1 => g.nodes.push(f.span("GraphProto.node")?),
-            2 => g.name = Some(string(&f, "GraphProto.name")?),
-            5 => {
-                let (b, at) = f.bytes("GraphProto.initializer")?;
-                g.initializers.push(tensor(b, at)?);
-            }
-            11 => {
-                let (b, at) = f.bytes("GraphProto.input")?;
-                g.inputs.push(value_info(b, at)?);
-            }
-            12 => {
-                let (b, at) = f.bytes("GraphProto.output")?;
-                g.outputs.push(value_info(b, at)?);
-            }
-            _ => {}
-        }
-    }
+    walk(body, base, |f| {
+        graph_head(&mut g, f)?;
+        graph_lists(&mut g, f)
+    })?;
     Ok(g)
+}
+
+/// `ir_version` (1), `producer_name` (2), `producer_version` (3),
+/// `model_version` (5) and `doc_string` (6).
+fn model_head(m: &mut OnnxFile, f: &Field<'_>) -> Res<()> {
+    match f.number {
+        1 => m.ir_version = Some(f.int("ModelProto.ir_version")?),
+        2 => m.producer_name = Some(string(f, "ModelProto.producer_name")?),
+        3 => m.producer_version = Some(string(f, "ModelProto.producer_version")?),
+        5 => m.model_version = Some(f.int("ModelProto.model_version")?),
+        6 => m.doc_string = Some(string(f, "ModelProto.doc_string")?),
+        _ => {}
+    }
+    Ok(())
+}
+
+/// `graph` (7), `opset_import` (8) and `metadata_props` (14).
+fn model_body(m: &mut OnnxFile, f: &Field<'_>) -> Res<()> {
+    match f.number {
+        7 => {
+            let (b, at) = f.bytes("ModelProto.graph")?;
+            let g = graph(b, at)?;
+            (m.graph_name, m.nodes) = (g.name, g.nodes);
+            (m.initializers, m.inputs, m.outputs) = (g.initializers, g.inputs, g.outputs);
+        }
+        8 => {
+            let (b, at) = f.bytes("ModelProto.opset_import")?;
+            m.opset_imports.push(opset(b, at)?);
+        }
+        14 => {
+            let (b, at) = f.bytes("ModelProto.metadata_props")?;
+            m.metadata
+                .push(pair(b, at, "StringStringEntryProto", 1, 2)?);
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// Read an ONNX model file held in memory.
@@ -423,32 +515,9 @@ pub fn parse_model(file: &[u8]) -> Result<OnnxFile, ParseError> {
         inputs: Vec::new(),
         outputs: Vec::new(),
     };
-    for f in Fields::new(file, 0) {
-        let f = f?;
-        match f.number {
-            1 => m.ir_version = Some(f.int("ModelProto.ir_version")?),
-            2 => m.producer_name = Some(string(&f, "ModelProto.producer_name")?),
-            3 => m.producer_version = Some(string(&f, "ModelProto.producer_version")?),
-            5 => m.model_version = Some(f.int("ModelProto.model_version")?),
-            6 => m.doc_string = Some(string(&f, "ModelProto.doc_string")?),
-            7 => {
-                let (b, at) = f.bytes("ModelProto.graph")?;
-                let g = graph(b, at)?;
-                (m.graph_name, m.nodes) = (g.name, g.nodes);
-                (m.initializers, m.inputs, m.outputs) = (g.initializers, g.inputs, g.outputs);
-            }
-            8 => {
-                let (b, at) = f.bytes("ModelProto.opset_import")?;
-                let (domain, version) = opset(b, at)?;
-                m.opset_imports.push(ParsedOpset { domain, version });
-            }
-            14 => {
-                let (b, at) = f.bytes("ModelProto.metadata_props")?;
-                m.metadata
-                    .push(pair(b, at, "StringStringEntryProto", 1, 2)?);
-            }
-            _ => {}
-        }
-    }
+    walk(file, 0, |f| {
+        model_head(&mut m, f)?;
+        model_body(&mut m, f)
+    })?;
     Ok(m)
 }

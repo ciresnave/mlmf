@@ -83,14 +83,17 @@ def dim_text(d):
     return "?" if which is None else str(d.dim_value) if which == "dim_value" else d.dim_param
 
 
+def shape_text(t):
+    if t and t.HasField("shape"):
+        return "[" + ",".join(dim_text(d) for d in t.shape.dim) + "]"
+    return "-"
+
+
 def value_rows(kind, values):
     for v in values:
         t = v.type.tensor_type if v.HasField("type") else None
         elem = str(t.elem_type) if t and t.HasField("elem_type") else "-"
-        shape = "-"
-        if t and t.HasField("shape"):
-            shape = "[" + ",".join(dim_text(d) for d in t.shape.dim) + "]"
-        yield "\t".join((kind, v.name if v.HasField("name") else "-", elem, shape))
+        yield "\t".join((kind, opt(v, "name"), elem, shape_text(t)))
 
 
 def data_text(t):
@@ -104,39 +107,34 @@ def data_text(t):
     return "none"
 
 
+def opt(msg, field):
+    return str(getattr(msg, field)) if msg.HasField(field) else "-"
+
+
+def model_row(m):
+    opsets = ",".join(f"{opt(o, 'domain')}:{opt(o, 'version')}" for o in m.opset_import) or "-"
+    meta = ",".join(f"{p.key}={p.value}" for p in m.metadata_props) or "-"
+    fields = ("ir_version", "producer_name", "producer_version", "model_version", "doc_string")
+    return "\t".join(("model", *(opt(m, f) for f in fields), opsets, meta))
+
+
+def init_row(t):
+    dims = ",".join(str(d) for d in t.dims) or "-"
+    return "\t".join(("init", opt(t, "name"), opt(t, "data_type"), dims, data_text(t)))
+
+
 def rows(path):
     m = ModelProto()
     with open(path, "rb") as fh:
         m.ParseFromString(fh.read())
-    opsets = ",".join(
-        (o.domain if o.HasField("domain") else "-")
-        + ":"
-        + (str(o.version) if o.HasField("version") else "-")
-        for o in m.opset_import
-    ) or "-"
-    meta = ",".join(f"{p.key}={p.value}" for p in m.metadata_props) or "-"
-    yield "\t".join((
-        "model",
-        str(m.ir_version) if m.HasField("ir_version") else "-",
-        m.producer_name if m.HasField("producer_name") else "-",
-        m.producer_version if m.HasField("producer_version") else "-",
-        str(m.model_version) if m.HasField("model_version") else "-",
-        m.doc_string if m.HasField("doc_string") else "-",
-        opsets,
-        meta,
-    ))
+    yield model_row(m)
     g = m.graph
-    yield "\t".join(("graph", g.name if g.HasField("name") else "-", str(len(g.node))))
+    yield "\t".join(("graph", opt(g, "name"), str(len(g.node))))
     for t in g.initializer:
-        yield "\t".join((
-            "init",
-            t.name if t.HasField("name") else "-",
-            str(t.data_type) if t.HasField("data_type") else "-",
-            ",".join(str(d) for d in t.dims) or "-",
-            data_text(t),
-        ))
+        yield init_row(t)
     yield from value_rows("input", g.input)
     yield from value_rows("output", g.output)
+
 
 
 def main():
