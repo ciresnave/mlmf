@@ -10,7 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `.github/workflows/ci.yml`: the coderipper `portfolio.yml` caller is repinned to `ee9c3950c510fae136d316fed3bd9ecda343cede` (`# 0.9.24`), the commit whose workflow installs coderipper 0.9.24 (the PM's coderipper notice of 2026-10-24; the commit exists and is one ahead of the `v0.9.24` tag).
 - Design spec section 10: amended. Architecture detection, tensor-name mapping and the oracle are no longer non-goals (CireSnave 2026-10-24: detecting how a file is stored is in scope; supplying a value the file does not declare is not).
-- `ROADMAP.md`: S-47, S-48 and S-49 marked done.
+- `ROADMAP.md`: S-47 to S-52 (fuel row 42 slices F1, E1, F2, E3, E2, E4) marked done.
+
+## [0.7.9] - 2026-10-25
+
+### Added
+- New crate `mlmf-bnb` (fuel row 42 slice E4, reading only): `locate_layers` finds bitsandbytes 4-bit layers in an open container by their `quant_state.bitsandbytes__<type>` tensor; `read_layer` returns the packed weight, `absmax`, `quant_map`, `nested_absmax` and `nested_quant_map` as the file's bytes (each `None` if absent) and the parsed `quant_state` JSON; `parse_quant_state` returns every field as `Option`, with `quant_type` unjudged and unknown keys listed. No dequantization (that is the conversions project's) and no check that a blocksize divides a row. Checked against real bitsandbytes output (16 rows of a Qwen3-0.6B NF4 double-quant layer, Apache-2.0, vendored with its licence and provenance), whose pieces were also re-read from the real 576 MB checkpoint by HTTP range requests and found byte-identical.
+
+## [0.7.8] - 2026-10-25
+
+### Added
+- New crate `mlmf-pickle` (fuel row 42 slice E2): `parse_pth` reads a `torch.save` checkpoint's zip directory (zip64 aware, stored entries) and the tensor index in `data.pkl` with a bounded pickle reader that records what the pickle would build and executes nothing. Returns each tensor's name, dtype, shape, strides, storage offset and storage entry, plus the storage's byte range in the file; a tensor whose storage class has no dtype is an error, and non-tensor entries are listed rather than dropped. Objects live in an arena (a memo `GET` is an index, not a clone), every length is bounded by the remaining bytes, and `REDUCE`/`NEWOBJ` are gated by `ALLOWED_REDUCE_TARGETS`, whose exact content a test pins (spec AD-3). A rewrite, not a port, of Fuel's reader (itself derived from candle's `pickle.rs`); it does not carry over that reader's `DICT`-as-empty-dict or clone-on-GET. Checked against a real 3.5 MB checkpoint: all 152 tensors match Fuel's `read_pth_tensor_info` and an independent Python reader, storage byte sums included.
+
+## [0.7.7] - 2026-10-25
+
+### Added
+- `mlmf-gguf`: `read_tokenizer_data`, `GgufTokenizerData`, `TokenizerDataError` read the `tokenizer.ggml.*` keys as plain data (fuel row 42 slice E3). Every field is `Option`: an absent key is `None`, with no defaulted `pre`, `add_bos_token` or `add_eos_token` and no case folding of the model name; merges stay unsplit strings; a wrong-typed key, an out-of-range id or a non-UTF-8 token is an error, never `None`. `index_complete` travels with the data. Checked against an independent Python reader over the 30 v2/v3 files of the GGUF corpus (`tests/corpus-tokenizer.tsv`).
 
 ## [0.7.6] - 2026-10-25
 

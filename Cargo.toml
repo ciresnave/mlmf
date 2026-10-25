@@ -23,6 +23,7 @@ default-members = [
     # deletion would be typed.
     ".",
     "crates/mlmf-awq",
+    "crates/mlmf-bnb",
     "crates/mlmf-conformance",
     "crates/mlmf-core",
     "crates/mlmf-exl2",
@@ -32,6 +33,7 @@ default-members = [
     "crates/mlmf-hf-layout",
     "crates/mlmf-hf-tokenizer",
     "crates/mlmf-meta",
+    "crates/mlmf-pickle",
     "crates/mlmf-safetensors",
     "crates/mlmf-source-file",
     "crates/mlmf-source-hub",

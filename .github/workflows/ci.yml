@@ -209,6 +209,41 @@ jobs:
       - name: cargo clippy -p mlmf-awq
         run: cargo clippy -p mlmf-awq --all-targets -- -D warnings
 
+      # mlmf-pickle reads a torch.save checkpoint's zip directory and tensor
+      # index with a bounded pickle reader that executes nothing. Format axis:
+      # no I/O, `default = []`, so the plain four steps. The real-checkpoint
+      # test skips here (no MLMF_PTH_FILE) and says so.
+      - name: cargo test -p mlmf-pickle
+        run: cargo test -p mlmf-pickle
+
+      - name: cargo test -p mlmf-pickle --no-default-features
+        run: cargo test -p mlmf-pickle --no-default-features
+
+      - name: cargo doc -p mlmf-pickle --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-pickle --no-deps
+
+      - name: cargo clippy -p mlmf-pickle
+        run: cargo clippy -p mlmf-pickle --all-targets -- -D warnings
+
+      # mlmf-bnb locates bitsandbytes 4-bit layers in an already-open
+      # TensorContainer and reads their raw pieces and quant_state JSON.
+      # Format axis: no I/O, `default = []`, so the plain four steps.
+      - name: cargo test -p mlmf-bnb
+        run: cargo test -p mlmf-bnb
+
+      - name: cargo test -p mlmf-bnb --no-default-features
+        run: cargo test -p mlmf-bnb --no-default-features
+
+      - name: cargo doc -p mlmf-bnb --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-bnb --no-deps
+
+      - name: cargo clippy -p mlmf-bnb
+        run: cargo clippy -p mlmf-bnb --all-targets -- -D warnings
+
       - name: cargo test -p mlmf-safetensors
         run: cargo test -p mlmf-safetensors
 

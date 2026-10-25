@@ -1092,10 +1092,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mlmf-bnb"
+version = "0.7.10"
+dependencies = [
+ "mlmf-core",
+ "serde_json",
+]
+
+[[package]]
 name = "mlmf-conformance"
 version = "0.7.10"
 dependencies = [
  "fuel-formats",
+ "mlmf-bnb",
  "mlmf-core",
  "mlmf-ggml",
  "mlmf-gguf",
@@ -1163,6 +1172,13 @@ dependencies = [
 
 [[package]]
 name = "mlmf-meta"
+version = "0.7.10"
+dependencies = [
+ "mlmf-core",
+]
+
+[[package]]
+name = "mlmf-pickle"
 version = "0.7.10"
 dependencies = [
  "mlmf-core",

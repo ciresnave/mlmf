@@ -1,0 +1,11 @@
+# C3: the std submodules mlmf-pickle may name. Grows one commit at a time,
+# each entry landing beside the code that forced it.
+#
+# `collections` -- the memo table (`HashMap`) of the pickle reader.
+# `error`       -- `impl std::error::Error for PickleError`.
+# `fmt`         -- `impl std::fmt::Display for PickleError`.
+# `ops`         -- `std::ops::Range`, the storage byte range in `PthIndex`.
+collections
+error
+fmt
+ops

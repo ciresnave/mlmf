@@ -1,0 +1,11 @@
+[package]
+    description          = "bitsandbytes 4-bit (NF4/FP4) checkpoints: locate a layer's tensors in a safetensors container and read their raw pieces and the quant_state JSON. No I/O, no dequantization."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-bnb"
+    repository.workspace = true
+    version.workspace    = true
+
+[dependencies]
+    mlmf-core  = { path = "../mlmf-core", version = "0.7.0" }
+    serde_json = { version = "1.0", default-features = false, features = ["std"] }

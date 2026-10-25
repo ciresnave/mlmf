@@ -1,0 +1,12 @@
+# Declared public API (reachability): mlmf-pickle is a new published crate
+# (fuel row 42 slice E2). Its entry points, parse_pth and the zip and pickle
+# stages, have no in-repo non-test caller yet: the consumer is Fuel, through
+# crates.io, after the first release. Declared, not deleted -- the code is
+# documented and tested.
+[reachability]
+public_api = [
+  { file = "src/lib.rs", reason = "published API of mlmf-pickle (crates.io); consumed by Fuel, not by this repository's own targets" },
+  { file = "src/zip.rs", reason = "published API of mlmf-pickle (crates.io); consumed by Fuel, not by this repository's own targets" },
+  { file = "src/vm.rs", reason = "published API of mlmf-pickle (crates.io); consumed by Fuel, not by this repository's own targets" },
+  { file = "src/extract.rs", reason = "published API of mlmf-pickle (crates.io); consumed by Fuel, not by this repository's own targets" },
+]
