@@ -155,6 +155,47 @@ impl<'a> Reader<'a> {
         Ok(i32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
 
+    /// An `i32` that must be at least 1, as a count.
+    fn count(&mut self, field: &'static str) -> Result<usize, RawImatrixError> {
+        let at = self.pos;
+        let v = self.i32()?;
+        usize::try_from(v)
+            .ok()
+            .filter(|&n| n >= 1)
+            .ok_or(RawImatrixError::BadCount {
+                offset: at,
+                field,
+                value: v,
+            })
+    }
+
+    /// One entry: name, `ncall`, `nval`, then the values.
+    fn entry(&mut self) -> Result<RawImatrixEntry, RawImatrixError> {
+        let name = self.string("name length")?;
+        let ncall = self.i32()?;
+        let nval = self.count("nval")?;
+        let raw = self.take(nval as u64 * 4)?;
+        let (chunks, _) = raw.as_chunks::<4>();
+        let values = chunks.iter().map(|c| f32::from_le_bytes(*c)).collect();
+        Ok(RawImatrixEntry {
+            name,
+            ncall,
+            values,
+        })
+    }
+
+    /// The optional trailer: `last_call`, then the dataset name.
+    fn trailer(&mut self) -> Result<(Option<i32>, Option<String>), RawImatrixError> {
+        if self.remaining() < 4 {
+            return Ok((None, None));
+        }
+        let last_call = Some(self.i32()?);
+        if self.remaining() < 4 {
+            return Ok((last_call, None));
+        }
+        Ok((last_call, Some(self.string("dataset length")?)))
+    }
+
     /// A length-prefixed UTF-8 string; the length must be non-negative.
     fn string(&mut self, field: &'static str) -> Result<String, RawImatrixError> {
         let at = self.pos;
@@ -180,48 +221,14 @@ impl<'a> Reader<'a> {
 /// be told apart from one.
 pub fn parse_raw_imatrix(bytes: &[u8]) -> Result<RawImatrix, RawImatrixError> {
     let mut r = Reader { bytes, pos: 0 };
-
-    let at = r.pos;
-    let n = r.i32()?;
-    if n < 1 {
-        return Err(RawImatrixError::BadCount {
-            offset: at,
-            field: "n_entries",
-            value: n,
-        });
-    }
+    let n = r.count("n_entries")?;
     // An entry is at least 12 bytes, so the declared count cannot be larger
     // than that; reserving more is reserving for a file that cannot exist.
-    let mut entries = Vec::with_capacity((n as usize).min(r.remaining() / 12));
+    let mut entries = Vec::with_capacity(n.min(r.remaining() / 12));
     for _ in 0..n {
-        let name = r.string("name length")?;
-        let ncall = r.i32()?;
-        let at = r.pos;
-        let nval = r.i32()?;
-        if nval < 1 {
-            return Err(RawImatrixError::BadCount {
-                offset: at,
-                field: "nval",
-                value: nval,
-            });
-        }
-        let raw = r.take(u64::from(nval as u32) * 4)?;
-        let (chunks, _) = raw.as_chunks::<4>();
-        let values = chunks.iter().map(|c| f32::from_le_bytes(*c)).collect();
-        entries.push(RawImatrixEntry {
-            name,
-            ncall,
-            values,
-        });
+        entries.push(r.entry()?);
     }
-
-    let (mut last_call, mut dataset) = (None, None);
-    if r.remaining() >= 4 {
-        last_call = Some(r.i32()?);
-        if r.remaining() >= 4 {
-            dataset = Some(r.string("dataset length")?);
-        }
-    }
+    let (last_call, dataset) = r.trailer()?;
     if r.remaining() != 0 {
         return Err(RawImatrixError::TrailingBytes {
             offset: r.pos,
