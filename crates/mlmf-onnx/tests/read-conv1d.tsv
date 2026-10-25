@@ -1,0 +1,8 @@
+model	3	pytorch	0.3	-	-	-:6	-
+graph	torch-jit-export	1
+init	1	1	5,4,3	raw:240:b0a9a0bcde6860be
+init	2	1	5	raw:20:f0f598bcae9601be
+input	0	1	[2,4,10]
+input	1	1	[5,4,3]
+input	2	1	[5]
+output	3	1	[2,5,8]

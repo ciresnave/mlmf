@@ -132,7 +132,7 @@ Read at `origin/main` `bfc84ac`: 30 of the 32 tracked markdown files (all but `C
 
 Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10-01-quantized-safetensors-formats-design.md`, GAP = `2026-10-03-fuel-gap-plan.md`, INV = `fuel-migration-inventory.md`.
 
-### Work in a doc and not in this roadmap (57 rows; S-47..S-57 added 2026-10-25 from fuel row 42 and board 282)
+### Work in a doc and not in this roadmap (58 rows; S-47..S-58 added 2026-10-25 from fuel row 42 and board 282)
 
 | Row | Work | Where the doc says it | Status | CireSnave call |
 |---|---|---|---|---|
@@ -193,6 +193,7 @@ Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10
 | S-55 | PyTorch `torch.export` (`.pt2`) read and write | same ruling | done (PR #158, 0.7.15) | read/write the archive and its tensors; no interpretation of the exported program |
 | S-56 | StableHLO read and write | same ruling | done (PR #159, 0.7.14) | read/write the serialized module bytes and structure; no interpretation |
 | S-57 | StableHLO dense-constant extraction (decode MLIR attribute/type encoding) | PM, 2026-10-25 (S-56 stopped at the envelope) | open, when a consumer asks | weights in a VHLO-form artifact are inline `dense` constants in the AttrType section; decoding MLIR attribute and type encoding is a large piece and blurs into interpretation, so it is not started without a consumer |
+| S-58 | ONNX model reading: `parse_model` reports a `ModelProto`'s versions, opsets, metadata, graph names, initializers (raw bytes as ranges; external and typed data reported, not decoded) and value infos | same ruling as S-54 | done (this PR, 0.7.17) | read, never interpret: nodes are byte ranges; typed `float_data` and the like stay undecoded (decoding is conversion) |
 
 ### Docs that contradict the code (13 rows)
 

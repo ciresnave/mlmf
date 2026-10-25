@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.17] - 2026-10-25
+
+### Added
+- `mlmf-onnx` reads (ROADMAP S-58): `parse_model` reads an ONNX `ModelProto` and reports `ir_version`, producer strings, `model_version`, `doc_string`, `opset_import`s, `metadata_props`, the graph name, each initializer (`name`, `data_type`, `dims`, and its elements as a `TensorData`: `raw_data` as a byte range of the input, external-data key/values, or the typed field that holds them, which is not decoded), inputs and outputs, and each node as a byte range. A field the file does not write is `None`, an `opset_import` domain the file leaves out is `None` and not the empty string, and a dimension with neither value nor name is kept as unknown. Both packed and unpacked `dims` are read. `dtype_of_onnx` is the inverse of `onnx_data_type`. Checked against the reference `onnx` package's reading of three files: the writer's golden model, a model PyTorch's exporter wrote (from the `onnx` repository's test data), and a generated file carrying typed, external, anonymous, packed, negative-varint and above-2**32 cases; mutating the reader (dropping packed `dims`, a typed field, external data, a dimension, the varint width) turns the tests red.
+
 ## [0.7.16] - 2026-10-25
 
 ### Changed

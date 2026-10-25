@@ -24,3 +24,15 @@ copied: they are facts about a file format, and the writer is original code.
 make_golden.py` (`pip install onnx==1.23.2`, then `python make_golden.py
 golden.onnx`). It is a 240-byte model of invented values, kept so the writer
 can be compared byte for byte against another implementation.
+
+`crates/mlmf-onnx/tests/conv1d.onnx` is `onnx/backend/test/data/
+pytorch-converted/test_Conv1d/model.onnx` as the `onnx` 1.23.2 wheel ships it
+(525 bytes, sha256
+`6784029f6f72d5d8c9dc9667b858f838882c02aa92663e3b8c9f85a50a9cf10e`),
+unmodified: a model PyTorch's own exporter wrote, kept so the reader is
+checked against a file this project did not produce. It is part of the `onnx`
+repository and so under the same Apache-2.0 licence (text:
+`crates/mlmf-onnx/LICENSE-onnx-Apache-2.0.txt`). `crates/mlmf-onnx/tests/
+variants.onnx` is generated from invented values by `make_read_fixtures.py`
+beside it, which also writes the `read-*.tsv` files from the reference
+package's reading of the three models.

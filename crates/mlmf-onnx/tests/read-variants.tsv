@@ -1,0 +1,10 @@
+model	9	mlmf-read-test	-	-5	-	-	-
+graph	v	0
+init	tf	1	3	typed:4
+init	ti	7	2	typed:7
+init	ext	1	4,4	external:location=w.bin;offset=64;length=64
+init	-	2	-	none
+init	big	1	5000000000	none
+init	p	1	2,3	raw:24:0001020304050607
+input	x	1	[batch,?,4]
+output	y	-	-

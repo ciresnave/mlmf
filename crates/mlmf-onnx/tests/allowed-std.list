@@ -3,7 +3,9 @@
 #
 # `collections` -- `HashSet`, the duplicate-initializer check.
 # `error`       -- `impl std::error::Error for EncodeError`.
-# `fmt`         -- `impl std::fmt::Display for EncodeError`.
+# `fmt`         -- `impl std::fmt::Display for EncodeError` and `ParseError`.
+# `ops`         -- `Range`, the byte spans the reader reports.
 collections
 error
 fmt
+ops

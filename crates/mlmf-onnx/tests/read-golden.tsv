@@ -1,0 +1,9 @@
+model	8	mlmf-test	1	5	doc	:17,ai.x:3	k=v,é=ü
+graph	g	1
+init	w	1	2,2	raw:16:0000803f00000040
+init	b	7	3	raw:24:0001020304050607
+init	h	10	2	raw:4:003c0040
+init	bf	16	1	raw:2:803f
+init	s	2	-	raw:1:07
+input	x	1	[batch,2]
+output	y	1	[batch,2]
