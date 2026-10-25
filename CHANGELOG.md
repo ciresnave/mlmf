@@ -5,10 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.13] - 2026-10-25
+## [0.7.15] - 2026-10-25
 
 ### Added
 - New crate `mlmf-pt2` (ROADMAP S-55): `parse_pt2` reads a `torch.export` `.pt2` archive (zip layout, `archive_format`/`archive_version`/`byteorder`, per-model weights and constants configs, the raw tensor bytes as file ranges; the exported graph is reported as an opaque byte range) and `encode_pt2` writes one from caller-supplied parts (graph JSON and sample-inputs blob opaque; archive root, `archive_version` and stream version required, never defaulted). A tensor whose torch dtype code has no `DType` is returned with `dtype: None` rather than refused. Checked against a real PyTorch 2.14.1 archive (an independent `zipfile`+`json` reader gives the expected rows) and in the other direction: the archive this crate writes loads with `torch.export.load` and runs to the same output as the original.
+
+## [0.7.14] - 2026-10-25
+
+### Added
+- New crate `mlmf-stablehlo` (ROADMAP S-56): `parse_bytecode` reads the MLIR bytecode envelope that StableHLO portable artifacts use (magic, bytecode version, producer string such as `StableHLO_v1.18.0`, and every section's id, declared alignment and byte range) and `encode_bytecode` writes one from a version, a producer and opaque section bytes (`0xCB` padding, shortest-form varints, power-of-two alignment as the specification requires). Section contents are not decoded. Checked against a StableHLO artifact written by JAX 0.12.0.1 and a file MLIR itself wrote (an independent stdlib reader gives the same section tables; parse-then-encode reproduces both byte for byte); a file this crate writes under a different producer string parses with MLIR's own reader and prints the same module, and a damaged copy is refused by it. Reading the weights out of a module's constants would mean decoding MLIR's attribute encoding and is left as an open question.
 
 ## [0.7.12] - 2026-10-25
 

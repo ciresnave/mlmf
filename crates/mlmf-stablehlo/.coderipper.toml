@@ -1,0 +1,10 @@
+# Declared public API (reachability): mlmf-stablehlo is a new published crate
+# (ROADMAP S-56). Its entry points, parse_bytecode and encode_bytecode, have no
+# in-repo non-test caller yet: the consumer is Fuel, through crates.io, after
+# the first release. Declared, not deleted -- the code is documented and tested.
+[reachability]
+public_api = [
+  { file = "src/lib.rs", reason = "published API of mlmf-stablehlo (crates.io); consumed by Fuel, not by this repository's own targets" },
+  { file = "src/bytecode.rs", reason = "published API of mlmf-stablehlo (crates.io); consumed by Fuel, not by this repository's own targets" },
+  { file = "src/varint.rs", reason = "published API of mlmf-stablehlo (crates.io); consumed by Fuel, not by this repository's own targets" },
+]
