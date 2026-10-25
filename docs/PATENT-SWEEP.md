@@ -1,4 +1,4 @@
-# Patent sweep: mlmf 0.7.x @ 1f6e961 (second record, 2026-10-25), plus `mlmf-gguf-arch` @ 54a8929 (Part C, third record)
+# Patent sweep: mlmf 0.7.x @ 1f6e961 (second record, 2026-10-25), plus `mlmf-gguf-arch` @ 54a8929 (Part C) and `mlmf-tensor-names` @ e2e2a71 (Part D)
 
 Date: 2026-10-25; Run by: mlmf lane, Claude Sonnet 5.5; Method: AI-assisted search and read; NOT legal advice; NOT a freedom-to-operate opinion.
 
@@ -46,6 +46,13 @@ None of these claims a new algorithm for training, inference, quantization, comp
 
 This is the first shipped part of idea 5's planned architecture detection (ROADMAP S-12). Tensor-name mapping (S-30) is still unbuilt.
 
+## Part D: ideas swept (added for `mlmf-tensor-names`, 0.7.22, `origin/main` `e2e2a71`)
+
+23. Translate a tensor's name between the HuggingFace and GGUF spellings of the dense Llama-style layout from a declared two-column table (global tensors, and per-layer components under `model.layers.N.` / `blk.N.`), for `.weight` and `.bias` only, with a layer index of ASCII digits (`translate`).
+24. Translate a whole list of names all-or-nothing: if any name has no table entry, return none of the translations and name every name that lacked one (`translate_all`, `Unmapped`).
+
+This is the shipped part of S-30. Mixture-of-experts and other layouts are not in the table and are reported, not mapped.
+
 ## Queries (source, query, date)
 
 Search tool: a general web search (not a patent database), run 2026-10-25; unrestricted queries and queries restricted to `patents.google.com` / `patents.justia.com`. Candidate patents were then read in full with `tools/patent-claims.py`.
@@ -83,6 +90,14 @@ Part C queries, run 2026-10-25 with the same general web search tool (see the th
 | Q24 | 21, 22 | patent determining model family of machine learning model file from parameter names in checkpoint to select loader | Google Patents, Justia |
 | Q25 | 21, 22 | patent method automatically detecting type of trained model from file contents header inspect tensor names select matching model architecture loader large language model weights | none |
 
+Part D queries, run 2026-10-25 with the same general web search tool, paced (about one a minute, with a 50 s pause before the one claim fetch):
+
+| # | idea | query (abridged) | restriction |
+|---|---|---|---|
+| Q26 | 23 | patent converting neural network checkpoint between frameworks mapping parameter names tensor name correspondence table source format target format | Google Patents, Justia |
+| Q27 | 23, 24 | patent method converting trained model weights file format renaming layer weights identifiers lookup table unmapped layers error large language model | Google Patents, Justia |
+| Q28 | 23, 24 | patent loading pretrained weights from one model repository format into another naming convention key remapping state dict parameter name mapping rules | none |
+
 Ideas 9 and 14 were not searched separately (a layout reading rule and a type-level policy); they share Q2/Q7.
 
 ## Hits
@@ -119,6 +134,15 @@ Independent claims printed in full with `tools/patent-claims.py` on 2026-10-25. 
 | H29 | US20250362963A1 | Dynamically selecting artificial intelligence models and hardware environments to execute tasks | Dropbox | indep. 1, 11 | Selects a machine-learning model | Requires receiving workload data, extracting workload features, "task routing metrics" from historical execution information, selection by "a hardware allocating machine-learning model", and executing the task; we classify a file's family and run nothing | clear |
 | H30 | US5444824A (expired) | Enhanced neural network shell for application programs | IBM | indep. 1, 4 | A neural-network data structure naming its model type | Claims prompting a user for a problem type and an input data file, "selecting a neural network model based on said problem type and said input data format" and creating the data structure; we read a family from the file's own declaration. Google Patents lists it Expired; filed 1993 | clear |
 
+### Part D hits (`mlmf-tensor-names`)
+
+Q26 to Q28 returned no patent claiming a parameter-name correspondence table, a name rewrite between model file formats, or a refusal that lists the unmapped names. Q28 returned only open-source remapping code (Detectron2 `c2_model_loading.py` key map, a HuggingFace RoBERTa `remap_state_dict` script, xlstm-jax `match_dict`): prior art for ideas 23 and 24, not patents. The two nearest patents were read with `tools/patent-claims.py` on 2026-10-25.
+
+| # | patent | title | assignee | claims read | overlap | our difference | verdict |
+|---|---|---|---|---|---|---|---|
+| H31 | US12271819B2 | Machine learning network model compression | Huawei | indep. 1, 13 (dependent claims through 26 seen) | A model file whose header carries decoding information, and per-layer handling | Claim 1 requires compressing a multi-layer model and a file holding "decoding information for enabling the ML network model to be decompressed and executed layer-by-layer"; claim 13 requires decompressing the Nth layer, loading its weights into a buffer, installing them into neurons and processing data; we rename strings and run nothing | clear |
+| H32 | WO2018058426A1 | Hardware neural network conversion method, computing device, compiling method and neural network software and hardware collaboration system | Tsinghua University | indep. 1 (conversion method) and the system claim read, from a machine translation of Chinese; the computing-device and compiling-method claims **UNREAD** | "Conversion" of a neural network and a generated parameter file | Claim 1 requires obtaining a connection graph, splitting it into basic units with only ingress and egress nodes, converting each into a network of neural-network-hardware basic-module virtual bodies satisfying a connection-degree constraint, and connecting them in splitting order into a parameter file; nothing in it renames tensors. Status Ceased per Google Patents | clear on claims 1 and the system claim; the two unread independents are the same hardware-constraint family by title and are not asserted clear |
+
 ### Part B hits (removed code)
 
 | # | patent | title | assignee | claims read | overlap | difference (removed code) | verdict |
@@ -138,7 +162,7 @@ Independent claims printed in full with `tools/patent-claims.py` on 2026-10-25. 
 
 ## Needs review (to the PM)
 
-None of the 30 reads needed a decision. Flag for awareness only: **H17** is the one place where the removed code and a granted claim sit close (cross-attention between modalities followed by combining). The distinction rests on a specific limitation (channel-wise concatenation of the attended tokens with the same modality's original tokens, in both directions) that the removed code does not perform. That reading is mine and not a lawyer's, and the removed multimodal code was part of tags `v0.2.1`/`v0.3.0` (whether the crates.io root `mlmf` 0.2.0 tarball includes it was not checked). The maintained workspace has no such code. If CireSnave wants the question closed, a short FTO read of US12700225B2 claim 1 on `src/multimodal_processor.rs` as of `34afd0e^` is the check.
+None of the 32 reads needed a decision (H32 has two independent claims unread; see its row). Flag for awareness only: **H17** is the one place where the removed code and a granted claim sit close (cross-attention between modalities followed by combining). The distinction rests on a specific limitation (channel-wise concatenation of the attended tokens with the same modality's original tokens, in both directions) that the removed code does not perform. That reading is mine and not a lawyer's, and the removed multimodal code was part of tags `v0.2.1`/`v0.3.0` (whether the crates.io root `mlmf` 0.2.0 tarball includes it was not checked). The maintained workspace has no such code. If CireSnave wants the question closed, a short FTO read of US12700225B2 claim 1 on `src/multimodal_processor.rs` as of `34afd0e^` is the check.
 
 ## Limitations
 
@@ -149,7 +173,8 @@ None of the 30 reads needed a decision. Flag for awareness only: **H17** is the 
 - Patents with priority before a format (the Cambricon family, 2018-06) are not prior art against safetensors, GGUF or `.pt2`, and those formats are third-party specifications we implement; this sweep says nothing about their owners' rights.
 - Part B reads the removed code's headers and the passages quoted; it did not trace every code path. The removed code was largely scaffolding (configuration structures, placeholder INT4, simplified statistics), which is itself why most differences above are "never done".
 - Part C was thin by necessity: Google Patents had throttled the shared IP on 2026-10-25, so only three web searches were made (two together, one later) and two patents fetched, with a 45 s pause between fetches. The third search surfaced no patents, so ideas 21 and 22 rest on two queries that returned nothing on point plus two reads. Control: the same tool returned patent pages (US5444824, US20250362963) for Q23/Q24, so it reaches patents for these phrasings. Open-source loaders that infer architecture from tensor names exist (ComfyUI-GGUF, Spandrel, llama.cpp itself); that is prior art for idea 22, not a patent read.
-- Re-sweep due on a new family of capability (tensor-name mapping, ROADMAP S-30, when built; the detector S-12 is covered by Part C), and by 2027-10-25.
+- Part D is thin: three searches and two patents (one only partly read), none of the searches found a patent on point. Control: the same tool returned patent pages (WO2018058426, US12271819) for Q26 and Q27, so it reaches patents for these phrasings. Translation of renamed keys between checkpoint layouts is long-standing open-source practice; that bears on novelty, not on whether a patent claims it.
+- Re-sweep due on a new family of capability (the next unbuilt row, e.g. the oracle S-21; the detector S-12 is Part C and name mapping S-30 is Part D), and by 2027-10-25.
 
 ## Hand-over
 
