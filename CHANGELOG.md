@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.18] - 2026-10-25
+
+### Added
+- `docs/PATENT-SWEEP.md`: the patent sweep of the `mlmf-*` workspace at 1f6e961 (14 ideas, 16 queries, 9 patents read to their independent claims, none needing review; limits stated in the file: general web search rather than a patent database, claims read through a paraphrasing page reader, 6 patents seen and not read). Required before any publish by the portfolio patent-sweep process (board 286).
+
 ## [0.7.17] - 2026-10-25
 
 ### Added
