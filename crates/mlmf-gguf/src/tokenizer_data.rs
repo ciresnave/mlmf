@@ -196,6 +196,28 @@ where
     ])
 }
 
+/// `model` and `pre`, the two string keys.
+fn read_names<S>(src: &S) -> Result<[Option<String>; 2]>
+where
+    S: MetadataSource + ?Sized,
+{
+    Ok([
+        read(src, "tokenizer.ggml.model", "string", to_string)?,
+        read(src, "tokenizer.ggml.pre", "string", to_string)?,
+    ])
+}
+
+/// `tokens` and `merges`, the two string arrays.
+fn read_vocab<S>(src: &S) -> Result<[Option<Vec<String>>; 2]>
+where
+    S: MetadataSource + ?Sized,
+{
+    Ok([
+        read_strings(src, "tokenizer.ggml.tokens")?,
+        read_strings(src, "tokenizer.ggml.merges")?,
+    ])
+}
+
 /// Read the `tokenizer.ggml.*` keys from `src`.
 ///
 /// # Errors
@@ -209,10 +231,12 @@ where
 {
     let [unk_token_id, bos_token_id, eos_token_id] = read_ids(src)?;
     let [byte_fallback, ignore_merges, add_bos_token, add_eos_token] = read_flags(src)?;
+    let [model, pre] = read_names(src)?;
+    let [tokens, merges] = read_vocab(src)?;
     Ok(GgufTokenizerData {
-        model: read(src, "tokenizer.ggml.model", "string", to_string)?,
-        tokens: read_strings(src, "tokenizer.ggml.tokens")?,
-        merges: read_strings(src, "tokenizer.ggml.merges")?,
+        model,
+        tokens,
+        merges,
         unk_token_id,
         bos_token_id,
         eos_token_id,
@@ -220,7 +244,7 @@ where
         ignore_merges,
         add_bos_token,
         add_eos_token,
-        pre: read(src, "tokenizer.ggml.pre", "string", to_string)?,
+        pre,
         index_complete: src.index_complete(),
     })
 }
