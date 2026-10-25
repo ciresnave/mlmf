@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.7] - 2026-10-25
+
+### Added
+- `mlmf-gguf`: `read_tokenizer_data`, `GgufTokenizerData`, `TokenizerDataError` read the `tokenizer.ggml.*` keys as plain data (fuel row 42 slice E3). Every field is `Option`: an absent key is `None`, with no defaulted `pre`, `add_bos_token` or `add_eos_token` and no case folding of the model name; merges stay unsplit strings; a wrong-typed key, an out-of-range id or a non-UTF-8 token is an error, never `None`. `index_complete` travels with the data. Checked against an independent Python reader over the 30 v2/v3 files of the GGUF corpus (`tests/corpus-tokenizer.tsv`).
+
 ## [0.7.3] - 2026-10-25
 
 ### Changed
