@@ -59,8 +59,7 @@ fn every_source_file_is_named_by_a_mod_declaration() {
     // is not a dependency of this workspace, and re-declaring six public type
     // names that `src/quantization.rs` already defines. It could not have
     // compiled if anything had named it.
-    let mut roots = common::gated_members();
-    roots.push(common::workspace_root());
+    let roots = common::gated_members();
     let crates_walked = roots.len();
     let mut walked = 0usize;
 

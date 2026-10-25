@@ -20,11 +20,10 @@ use std::path::PathBuf;
 
 /// Packages permitted to carry a build script.
 ///
-/// * `mlmf` — the legacy root package, pending the §11 rewrite.
 /// * `mlmf-onnx` — the one exception C5 names, because protobuf codegen has
 ///   no alternative there. It does not exist yet; the entry is here so that
 ///   creating it is not also a gate change.
-const BUILD_SCRIPT_ALLOWED: &[&str] = &["mlmf", "mlmf-onnx"];
+const BUILD_SCRIPT_ALLOWED: &[&str] = &["mlmf-onnx"];
 
 // `workspace_root` lives once, in `tests/common/mod.rs`, shared with
 // `purity.rs` and `deps.rs` rather than duplicated per file. See that
@@ -86,10 +85,11 @@ fn collect_quoted(line: &str, out: &mut Vec<String>) {
     }
 }
 
-/// Every manifest in the workspace: the root package plus `crates/*`.
+/// Every manifest in the workspace: `crates/*` (the root manifest is a
+/// virtual workspace since 0.7.12 and declares no package).
 fn member_manifests() -> Vec<PathBuf> {
     let root = workspace_root();
-    let mut out = vec![root.join("Cargo.toml")];
+    let mut out = Vec::new();
     let crates = root.join("crates");
     let mut members: Vec<PathBuf> = fs::read_dir(&crates)
         .expect("crates/ exists")

@@ -1,35 +1,8 @@
-# Declared public API (reachability): each file below holds `pub` items of a `pub` module that this repository's own
-# targets do not call. Kept per file, not as a glob, so a new undeclared file is still reported.
-[reachability]
-public_api = [
-  { file = "src/checkpoint.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/conversion.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/formats/awq_export.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/formats/gguf.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/formats/gguf_export.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/formats/onnx_export.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/formats/pytorch_export.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/formats/pytorch_loader.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/formats/safetensors_export.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/lora.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/metadata.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/name_mapping.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/progress.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/saver.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/smart_mapping.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-  { file = "src/validation.rs", reason = "published API of the mlmf crate (crates.io); consumed by downstream crates, not by this repository" },
-]
-
-# NOTE: mlmf-awq, mlmf-gptq and mlmf-hf-tokenizer's public-API declarations
-# live in each crate's OWN .coderipper.toml (crates/<name>/.coderipper.toml),
-# not here. Verified directly with coderipper 0.9.6 locally
-# (`coderipper check reachability --project crates/mlmf-awq`, 2026-10-23):
-# a per-member `--project` run reads the member directory's own
-# .coderipper.toml and does NOT fall back to this root file -- an entry
-# placed here for a sub-crate path is silently ignored by the per-member
-# sweep (confirmed: adding it here left all 23 mlmf-awq findings
-# unwaived; moving the identical entry into
-# crates/mlmf-awq/.coderipper.toml waived all 23). The crate-level
-# "public_api_crates" form that reads from a single root file across a
-# whole workspace run is a coderipper 0.9.7 feature, not yet released
-# (0.9.6 is current as of this check).
+# Root-level CodeRipper configuration.
+#
+# Before 0.7.12 this file declared the public API of the legacy root `mlmf`
+# package (reachability waivers, one per source file). That package was removed
+# (see MIGRATION.md), so there is nothing here to declare: the root manifest is
+# a virtual workspace. Each member crate declares its own public API in its own
+# `.coderipper.toml`; a per-member run reads only that file and does not fall
+# back to this one.
