@@ -64,29 +64,38 @@ const GGUF_LAYER_PREFIX: &str = "blk.";
 #[must_use]
 pub fn translate(direction: Direction, name: &str) -> Option<String> {
     let (stem, param) = split_param(name)?;
+    let to = lookup(direction, &GLOBAL, stem)
+        .map(str::to_owned)
+        .or_else(|| layer_stem(direction, stem))?;
+    Some(format!("{to}.{param}"))
+}
+
+/// The target spelling of a table row, matching the source column for
+/// `direction` against `key`.
+fn lookup(
+    direction: Direction,
+    table: &[(&'static str, &'static str)],
+    key: &str,
+) -> Option<&'static str> {
+    table.iter().find_map(|&(hf, gguf)| match direction {
+        Direction::HfToGguf => (hf == key).then_some(gguf),
+        Direction::GgufToHf => (gguf == key).then_some(hf),
+    })
+}
+
+/// A per-layer stem translated, e.g. `model.layers.3.mlp.up_proj` to
+/// `blk.3.ffn_up`. The layer index must be one or more ASCII digits.
+fn layer_stem(direction: Direction, stem: &str) -> Option<String> {
     let (from_prefix, to_prefix) = match direction {
         Direction::HfToGguf => (HF_LAYER_PREFIX, GGUF_LAYER_PREFIX),
         Direction::GgufToHf => (GGUF_LAYER_PREFIX, HF_LAYER_PREFIX),
     };
-    let pick = |pair: &(&'static str, &'static str)| match direction {
-        Direction::HfToGguf => (pair.0, pair.1),
-        Direction::GgufToHf => (pair.1, pair.0),
-    };
-
-    if let Some((_, to)) = GLOBAL.iter().map(pick).find(|(from, _)| *from == stem) {
-        return Some(format!("{to}.{param}"));
-    }
-
-    let rest = stem.strip_prefix(from_prefix)?;
-    let (index, component) = rest.split_once('.')?;
+    let (index, component) = stem.strip_prefix(from_prefix)?.split_once('.')?;
     if index.is_empty() || !index.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    let (_, to) = LAYER
-        .iter()
-        .map(pick)
-        .find(|(from, _)| *from == component)?;
-    Some(format!("{to_prefix}{index}.{to}.{param}"))
+    let to = lookup(direction, &LAYER, component)?;
+    Some(format!("{to_prefix}{index}.{to}"))
 }
 
 /// `("a.b", "weight")` for `"a.b.weight"`; `None` unless the last segment is
