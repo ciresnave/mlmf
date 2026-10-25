@@ -1,4 +1,4 @@
-# Patent sweep: mlmf 0.7.x @ 1f6e961 (second record, 2026-10-25)
+# Patent sweep: mlmf 0.7.x @ 1f6e961 (second record, 2026-10-25), plus `mlmf-gguf-arch` @ 54a8929 (Part C, third record)
 
 Date: 2026-10-25; Run by: mlmf lane, Claude Sonnet 5.5; Method: AI-assisted search and read; NOT legal advice; NOT a freedom-to-operate opinion.
 
@@ -39,6 +39,13 @@ None of these claims a new algorithm for training, inference, quantization, comp
 19. **Multimodal processing** (`src/multimodal*.rs`): per-modality encoders; cross-modal attention for every ordered pair of modalities, each modality's embedding replaced by its attended version; a fusion layer (concatenation, mean with projection, or attention-weighted sum of modalities).
 20. **A memory estimate for a model** (inside the model-card generator: `MemoryRequirements`, from `validation::estimate_memory_usage`): parameter and inference memory computed from the model's declared configuration (layer count, hidden size and the like), training memory taken as 4x parameters and recommended RAM as 2x inference.
 
+## Part C: ideas swept (added for `mlmf-gguf-arch`, 0.7.20, `origin/main` `54a8929`)
+
+21. Name the architecture family of a GGUF file from the family string the file itself declares (`general.architecture`), matched byte-exactly against a fixed list, and answer "none" when the declaration is unlisted, not a string or undecodable: a declaration is never overridden by a guess (`classify`).
+22. When the key is absent from a metadata view known to be complete, name the family from distinctive tensor-name layouts only (GPT-2 `transformer.h.*.attn.c_attn`, GPT-NeoX `gpt_neox.layers.*`), answer "none" when both or neither show, and never infer from the near-universal `blk.*` layout; report whether the answer was declared or inferred (`Basis`).
+
+This is the first shipped part of idea 5's planned architecture detection (ROADMAP S-12). Tensor-name mapping (S-30) is still unbuilt.
+
 ## Queries (source, query, date)
 
 Search tool: a general web search (not a patent database), run 2026-10-25; unrestricted queries and queries restricted to `patents.google.com` / `patents.justia.com`. Candidate patents were then read in full with `tools/patent-claims.py`.
@@ -68,6 +75,14 @@ Search tool: a general web search (not a patent database), run 2026-10-25; unres
 | Q21 | 19 | multimodal model fusion cross-modal attention vision language image text embeddings combine | Google Patents, Justia |
 | Q22 | 20 | estimating memory requirement of loading neural network model from weight file size dtype shape before loading | Google Patents, Justia |
 
+Part C queries, run 2026-10-25 with the same general web search tool (see the throttle note under Limitations):
+
+| # | idea | query (abridged) | restriction |
+|---|---|---|---|
+| Q23 | 21, 22 | patent identifying neural network model architecture type from model file metadata declared architecture string or tensor names layer naming | Google Patents, Justia |
+| Q24 | 21, 22 | patent determining model family of machine learning model file from parameter names in checkpoint to select loader | Google Patents, Justia |
+| Q25 | 21, 22 | patent method automatically detecting type of trained model from file contents header inspect tensor names select matching model architecture loader large language model weights | none |
+
 Ideas 9 and 14 were not searched separately (a layout reading rule and a type-level policy); they share Q2/Q7.
 
 ## Hits
@@ -95,6 +110,15 @@ Each patent's **independent claims** were printed in full with `tools/patent-cla
 | H15 | US11605020B2 and US12008448B2 | Documentation file-embedded machine learning models | AT&T Intellectual Property I | indep. 1, 8, 13 / 1, 9, 17 | Reads/writes a serialized model in a file | Embeds a serialized model into a documentation file "after an end-of-file indicator" using a delimiter byte sequence tied to a text code in a metadata field, and extracts it by that delimiter; we embed nothing in a documentation file | clear |
 | H16 | US11445051B2 | Configurable parser and a method for parsing information units | Amazon Technologies | indep. 1, 11 | "Parsing" by field offset | A packet processing method (protocol field comparison, parse control table, completion descriptor for a forwarding engine) | clear |
 
+### Part C hits (`mlmf-gguf-arch`)
+
+Independent claims printed in full with `tools/patent-claims.py` on 2026-10-25. Q23 and Q24 returned no patent that claims identifying a model's family from a file's declared string or its tensor names; Q25 returned only open-source loaders (prior art for idea 22, not patents). Two patents surfaced as the nearest and were read.
+
+| # | patent | title | assignee | claims read | overlap | our difference | verdict |
+|---|---|---|---|---|---|---|---|
+| H29 | US20250362963A1 | Dynamically selecting artificial intelligence models and hardware environments to execute tasks | Dropbox | indep. 1, 11 | Selects a machine-learning model | Requires receiving workload data, extracting workload features, "task routing metrics" from historical execution information, selection by "a hardware allocating machine-learning model", and executing the task; we classify a file's family and run nothing | clear |
+| H30 | US5444824A (expired) | Enhanced neural network shell for application programs | IBM | indep. 1, 4 | A neural-network data structure naming its model type | Claims prompting a user for a problem type and an input data file, "selecting a neural network model based on said problem type and said input data format" and creating the data structure; we read a family from the file's own declaration. Google Patents lists it Expired; filed 1993 | clear |
+
 ### Part B hits (removed code)
 
 | # | patent | title | assignee | claims read | overlap | difference (removed code) | verdict |
@@ -114,7 +138,7 @@ Each patent's **independent claims** were printed in full with `tools/patent-cla
 
 ## Needs review (to the PM)
 
-None of the 28 reads needed a decision. Flag for awareness only: **H17** is the one place where the removed code and a granted claim sit close (cross-attention between modalities followed by combining). The distinction rests on a specific limitation (channel-wise concatenation of the attended tokens with the same modality's original tokens, in both directions) that the removed code does not perform. That reading is mine and not a lawyer's, and the removed multimodal code was part of tags `v0.2.1`/`v0.3.0` (whether the crates.io root `mlmf` 0.2.0 tarball includes it was not checked). The maintained workspace has no such code. If CireSnave wants the question closed, a short FTO read of US12700225B2 claim 1 on `src/multimodal_processor.rs` as of `34afd0e^` is the check.
+None of the 30 reads needed a decision. Flag for awareness only: **H17** is the one place where the removed code and a granted claim sit close (cross-attention between modalities followed by combining). The distinction rests on a specific limitation (channel-wise concatenation of the attended tokens with the same modality's original tokens, in both directions) that the removed code does not perform. That reading is mine and not a lawyer's, and the removed multimodal code was part of tags `v0.2.1`/`v0.3.0` (whether the crates.io root `mlmf` 0.2.0 tarball includes it was not checked). The maintained workspace has no such code. If CireSnave wants the question closed, a short FTO read of US12700225B2 claim 1 on `src/multimodal_processor.rs` as of `34afd0e^` is the check.
 
 ## Limitations
 
@@ -124,7 +148,8 @@ None of the 28 reads needed a decision. Flag for awareness only: **H17** is the 
 - Claim text is Google Patents' machine conversion; the Cambricon family may have other members (continuations) not surfaced here. Seven members were read (H1-H7).
 - Patents with priority before a format (the Cambricon family, 2018-06) are not prior art against safetensors, GGUF or `.pt2`, and those formats are third-party specifications we implement; this sweep says nothing about their owners' rights.
 - Part B reads the removed code's headers and the passages quoted; it did not trace every code path. The removed code was largely scaffolding (configuration structures, placeholder INT4, simplified statistics), which is itself why most differences above are "never done".
-- Re-sweep due on a new family of capability (the architecture detector and name mapping, ROADMAP S-12/S-30, when built), and by 2027-10-25.
+- Part C was thin by necessity: Google Patents had throttled the shared IP on 2026-10-25, so only three web searches were made (two together, one later) and two patents fetched, with a 45 s pause between fetches. The third search surfaced no patents, so ideas 21 and 22 rest on two queries that returned nothing on point plus two reads. Control: the same tool returned patent pages (US5444824, US20250362963) for Q23/Q24, so it reaches patents for these phrasings. Open-source loaders that infer architecture from tensor names exist (ComfyUI-GGUF, Spandrel, llama.cpp itself); that is prior art for idea 22, not a patent read.
+- Re-sweep due on a new family of capability (tensor-name mapping, ROADMAP S-30, when built; the detector S-12 is covered by Part C), and by 2027-10-25.
 
 ## Hand-over
 

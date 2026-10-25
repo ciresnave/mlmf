@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.21] - 2026-10-25
+
+### Changed
+- `docs/PATENT-SWEEP.md`: re-sweep for `mlmf-gguf-arch` (ROADMAP S-59). Two ideas added (declared-architecture classification that is never overridden by a guess; tensor-name inference only when the key is absent from a complete metadata view). Three searches, two patents read claim by claim (US20250362963A1, US5444824A): both clear, nothing needs review. Google Patents was throttled, so search was a general web search and the record says so.
+
 ## [0.7.20] - 2026-10-25
 
 ### Added
