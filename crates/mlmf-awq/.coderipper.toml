@@ -13,4 +13,6 @@
 public_api = [
   { file = "src/config.rs", reason = "published API of mlmf-awq (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
   { file = "src/layer.rs", reason = "published API of mlmf-awq (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
+  { file = "src/io.rs", reason = "published API of mlmf-awq (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
+  { file = "src/config_write.rs", reason = "published API of mlmf-awq (crates.io); no in-repo consumer yet, only this crate's own unit tests" },
 ]

@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.25] - 2026-10-25
+
+### Added
+- `mlmf-awq`: `read_layer` (a located layer's qweight/qzeros/scales/bias as stored bytes), `write_layer` (checks byte lengths against the declared geometry and returns the tensors for a container writer), and `AwqConfig::to_standalone_json` / `to_quantization_config_json` (absent fields are omitted, never defaulted). Bytes are moved, never unpacked or repacked (ROADMAP S-53). ROADMAP S-05.
+
 ## [0.7.24] - 2026-10-25
 
 ### Added
