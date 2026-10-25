@@ -1,0 +1,10 @@
+[package]
+    description          = "Writes ONNX model files (ModelProto): initializers, metadata and graph structure the caller supplies, nodes as opaque pre-encoded bytes. No I/O, no operators."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-onnx"
+    repository.workspace = true
+    version.workspace    = true
+
+[dependencies]
+    mlmf-core = { path = "../mlmf-core", version = "0.7.0" }
