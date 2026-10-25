@@ -44,9 +44,8 @@ Follow-ups from that ruling, none started:
 - **Offers of the removed code:** distributed loading to Fuel if it has nothing
   similar; quantization to Fuel or the conversion project; caching and model cards as
   possible small projects built on MLMF. All pending the PM.
-- The design spec's section 10 still bans architecture inference and schedules the
-  oracle for removal; CireSnave's ruling reverses that part and the spec needs
-  amending.
+- The design spec's section 10 banned architecture inference and scheduled the oracle
+  for removal; CireSnave's ruling reverses that part. Amended 2026-10-25 (0.7.10).
 
 ## AWQ stays; gptq and hf-tokenizer undecided
 
@@ -174,9 +173,9 @@ Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10
 | S-44 | OQ-2 naive round-to-nearest quantization | SPEC L559 | held (until an operator asks) | - |
 | S-45 | `mlmf-source-hub`'s range implementation and Fuel's use of `ShardIndex` are unchecked | core plan L1886; shards plan L631 | open (NOT VERIFIED; the second is consumer-side) | - |
 | S-46 | `MLMF_TEAM_BRIEFING.md`: rewrite or delete (its header warns it is stale, its body claims v0.1.0 production-ready) | MLMF_TEAM_BRIEFING.md L1-7 | open | CALL: a document with a named audience |
-| S-47 | F1: `write_safetensors(path, tensors: impl IntoIterator<Item=(String, dtype, shape, &[u8])>, metadata: Option<HashMap<String,String>>)`; tensors arrive already encoded in the file dtype | fuel row 42 slice F (CireSnave, 2026-10-25: "Definitely move to MLMF"); fuel `[TASK]` 2026-10-25 | open (take) | gate (fuel's): MLMF write read back by old and new readers, tensors byte-identical |
-| S-48 | E1: raw positional `.imatrix` reader (`parse`, `parse_bytes`, `load_path` to a name to `Vec<f32>` map); `mlmf-gguf` `imatrix.rs` covers the GGUF-embedded layout only | fuel row 42 slice E; SPEC OQ-3 | open (take) | gate: same map on every `.imatrix` fuel holds |
-| S-49 | F2: `write_gguf(path, metadata, tensors)`, v2, alignment padding, tensors already encoded; shares work with the `save_as_gguf` repair (S-02) | fuel row 42 slice F; reference `fuel-tensor-tools/src/main.rs write_gguf` | open (take) | gate: byte-identical file to fuel's output for the same inputs |
+| S-47 | F1: `write_safetensors(path, tensors: impl IntoIterator<Item=(String, dtype, shape, &[u8])>, metadata: Option<HashMap<String,String>>)`; tensors arrive already encoded in the file dtype | fuel row 42 slice F (CireSnave, 2026-10-25: "Definitely move to MLMF"); fuel `[TASK]` 2026-10-25 | DONE in 0.7.2 (#148): `encode_safetensors` | gate (fuel's): MLMF write read back by old and new readers, tensors byte-identical |
+| S-48 | E1: raw positional `.imatrix` reader (`parse`, `parse_bytes`, `load_path` to a name to `Vec<f32>` map); `mlmf-gguf` `imatrix.rs` covers the GGUF-embedded layout only | fuel row 42 slice E; SPEC OQ-3 | DONE in 0.7.4 (#150): `parse_raw_imatrix` | gate: same map on every `.imatrix` fuel holds |
+| S-49 | F2: `write_gguf(path, metadata, tensors)`, v2, alignment padding, tensors already encoded; shares work with the `save_as_gguf` repair (S-02) | fuel row 42 slice F; reference `fuel-tensor-tools/src/main.rs write_gguf` | DONE in 0.7.6 (#151): `encode_gguf` | gate: byte-identical file to fuel's output for the same inputs |
 | S-50 | E3: `GgufTokenizerData` from `tokenizer.ggml.*` (tokens, merges, unk/bos/eos ids, flags, `pre`); absent keys are `None`, no guessed values; building `tokenizers::Tokenizer` stays in fuel | fuel row 42 slice E | open (take) | gate: data equal on the GGUF corpus |
 | S-51 | E2: pickle / `.pth` tensor-info reader (`mlmf-pickle`, port of fuel's 754-line VM); returns MLMF dtype and shape types | fuel row 42 slice E; SPEC §11, §12 step 6, AD-3 | open (take; AD-3 adoption gate applies) | gate: identical infos on a `.pth` corpus |
 | S-52 | E4: NF4 (bitsandbytes) reading only: locate a layer's tensors, return the raw packed blocks, absmax (plain or nested), `quant_map`, shape, blocksize, parsed quant-state JSON; no dequantization | fuel row 42 slice E (CireSnave: "other than the quantization") | open (take; reading only) | gate: raw bytes equal on the real bnb NF4 checkpoint |
