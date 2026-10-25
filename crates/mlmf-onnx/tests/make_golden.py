@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 """Regenerate golden.onnx with the reference `onnx` package.
 
-    pip install onnx
+    pip install onnx==1.23.2
     python make_golden.py golden.onnx
 
 The model below is mirrored field for field in tests/golden.rs. The bytes are
