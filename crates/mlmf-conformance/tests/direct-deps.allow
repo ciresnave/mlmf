@@ -32,6 +32,10 @@ mlmf-meta
 mlmf-safetensors
 mlmf-source-file
 
+# safetensors: the upstream crate, as the independent reference for
+# tests/safetensors_writer_differential.rs. Sorts before serde_json ("a" < "e").
+safetensors
+
 # Both for examples/dump_gguf_meta.rs only -- the cross-project harness emit.
 # serde_json escapes; sha2 hashes. Sorted: serde_json before sha2 ("e" < "h"),
 # and deps.rs compares POSITIONALLY, so an entry in the wrong place fails

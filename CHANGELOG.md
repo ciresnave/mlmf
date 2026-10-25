@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.4] - 2026-10-25
+
+### Added
+- `mlmf-safetensors`: `encode_safetensors`, `encode_header`, `TensorToWrite`, `EncodeError`, `name_of`. Lays tensors already encoded in their file dtype into a safetensors image (fuel row 42 slice F1, CireSnave 2026-10-25). Pure, no I/O: the caller writes the bytes. Tensors are ordered widest dtype first then by name so each starts aligned; length, duplicate-name, `__metadata__` and overflow errors refuse rather than write. Checked in `mlmf-conformance` against the upstream `safetensors` crate in both directions.
+
 ## [0.7.3] - 2026-10-25
 
 ### Changed
