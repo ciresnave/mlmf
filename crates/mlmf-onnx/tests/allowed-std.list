@@ -1,0 +1,9 @@
+# C3: the std submodules mlmf-onnx may name. Grows one commit at a time,
+# each entry landing beside the code that forced it.
+#
+# `collections` -- `HashSet`, the duplicate-initializer check.
+# `error`       -- `impl std::error::Error for EncodeError`.
+# `fmt`         -- `impl std::fmt::Display for EncodeError`.
+collections
+error
+fmt

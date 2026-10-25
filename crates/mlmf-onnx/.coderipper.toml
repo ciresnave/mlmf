@@ -1,0 +1,9 @@
+# Declared public API (reachability): mlmf-onnx is a new published crate
+# (ROADMAP S-54). Its entry point, encode_model, has no in-repo non-test
+# caller yet: the consumer is Fuel, through crates.io, after the first
+# release. Declared, not deleted -- the code is documented and tested.
+[reachability]
+public_api = [
+  { file = "src/lib.rs", reason = "published API of mlmf-onnx (crates.io); consumed by Fuel, not by this repository's own targets" },
+  { file = "src/encode.rs", reason = "published API of mlmf-onnx (crates.io); consumed by Fuel, not by this repository's own targets" },
+]
