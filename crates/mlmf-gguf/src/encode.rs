@@ -367,6 +367,40 @@ fn check_unique<'a>(names: impl Iterator<Item = &'a str>) -> Option<&'a str> {
     names.into_iter().find(|n| !seen.insert(*n))
 }
 
+/// Refuse a repeated metadata key or tensor name.
+fn check_names(
+    metadata: &[(&str, &MetaValue)],
+    tensors: &[GgufTensorToWrite<'_>],
+) -> Result<(), GgufEncodeError> {
+    if let Some(key) = check_unique(metadata.iter().map(|(k, _)| *k)) {
+        return Err(GgufEncodeError::DuplicateKey {
+            key: key.to_string(),
+        });
+    }
+    match check_unique(tensors.iter().map(|t| t.name)) {
+        None => Ok(()),
+        Some(name) => Err(GgufEncodeError::DuplicateTensor {
+            name: name.to_string(),
+        }),
+    }
+}
+
+/// The tensor directory; returns each tensor's padding after its data.
+fn put_directory(
+    out: &mut Vec<u8>,
+    tensors: &[GgufTensorToWrite<'_>],
+    alignment: u64,
+) -> Result<Vec<usize>, GgufEncodeError> {
+    let mut offset = 0u64;
+    let mut padding = Vec::with_capacity(tensors.len());
+    for t in tensors {
+        let padded = put_tensor_info(out, t, offset, alignment)?;
+        padding.push((padded - t.data.len() as u64) as usize);
+        offset += padded;
+    }
+    Ok(padding)
+}
+
 /// Build everything that precedes the data region.
 ///
 /// # Errors
@@ -377,16 +411,7 @@ pub fn encode_gguf_head(
     tensors: &[GgufTensorToWrite<'_>],
     version: GgufVersion,
 ) -> Result<GgufHead, GgufEncodeError> {
-    if let Some(key) = check_unique(metadata.iter().map(|(k, _)| *k)) {
-        return Err(GgufEncodeError::DuplicateKey {
-            key: key.to_string(),
-        });
-    }
-    if let Some(name) = check_unique(tensors.iter().map(|t| t.name)) {
-        return Err(GgufEncodeError::DuplicateTensor {
-            name: name.to_string(),
-        });
-    }
+    check_names(metadata, tensors)?;
     check_required(metadata, tensors)?;
     let alignment = alignment_of(metadata)?;
 
@@ -398,13 +423,7 @@ pub fn encode_gguf_head(
     for (key, value) in metadata {
         put_kv(&mut out, key, value)?;
     }
-    let mut offset = 0u64;
-    let mut padding = Vec::with_capacity(tensors.len());
-    for t in tensors {
-        let padded = put_tensor_info(&mut out, t, offset, alignment)?;
-        padding.push((padded - t.data.len() as u64) as usize);
-        offset += padded;
-    }
+    let padding = put_directory(&mut out, tensors, alignment)?;
     out.resize(out.len() + padding_for(out.len() as u64, alignment), 0);
     Ok(GgufHead {
         bytes: out,
