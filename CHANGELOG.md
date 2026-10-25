@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.19] - 2026-10-25
+
+### Changed
+- `docs/PATENT-SWEEP.md` redone: every independent claim of the 16 patents in the first record re-read with the portfolio's `patent-claims.py` (full claim text, not a paraphrasing reader), the six unread patents read, and the code removed before 0.7.0 (distributed loading, quantization and calibration, model cache, model-card generator, multimodal fusion, memory estimate) added to scope with 12 more patents read. 28 patents read, none needing a decision; one close call (US12700225B2 against the removed multimodal code) recorded for awareness.
+
 ## [0.7.18] - 2026-10-25
 
 ### Added
