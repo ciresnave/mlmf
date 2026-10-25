@@ -333,3 +333,51 @@ fn a_nested_state_dict_is_read_through_its_key() {
         Err(PickleError::NoStateDict { .. })
     ));
 }
+
+#[test]
+fn a_very_deep_wrapper_chain_is_skipped_without_overflowing_the_stack() {
+    // {"x": _rebuild_parameter(_rebuild_parameter(... (None,) ...))}, 200k deep.
+    let depth = 200_000;
+    let mut pkl = vec![0x80, 2, b'}', b'('];
+    pkl.extend(unicode("x"));
+    for _ in 0..depth {
+        pkl.extend(global("torch._utils", "_rebuild_parameter"));
+    }
+    pkl.push(b'N');
+    for _ in 0..depth {
+        pkl.extend([0x85, b'R']);
+    }
+    pkl.extend(*b"u.");
+    let bytes = zip(&[("archive/data.pkl", &pkl)]);
+    let idx = parse_pth(&bytes, None).unwrap();
+    assert_eq!((idx.tensors.len(), idx.skipped), (0, vec!["x".to_string()]));
+}
+
+#[test]
+fn wrappers_are_looked_through_up_to_the_bound_and_no_further() {
+    let one = |k: usize| {
+        let mut pkl = vec![0x80, 2, b'}', b'('];
+        pkl.extend(unicode("w"));
+        for _ in 0..k {
+            pkl.extend(global("torch._utils", "_rebuild_parameter"));
+        }
+        pkl.extend(tensor_value(&t("w", "FloatStorage", "0")));
+        for _ in 0..k {
+            pkl.extend([0x85, b'R']);
+        }
+        pkl.extend(*b"u.");
+        zip(&[("archive/data.pkl", &pkl), ("archive/data/0", &[0u8; 24])])
+    };
+    // torch writes one wrapper; four are tolerated; a fifth is not looked through.
+    for k in [0usize, 1, 4] {
+        assert_eq!(
+            parse_pth(&one(k), None).unwrap().tensors.len(),
+            1,
+            "{k} wrappers"
+        );
+    }
+    assert_eq!(
+        parse_pth(&one(5), None).unwrap().skipped,
+        vec!["w".to_string()]
+    );
+}

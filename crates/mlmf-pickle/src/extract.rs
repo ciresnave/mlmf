@@ -148,23 +148,29 @@ fn rebuild_args(p: &Parsed, name: &str, args: Id, prefix: &str) -> Result<Rebuil
     })
 }
 
+/// How many `_rebuild_parameter` wrappers are looked through. torch writes
+/// one; the bound keeps a crafted chain from recursing to the stack's end.
+const MAX_WRAPPERS: usize = 4;
+
 /// Unwrap `_rebuild_parameter` and `_rebuild_from_type_v2` down to the
 /// `_rebuild_tensor_v2` call, if that is what the value is.
-fn tensor_call(p: &Parsed, value: Id) -> Option<Id> {
-    let Node::Reduce(callable, args) = p.arena[value] else {
-        return None;
-    };
-    if is_global(p, callable, "torch._utils", "_rebuild_tensor_v2") {
-        return Some(args);
-    }
-    let a = tuple(p, args)?;
-    if is_global(p, callable, "torch._utils", "_rebuild_parameter") {
-        return tensor_call(p, *a.first()?);
-    }
-    if is_global(p, callable, "torch._tensor", "_rebuild_from_type_v2")
-        && is_global(p, *a.first()?, "torch._utils", "_rebuild_tensor_v2")
-    {
-        return a.get(2).copied();
+fn tensor_call(p: &Parsed, mut value: Id) -> Option<Id> {
+    for _ in 0..=MAX_WRAPPERS {
+        let Node::Reduce(callable, args) = p.arena[value] else {
+            return None;
+        };
+        if is_global(p, callable, "torch._utils", "_rebuild_tensor_v2") {
+            return Some(args);
+        }
+        let a = tuple(p, args)?;
+        if is_global(p, callable, "torch._utils", "_rebuild_parameter") {
+            value = *a.first()?;
+            continue;
+        }
+        return (is_global(p, callable, "torch._tensor", "_rebuild_from_type_v2")
+            && is_global(p, *a.first()?, "torch._utils", "_rebuild_tensor_v2"))
+        .then(|| a.get(2).copied())
+        .flatten();
     }
     None
 }
