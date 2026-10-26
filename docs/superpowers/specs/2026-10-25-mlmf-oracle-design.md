@@ -41,7 +41,7 @@ JSON, UTF-8, one document:
 - `format` and `version` are required. A reader rejects an unknown `format` or a `version` it does not know;
   there is no best-effort read of a newer file. A new field bumps `version`.
 - `direction` is `hf-to-gguf` or `gguf-to-hf`, matching `mlmf-tensor-names::Direction`.
-- `source` is unique within a file. A duplicate is a read error, not last-wins.
+- `source` is unique within a file, and so is `target`. A duplicate of either is a read error, not last-wins. A name is never normalized before it is compared.
 - `evidence.kind` is `table` (copied from a declared table), `oracle` (proposed by a model) or `human`
   (reviewed and entered by a person). `model`, `prompt_sha256` and `date` are required when `kind` is `oracle`.
 - No confidence number is stored. The old `confidence_score -> f32` was a model's self-report; it is not

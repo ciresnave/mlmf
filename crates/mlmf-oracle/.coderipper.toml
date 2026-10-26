@@ -1,0 +1,8 @@
+# Declared public API (reachability): mlmf-oracle is a standalone offline
+# library; its items have no in-repo caller, only this crate's own #[cfg(test)]
+# tests, which this check does not count.
+[reachability]
+public_api = [
+  { file = "src/file.rs", reason = "published API of mlmf-oracle; no in-repo consumer, only this crate's own unit tests" },
+  { file = "src/oracle.rs", reason = "published API of mlmf-oracle; no in-repo consumer, only this crate's own unit tests" },
+]

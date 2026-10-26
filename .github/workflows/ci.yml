@@ -243,6 +243,22 @@ jobs:
       - name: cargo clippy -p mlmf-tensor-names
         run: cargo clippy -p mlmf-tensor-names --all-targets -- -D warnings
 
+      # mlmf-oracle holds the tensor-name mapping file and the checked Oracle
+      # seam. Format axis: no I/O, no features, so the plain four steps.
+      - name: cargo test -p mlmf-oracle
+        run: cargo test -p mlmf-oracle
+
+      - name: cargo test -p mlmf-oracle --no-default-features
+        run: cargo test -p mlmf-oracle --no-default-features
+
+      - name: cargo doc -p mlmf-oracle --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-oracle --no-deps
+
+      - name: cargo clippy -p mlmf-oracle
+        run: cargo clippy -p mlmf-oracle --all-targets -- -D warnings
+
       # mlmf-pickle reads a torch.save checkpoint's zip directory and tensor
       # index with a bounded pickle reader that executes nothing. Format axis:
       # no I/O, `default = []`, so the plain four steps. The real-checkpoint
