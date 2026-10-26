@@ -53,6 +53,17 @@ This is the first shipped part of idea 5's planned architecture detection (ROADM
 
 This is the shipped part of S-30. Mixture-of-experts and other layouts are not in the table and are reported, not mapped.
 
+## Part E: ideas swept (for `mlmf-oracle` as designed in `docs/superpowers/specs/2026-10-25-mlmf-oracle-design.md` (no code yet), and for `mlmf-awq` 0.7.25 read/write)
+
+25. An offline tool asks a pluggable model-backed oracle to propose, for source tensor names the declared table lacks, target names from a supplied candidate list, writing the accepted proposals to a mapping file (`Oracle::propose`).
+26. Check every proposal before it enters the file: the target must be in the candidate list, and no target may be claimed by two sources; a failing entry is dropped and reported.
+27. Each mapping-file entry records its evidence: kind (`table`, `oracle`, `human`) and, for an oracle entry, the model identifier, the SHA-256 of the exact prompt, and the date; no confidence score is stored. A reader rejects an unknown format or version and a duplicate source.
+28. A loader consults a mapping file only for names the declared table lacks and refuses a file entry that conflicts with a table row.
+29. Read an AWQ-packed layer's qweight, qzeros, scales and bias as stored bytes with dtype and shape (`read_layer`).
+30. Write an AWQ layer: check each tensor's byte length against the geometry its declared bit width, group size and feature counts imply, refuse on any disagreement, and return the tensors unchanged for a container writer (`write_layer`); write the quantization config in either of its two conventions, leaving out any field not held (`to_standalone_json`, `to_quantization_config_json`).
+
+Ideas 25 to 28 are designed, not built. Ideas 29 and 30 are built (0.7.25). Neither unpacks nor repacks the int4 words (ROADMAP S-53).
+
 ## Queries (source, query, date)
 
 Search tool: a general web search (not a patent database), run 2026-10-25; unrestricted queries and queries restricted to `patents.google.com` / `patents.justia.com`. Candidate patents were then read in full with `tools/patent-claims.py`.
@@ -97,6 +108,14 @@ Part D queries, run 2026-10-25 with the same general web search tool, paced (abo
 | Q26 | 23 | patent converting neural network checkpoint between frameworks mapping parameter names tensor name correspondence table source format target format | Google Patents, Justia |
 | Q27 | 23, 24 | patent method converting trained model weights file format renaming layer weights identifiers lookup table unmapped layers error large language model | Google Patents, Justia |
 | Q28 | 23, 24 | patent loading pretrained weights from one model repository format into another naming convention key remapping state dict parameter name mapping rules | none |
+
+Part E queries, run 2026-10-26 with the same general web search tool, restricted to patents.google.com and patents.justia.com; the claim fetches were paced (about one a minute):
+
+| # | idea | query (abridged) | restriction |
+|---|---|---|---|
+| Q29 | 25, 26, 27 | patent language model suggests mapping between parameter names of neural network checkpoint and target model layer names, mapping file with provenance | Google Patents, Justia |
+| Q30 | 29, 30 | patent storing quantized neural network weights packed integer words scales zero points per group file format writing validating tensor sizes against layer dimensions | Google Patents, Justia |
+| Q31 | 27 | patent record model identifier prompt hash and date for each output of generative model to make generated mapping reproducible auditable | Google Patents, Justia |
 
 Ideas 9 and 14 were not searched separately (a layout reading rule and a type-level policy); they share Q2/Q7.
 
@@ -143,6 +162,16 @@ Q26 to Q28 returned no patent claiming a parameter-name correspondence table, a 
 | H31 | US12271819B2 | Machine learning network model compression | Huawei | indep. 1, 13 (dependent claims through 26 seen) | A model file whose header carries decoding information, and per-layer handling | Claim 1 requires compressing a multi-layer model and a file holding "decoding information for enabling the ML network model to be decompressed and executed layer-by-layer"; claim 13 requires decompressing the Nth layer, loading its weights into a buffer, installing them into neurons and processing data; we rename strings and run nothing | clear |
 | H32 | WO2018058426A1 | Hardware neural network conversion method, computing device, compiling method and neural network software and hardware collaboration system | Tsinghua University | indep. 1 (conversion method) and the system claim read, from a machine translation of Chinese; the computing-device and compiling-method claims **UNREAD** | "Conversion" of a neural network and a generated parameter file | Claim 1 requires obtaining a connection graph, splitting it into basic units with only ingress and egress nodes, converting each into a network of neural-network-hardware basic-module virtual bodies satisfying a connection-degree constraint, and connecting them in splitting order into a parameter file; nothing in it renames tensors. Status Ceased per Google Patents | clear on claims 1 and the system claim; the two unread independents are the same hardware-constraint family by title and are not asserted clear |
 
+### Part E hits (`mlmf-oracle` design, `mlmf-awq` read/write)
+
+Independent claims printed in full with `tools/patent-claims.py` on 2026-10-26 (H34 as the B1 parent; the B2 number from the search result returned 404). Q29 found one patent family that claims a model predicting a name mapping, the nearest thing in this sweep to a patent on point; see "Needs review". Q30 returned quantization patents (scales, zero points, per-axis parameters) and nothing on packed-word storage, a file layout or checking tensor sizes against layer dimensions, so ideas 29 and 30 have no read patent. Q31 returned provenance-logging filings and papers (a prompt record with a model identifier, an invocation record with model version and prompt hash, a signed model identifier and timestamp) and one Salesforce patent, which was read.
+
+| # | patent | title | assignee | claims read | overlap | our difference | verdict |
+|---|---|---|---|---|---|---|---|
+| H33 | US11977524B2 | Machine learning system for automated attribute name mapping between source data models and destination data models | Cigna Intellectual Property | indep. 1, 10 | A model predicts which destination name a source name maps to, after a dictionary lookup | Claim 1 requires obtaining source and destination data models from different bounded contexts of a health care publisher platform with database schemas, standardizing the attribute names, a dictionary check, and a model prediction for names the dictionary lacks; we map tensor names in model files | clear |
+| H34 | US11556508B1 | same title (parent of H33) | Cigna Intellectual Property | indep. 1, 10 | Same, without the health care and bounded-context limits | Claim 1 requires, in one method: standardizing the names "according to specified character formatting", supplying them to a machine learning network model to predict a mapping, outputting an attribute mapping table, and, when the model cannot predict one, obtaining a matching input from a user and updating a custom dictionary, with a dictionary-first lookup. The design compares names byte-exactly (no standardizing step), has no step that turns a model's inability to predict into a user prompt that updates a dictionary, and the oracle runs offline and emits a file | not asserted clear; see "Needs review" |
+| H35 | US12608545B2 | Validating generative artificial intelligence output | Salesforce | indep. 1, 9, 17 | Records and checks where a generative model's output came from | Requires training the model on data sources, training-log metadata, receiving a user query, tokenizing sources and response, and mapping response portions to sources; we record a model id, prompt hash and date beside a name pair and train and query nothing | clear |
+
 ### Part B hits (removed code)
 
 | # | patent | title | assignee | claims read | overlap | difference (removed code) | verdict |
@@ -164,6 +193,8 @@ Q26 to Q28 returned no patent claiming a parameter-name correspondence table, a 
 
 None of the 32 reads needed a decision (H32 has two independent claims unread; see its row). Flag for awareness only: **H17** is the one place where the removed code and a granted claim sit close (cross-attention between modalities followed by combining). The distinction rests on a specific limitation (channel-wise concatenation of the attended tokens with the same modality's original tokens, in both directions) that the removed code does not perform. That reading is mine and not a lawyer's, and the removed multimodal code was part of tags `v0.2.1`/`v0.3.0` (whether the crates.io root `mlmf` 0.2.0 tarball includes it was not checked). The maintained workspace has no such code. If CireSnave wants the question closed, a short FTO read of US12700225B2 claim 1 on `src/multimodal_processor.rs` as of `34afd0e^` is the check.
 
+**Part E, H34 (US11556508B1, Cigna, Active, expires about 2041 per Google Patents):** the closest claim in this sweep to a planned feature. Claim 1 couples (a) standardizing names by character formatting, (b) a model predicting the mapping, (c) a mapping table, and (d) on a failed prediction, a user's input updating a custom dictionary, with a dictionary-first lookup. Nothing built reads on it: `mlmf-oracle` does not exist yet, and its design does not standardize names or turn a failed prediction into a dictionary-updating prompt. The PM should hold that line when the crate is built: **do not add name normalization (case, underscore or separator stripping) to oracle requests or proposals, and do not add an interactive "model failed, ask the user, store the answer" loop.** A `human` entry is a person writing a row, independent of any model failure. This reading is mine and not a lawyer's; if the PM or CireSnave want the point closed before `mlmf-oracle` publishes, that is a short FTO read of claim 1 against the finished crate. Dependent claims were not read.
+
 ## Limitations
 
 - AI-assisted; not legal advice and not a freedom-to-operate opinion. A lawyer's review is a separate, later purchase.
@@ -174,6 +205,7 @@ None of the 32 reads needed a decision (H32 has two independent claims unread; s
 - Part B reads the removed code's headers and the passages quoted; it did not trace every code path. The removed code was largely scaffolding (configuration structures, placeholder INT4, simplified statistics), which is itself why most differences above are "never done".
 - Part C was thin by necessity: Google Patents had throttled the shared IP on 2026-10-25, so only three web searches were made (two together, one later) and two patents fetched, with a 45 s pause between fetches. The third search surfaced no patents, so ideas 21 and 22 rest on two queries that returned nothing on point plus two reads. Control: the same tool returned patent pages (US5444824, US20250362963) for Q23/Q24, so it reaches patents for these phrasings. Open-source loaders that infer architecture from tensor names exist (ComfyUI-GGUF, Spandrel, llama.cpp itself); that is prior art for idea 22, not a patent read.
 - Part D is thin: three searches and two patents (one only partly read), none of the searches found a patent on point. Control: the same tool returned patent pages (WO2018058426, US12271819) for Q26 and Q27, so it reaches patents for these phrasings. Translation of renamed keys between checkpoint layouts is long-standing open-source practice; that bears on novelty, not on whether a patent claims it.
+- Part E is thin: three searches, three patents read. The oracle design has no code, so H34 is read against a page, not a crate. The search result gave 11556508 with no kind code; B2 returned 404 and B1 was the real document, so H34 is spelled with its kind code. The Q30 null (ideas 29, 30) shows what this tool surfaced; the same query returned quantization patent pages (US20230342613A1, US10678508), so the tool reaches patents for that phrasing. Open-source AWQ writers (AutoAWQ, llm-awq) exist; that is prior art for ideas 29 and 30, not a patent read. The USPTO page-image route was not used.
 - Re-sweep due on a new family of capability (the next unbuilt row, e.g. the oracle S-21; the detector S-12 is Part C and name mapping S-30 is Part D), and by 2027-10-25.
 
 ## Hand-over
