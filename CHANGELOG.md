@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.26] - 2026-10-26
+
+### Changed
+- `docs/PATENT-SWEEP.md`: Part E, the sweep for the `mlmf-oracle` design (ideas 25-28) and the `mlmf-awq` read/write (ideas 29-30). Three paced searches, three patents read. One to watch: US11556508B1 (Cigna, name-mapping by a model with name standardizing and a user-updated dictionary) is not asserted clear against the planned oracle; ROADMAP S-60 and the oracle design page bar the two things that would bring the crate closer to it. Nothing built reads on it.
+
 ## [0.7.25] - 2026-10-25
 
 ### Added
