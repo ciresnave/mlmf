@@ -17,7 +17,12 @@
 #![warn(missing_docs)]
 
 pub mod config;
+mod config_write;
+pub mod io;
 pub mod layer;
 
 pub use config::{AwqConfig, AwqConfigError};
+pub use io::{
+    AwqIoError, AwqLayerBytes, AwqLayerToWrite, AwqPart, AwqTensorBytes, read_layer, write_layer,
+};
 pub use layer::{LocateError, LocateReport, PackedLinearLayer, locate_layers};
