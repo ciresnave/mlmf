@@ -1,0 +1,13 @@
+[package]
+    description          = "Offline mapping-file emitter for tensor names: the mapping-file format with evidence per entry, and a pluggable Oracle whose proposals are checked before they are written. Never on a load path."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-oracle"
+    repository.workspace = true
+    version.workspace    = true
+
+# NO [features] SECTION, matching mlmf-awq and mlmf-gptq.
+
+[dependencies]
+    mlmf-tensor-names = { path = "../mlmf-tensor-names", version = "0.7.0" }
+    serde_json        = { version = "1.0", default-features = false, features = ["std"] }

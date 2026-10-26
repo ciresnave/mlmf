@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.27] - 2026-10-26
+
+### Added
+- `mlmf-oracle` (ROADMAP S-21): the tensor-name mapping file (`MappingFile`, `Entry`, `Evidence`; JSON, versioned, unique sources and targets, evidence per entry with model, prompt SHA-256 and date for an oracle entry) and the `Oracle` trait with `accept`, which checks every proposal against its request and drops a source or target claimed twice rather than picking one. Names compare byte-exactly, with no normalization and no model-fail-then-ask loop (ROADMAP S-60). No I/O, never on a load path.
+
+### Changed
+- ROADMAP: S-59 marked done.
+
 ## [0.7.26] - 2026-10-26
 
 ### Changed

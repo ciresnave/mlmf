@@ -1,0 +1,9 @@
+# C3: the std submodules mlmf-oracle may name. Grows one commit at a time,
+# each entry landing beside the code that forced it.
+#
+# `collections` -- `HashMap`/`HashSet` for the duplicate and claim checks.
+# `error` -- `std::error::Error` for the error types.
+# `fmt` -- `std::fmt` for their Display impls.
+collections
+error
+fmt
