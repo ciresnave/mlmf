@@ -80,6 +80,15 @@ a loaded file and passes it to `translate`. Lookup order is fixed: declared tabl
 is consulted only when the table has none, and **never overrides a table row** (a conflict is a load error).
 A name in neither stays `None` / `Unmapped`. Nothing loads a mapping file implicitly.
 
+## Do not build (patent constraint, PM 2026-10-26)
+
+Sweep Part E, H34 (US11556508B1) claims standardizing names, a model predicting the mapping, and a user's answer updating a dictionary when the model fails. Two rules follow, and they bind the crate and its loader:
+
+- **Names compare byte-exactly.** No case-folding, no separator or underscore stripping, no other normalization of a source or candidate name before it is matched, proposed or looked up.
+- **No model-fail-then-ask loop.** Nothing turns "the oracle could not place this name" into a prompt whose answer is stored. An unplaced name stays absent. A `human` entry is a person writing a row, not a response to a failed proposal.
+
+If the claims read closer once the oracle is designed in more detail, stop and go to the PM. ROADMAP S-60.
+
 ## Crate checklist (CLAUDE.md conventions)
 
 Workspace member and `default-members`; CI 4 steps; `tests/{axis,direct-deps.allow,allowed-std.list}`;
