@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.28] - 2026-10-28
+
+### Added
+- `mlmf-tensor-names`: `translate_with(direction, name, &MappingFile)` answers from the declared table first and falls back to a mapping file only for a name the table lacks. A file entry that disagrees with a table row is a `LookupError::Conflict`, a file for the other direction is `WrongDirection`, and nothing loads a file implicitly. Names match byte-exactly (ROADMAP S-60). ROADMAP S-21 (last piece).
+
+### Changed
+- The mapping-file type (`MappingFile`, `Entry`, `Evidence`, `EvidenceKind`, `FileError`) now lives in `mlmf_tensor_names::mapping_file`; `mlmf-oracle` re-exports it, so `mlmf_oracle::MappingFile` and friends still resolve. `mlmf-oracle` no longer depends on `serde_json` directly, and `mlmf-tensor-names` gains `serde_json` (the first dependency of that crate).
+
 ## [0.7.27] - 2026-10-26
 
 ### Added

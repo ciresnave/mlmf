@@ -1,3 +1,2 @@
 # C2 allow-list for mlmf-oracle. Sorted.
 mlmf-tensor-names
-serde_json

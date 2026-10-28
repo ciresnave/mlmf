@@ -25,8 +25,8 @@ supported ones; `mlmf` itself on crates.io stops at 0.2.0.
 | `mlmf-gguf` | Read GGUF metadata and tensor directories, raw and GGUF-embedded imatrix, tokenizer keys; write GGUF | format |
 | `mlmf-ggml` | ggml type codes and block geometry | format |
 | `mlmf-gguf-arch` | Name a GGUF file's architecture family from `general.architecture` or unambiguous tensor names; absent when the file does not say | format |
-| `mlmf-tensor-names` | Translate tensor names between HuggingFace and GGUF spellings (dense Llama-style layout) from a declared table; a name with no entry is reported, never guessed | format |
-| `mlmf-oracle` | The tensor-name mapping file (an entry per name pair, with its evidence) and a checked `Oracle` seam for proposing pairs offline; never on a load path, names compared byte-exactly | format |
+| `mlmf-tensor-names` | Translate tensor names between HuggingFace and GGUF spellings (dense Llama-style layout) from a declared table; a name with no entry is reported, never guessed; also reads a mapping file of extra name pairs (`translate_with`, table first) | format |
+| `mlmf-oracle` | A checked `Oracle` seam for proposing tensor-name pairs offline, writing them as entries of the mapping file (the file type lives in `mlmf-tensor-names`); never on a load path, names compared byte-exactly | format |
 | `mlmf-pickle` | Read PyTorch `.pth`/`.bin` checkpoints: zip directory and tensor index, nothing executed | format |
 | `mlmf-onnx` | Write ONNX `ModelProto` files (nodes supplied as opaque bytes) | format |
 | `mlmf-awq`, `mlmf-gptq` | Locate packed AWQ / GPTQ layers and parse their quantization configs | format |

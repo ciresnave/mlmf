@@ -1,1 +1,2 @@
-# C2 allow-list for mlmf-tensor-names. Sorted. No dependencies.
+# C2 allow-list for mlmf-tensor-names. Sorted. 
+serde_json

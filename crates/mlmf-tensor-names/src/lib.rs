@@ -22,6 +22,10 @@
 
 use std::fmt;
 
+pub mod mapping_file;
+
+pub use mapping_file::MappingFile;
+
 /// Which way to translate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -151,6 +155,78 @@ pub fn translate_all<'a>(
         Ok(mapped)
     } else {
         Err(Unmapped { names: missing })
+    }
+}
+
+/// Why [`translate_with`] could not answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum LookupError {
+    /// The mapping file reads the other way from the lookup.
+    WrongDirection {
+        /// The direction the file declares.
+        file: Direction,
+        /// The direction asked for.
+        asked: Direction,
+    },
+    /// The declared table and the file give different targets for one name.
+    Conflict {
+        /// The source name.
+        name: String,
+        /// What the declared table says.
+        table: String,
+        /// What the file says.
+        file: String,
+    },
+}
+
+impl fmt::Display for LookupError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WrongDirection { file, asked } => {
+                write!(f, "mapping file reads {file:?}, lookup asked for {asked:?}")
+            }
+            Self::Conflict { name, table, file } => write!(
+                f,
+                "`{name}`: the table says `{table}`, the mapping file says `{file}`"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for LookupError {}
+
+/// Translate one name from the declared table, falling back to `extra` for a
+/// name the table lacks.
+///
+/// The table always comes first. A file entry never overrides a table row: if
+/// both answer and differ, that is a [`LookupError::Conflict`], not a choice.
+/// A name in neither is `Ok(None)`. Nothing is normalized; names match
+/// byte-exactly. A file is only ever consulted when the caller passes it.
+///
+/// # Errors
+///
+/// The file reads the other way from `direction`, or a table row and a file
+/// entry disagree.
+pub fn translate_with(
+    direction: Direction,
+    name: &str,
+    extra: &MappingFile,
+) -> Result<Option<String>, LookupError> {
+    if extra.direction() != direction {
+        return Err(LookupError::WrongDirection {
+            file: extra.direction(),
+            asked: direction,
+        });
+    }
+    match (translate(direction, name), extra.target_of(name)) {
+        (Some(table), Some(file)) if table != file => Err(LookupError::Conflict {
+            name: name.to_string(),
+            table,
+            file: file.to_string(),
+        }),
+        (Some(table), _) => Ok(Some(table)),
+        (None, file) => Ok(file.map(str::to_string)),
     }
 }
 

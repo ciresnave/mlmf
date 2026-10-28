@@ -12,7 +12,7 @@ use std::fmt;
 
 use mlmf_tensor_names::Direction;
 
-use crate::file::{Entry, Evidence};
+use mlmf_tensor_names::mapping_file::{Entry, Evidence};
 
 /// What an oracle is asked.
 #[derive(Debug, Clone, Copy)]

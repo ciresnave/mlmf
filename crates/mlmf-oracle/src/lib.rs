@@ -21,11 +21,10 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-pub mod file;
 pub mod oracle;
 
-pub use file::{Entry, Evidence, EvidenceKind, FileError, MappingFile};
 pub use mlmf_tensor_names::Direction;
+pub use mlmf_tensor_names::mapping_file::{Entry, Evidence, EvidenceKind, FileError, MappingFile};
 pub use oracle::{
     Accepted, Oracle, OracleError, Proposal, RejectReason, Rejected, Request, accept,
 };
