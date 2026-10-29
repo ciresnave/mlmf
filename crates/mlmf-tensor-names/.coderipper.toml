@@ -4,4 +4,5 @@
 [reachability]
 public_api = [
   { file = "src/lib.rs", reason = "published API of mlmf-tensor-names; no in-repo consumer, only this crate's own unit tests" },
+  { file = "src/mapping_file.rs", reason = "published API of mlmf-tensor-names; no in-repo consumer, only this crate's own unit tests" },
 ]

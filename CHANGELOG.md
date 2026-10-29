@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.29] - 2026-10-29
+
+### Changed
+- `mlmf-tensor-names`: `src/mapping_file.rs` is declared public API for the reachability check, as `mlmf-oracle`'s `file.rs` was before the move (0.7.28). Clears 13 new advisory findings; no code change.
+
 ## [0.7.28] - 2026-10-28
 
 ### Added
