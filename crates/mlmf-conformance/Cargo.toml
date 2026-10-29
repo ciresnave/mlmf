@@ -58,9 +58,9 @@
     # ≤50-transitive-node ceiling vs the root package's 159) is about a
     # PRODUCTION dependency; an optional, feature-gated, single-test dev edge
     # in a crate that is `publish = false` and never ships carries none of
-    # that cost and creates no cycle. Pinned to a commit, not a branch, so the
-    # differential's target does not move out from under it silently --
-    # re-pin deliberately when Fuel's GGUF/GGML parser changes.
+    # that cost and creates no cycle. A crates.io version pinned to the 0.24
+    # line, so the differential's target does not move out from under it
+    # silently -- re-pin deliberately when Fuel's GGUF/GGML parser changes.
     #
     # ⚠️ Pinned to the 0.24 line ON PURPOSE, not left behind. fuel-formats
     # 0.25 deleted its own GGUF parser (its gguf.rs now says the one reader is
