@@ -74,9 +74,7 @@ a target is an error, not a tie-break).
 
 ## How `mlmf-tensor-names` loads it
 
-`mlmf-tensor-names` gains a loader for the **file only** (parse and validate; no oracle code, no new
-dependency beyond a JSON parser). A caller that wants extra names builds a `Table` from the declared rows plus
-a loaded file and passes it to `translate`. Lookup order is fixed: declared table first; a mapping-file entry
+`mlmf-tensor-names` holds the **file type** (parse and validate; no oracle code, no dependency beyond a JSON parser), and `mlmf-oracle` re-exports it, so there is one definition. A caller that wants extra names passes a loaded file to `translate_with` (built in 0.7.28). Lookup order is fixed: declared table first; a mapping-file entry
 is consulted only when the table has none, and **never overrides a table row** (a conflict is a load error).
 A name in neither stays `None` / `Unmapped`. Nothing loads a mapping file implicitly.
 

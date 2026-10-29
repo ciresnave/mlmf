@@ -10,4 +10,3 @@
 
 [dependencies]
     mlmf-tensor-names = { path = "../mlmf-tensor-names", version = "0.7.0" }
-    serde_json        = { version = "1.0", default-features = false, features = ["std"] }

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! The mapping file: extra tensor-name pairs, each with its evidence.
 //!
+//! This crate reads and validates the file; `mlmf-oracle` is the offline tool
+//! that writes proposals into one. Nothing here loads a file by itself.
+//!
 //! JSON, UTF-8, one document. `format` and `version` are required and an
 //! unknown value of either is a read error: there is no best-effort read of a
 //! newer file. Names are compared byte-exactly (ROADMAP S-60).
@@ -8,7 +11,7 @@
 use std::collections::HashSet;
 use std::fmt;
 
-use mlmf_tensor_names::Direction;
+use crate::Direction;
 use serde_json::{Map, Value, json};
 
 const FORMAT: &str = "mlmf-name-mapping";

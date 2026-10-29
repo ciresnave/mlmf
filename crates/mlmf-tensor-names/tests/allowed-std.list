@@ -1,7 +1,9 @@
 # C3: the std submodules mlmf-tensor-names may name. Grows one commit at a time,
 # each entry landing beside the code that forced it.
 #
+# `collections` -- `HashSet` for the duplicate checks in the mapping file.
 # `error` -- `std::error::Error`, for the impl on `Unmapped`.
 # `fmt` -- `std::fmt`, for the Display impl of `Unmapped`.
+collections
 error
 fmt

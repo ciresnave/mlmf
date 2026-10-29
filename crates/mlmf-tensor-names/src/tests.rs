@@ -140,3 +140,75 @@ fn translate_all_names_every_missing_name() {
 fn translate_all_of_nothing_is_empty() {
     assert_eq!(translate_all(HF, []).unwrap(), vec![]);
 }
+
+mod with_file {
+    use super::*;
+    use crate::mapping_file::{Entry, Evidence};
+
+    const HASH: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    fn file(direction: Direction, pairs: &[(&str, &str)]) -> MappingFile {
+        let entries = pairs
+            .iter()
+            .map(|(s, t)| Entry {
+                source: (*s).into(),
+                target: (*t).into(),
+                evidence: Evidence::oracle("m", HASH, "2026-10-28"),
+            })
+            .collect();
+        MappingFile::new(direction, entries).unwrap()
+    }
+
+    #[test]
+    fn a_name_the_table_lacks_is_answered_from_the_file() {
+        let f = file(
+            HF,
+            &[(
+                "model.layers.0.mlp.experts.0.w1.weight",
+                "blk.0.ffn_gate_exps.weight",
+            )],
+        );
+        let got = translate_with(HF, "model.layers.0.mlp.experts.0.w1.weight", &f);
+        assert_eq!(got, Ok(Some("blk.0.ffn_gate_exps.weight".into())));
+        assert_eq!(
+            translate(HF, "model.layers.0.mlp.experts.0.w1.weight"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_name_in_neither_is_none() {
+        let f = file(HF, &[("a.weight", "b.weight")]);
+        assert_eq!(translate_with(HF, "zzz.weight", &f), Ok(None));
+    }
+
+    #[test]
+    fn the_table_answers_first_and_agreement_is_fine() {
+        let f = file(HF, &[("lm_head.weight", "output.weight")]);
+        assert_eq!(
+            translate_with(HF, "lm_head.weight", &f),
+            Ok(Some("output.weight".into()))
+        );
+    }
+
+    #[test]
+    fn a_file_entry_cannot_override_a_table_row() {
+        let f = file(HF, &[("lm_head.weight", "something_else.weight")]);
+        let e = translate_with(HF, "lm_head.weight", &f).unwrap_err();
+        assert!(matches!(e, LookupError::Conflict { .. }), "{e}");
+    }
+
+    #[test]
+    fn a_file_for_the_other_direction_is_refused() {
+        let f = file(GG, &[("a", "b")]);
+        let e = translate_with(HF, "a", &f).unwrap_err();
+        assert!(matches!(e, LookupError::WrongDirection { .. }), "{e}");
+    }
+
+    #[test]
+    fn lookup_is_byte_exact() {
+        let f = file(HF, &[("Odd.Name.weight", "x.weight")]);
+        assert_eq!(translate_with(HF, "odd.name.weight", &f), Ok(None));
+        assert_eq!(translate_with(HF, "Odd.Name.weight ", &f), Ok(None));
+    }
+}

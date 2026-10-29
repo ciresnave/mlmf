@@ -6,4 +6,7 @@
     repository.workspace = true
     version.workspace    = true
 
-# NO [features] SECTION and no dependencies: a pure function over strings.
+# NO [features] SECTION: pure functions over strings, plus the mapping-file parser.
+
+[dependencies]
+    serde_json = { version = "1.0", default-features = false, features = ["std"] }
