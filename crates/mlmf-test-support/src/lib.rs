@@ -20,7 +20,7 @@
 //!
 //! ⚠️ **Wording, tokens, emission and return shape are NOT shared** and
 //! must not move here. This repo's skip notices carry
-//! [`mlmf_core::NOTICE_TOKEN`], which `scripts/local-gates.sh` derives from
+//! `mlmf_core::NOTICE_TOKEN`, which `scripts/local-gates.sh` derives from
 //! source with `sed` and greps for; lightbulb's token is load-bearing on
 //! their armed panic as well as their notice. **A shared function that
 //! owned the wording would make this runner discard the skip and report

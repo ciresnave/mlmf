@@ -13,3 +13,6 @@
 
 [features]
     default = []
+
+[dev-dependencies]
+    mlmf-test-support = { path = "../mlmf-test-support" }

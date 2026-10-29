@@ -1,0 +1,3 @@
+# C2 allow-list for mlmf-test-support. Sorted. DELIBERATELY EMPTY: the crate
+# is std-only, and a dependency added "just in case" is a permission nobody
+# re-examines.

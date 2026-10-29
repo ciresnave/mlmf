@@ -1,0 +1,7 @@
+# Declared public API (reachability): mlmf-test-support is a test-only crate;
+# its callers are other crates' integration tests, which this check does not
+# count.
+[reachability]
+public_api = [
+  { file = "src/lib.rs", reason = "test-support API of a publish = false crate; callers are other crates' integration tests" },
+]

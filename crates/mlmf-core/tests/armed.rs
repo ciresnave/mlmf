@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! The portfolio's shared arming predicate, pinned.
 //!
-//! The predicate lives in `tests/support/armed.rs` and is included by
-//! `#[path]` from three crates. This is where it is tested — once, in the
-//! crate that hosts it.
+//! The predicate lives in `mlmf-test-support`, a `publish = false`
+//! dev-dependency of every crate that uses it. This is where it is tested —
+//! once, in the first crate that depends on it.
 //!
 //! ⚠️ **Every assertion here is over a VALUE, never over the environment.**
 //! `set_var` is `unsafe` in edition 2024 and races every other test in the
@@ -11,8 +11,7 @@
 //! vulkane's design and it is the reason `armed_by` takes `Option<&str>`
 //! rather than reading the variable itself.
 
-#[path = "support/armed.rs"]
-mod armed;
+use mlmf_test_support as armed;
 
 use armed::{armed, armed_by};
 

@@ -111,3 +111,6 @@
     # edge above is never resolved by a bare `cargo build`/`cargo test` --
     # see the comment on that dependency for why that matters.
     fuel-differential = ["dep:fuel-formats"]
+
+[dev-dependencies]
+    mlmf-test-support = { path = "../mlmf-test-support" }

@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! C2 (direct half) and the manifest half of C3/C5: every gated workspace
 //! member's direct dependencies are pinned to its own allow-list, and no
-//! table other than a plain `[dependencies]` may introduce one.
+//! table other than a plain `[dependencies]` may introduce one. The one
+//! exception is a plain `[dev-dependencies]` edge to a workspace member whose
+//! own manifest says `publish = false`: that edge never reaches a consumer,
+//! and it is how test support is shared without `#[path]` includes that
+//! escape the including crate's package (SUP-004).
 //!
 //! The first version of this test matched section headers with
 //! `line == "[dependencies]"`, which silently switched collection **off**
@@ -128,6 +132,11 @@ fn scan_manifest(label: &str, text: &str, axis: Axis, gated_crate: &str) -> Vec<
 struct Facts {
     /// Every directly declared dependency, from any accepted form.
     deps: Vec<String>,
+    /// Every dependency named in a plain `[dev-dependencies]` table. Checked
+    /// against the workspace by `dev_dependency_violations`, not by the
+    /// allow-list: it never reaches a consumer, but only if its target does
+    /// not either.
+    dev_deps: Vec<String>,
     /// Headers that declare dependencies through a table this crate is not
     /// allowed to use at all.
     offending_tables: Vec<String>,
@@ -175,6 +184,7 @@ fn is_dependency_table(segments: &[String]) -> bool {
 fn parse_manifest(text: &str) -> Facts {
     let mut facts = Facts::default();
     let mut in_plain_deps = false;
+    let mut in_dev_deps = false;
     for raw in text.lines() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -190,29 +200,69 @@ fn parse_manifest(text: &str) -> Facts {
                 .to_string();
             let segments = header_segments(&inner);
             in_plain_deps = false;
+            in_dev_deps = false;
             if segments.len() == 1 && segments[0] == "dependencies" {
                 in_plain_deps = true;
+            } else if segments.len() == 1 && segments[0] == "dev-dependencies" {
+                in_dev_deps = true;
             } else if segments.len() == 2 && segments[0] == "dependencies" {
                 // `[dependencies.NAME]` — the canonical multi-key form.
                 facts.deps.push(segments[1].clone());
             } else if is_dependency_table(&segments) {
-                // `[build-dependencies]`, `[dev-dependencies]`,
-                // `[target.'cfg(unix)'.dependencies]`, and anything else
+                // `[build-dependencies]`, `[dev-dependencies.NAME]`,
+                // `[target.'cfg(unix)'.dev-dependencies]`, and anything else
                 // that would smuggle an edge past the allow-list.
                 facts.offending_tables.push(format!("[{inner}]"));
             }
             continue;
         }
-        if !in_plain_deps {
+        if !in_plain_deps && !in_dev_deps {
             continue;
         }
         if let Some((name, _)) = line.split_once('=') {
-            facts.deps.push(name.trim().trim_matches('"').to_string());
+            let name = name.trim().trim_matches('"').to_string();
+            if in_dev_deps {
+                facts.dev_deps.push(name);
+            } else {
+                facts.deps.push(name);
+            }
         }
     }
     facts.deps.sort();
     facts.deps.dedup();
+    facts.dev_deps.sort();
+    facts.dev_deps.dedup();
     facts
+}
+
+/// Whether a manifest opts out of publishing: a line `publish = false`.
+/// `publish = ["registry"]`, `publish = true` and no line at all are all
+/// publishable, and all refused as the target of a dev-dependency.
+fn is_unpublished(manifest: &str) -> bool {
+    manifest.lines().any(|l| {
+        l.split_once('=').is_some_and(|(k, v)| {
+            k.trim() == "publish" && v.split('#').next().unwrap_or("").trim() == "false"
+        })
+    })
+}
+
+/// Every dev-dependency in `dev_deps` that is not a workspace member with
+/// `publish = false`. `members` is `(name, manifest text)` for every member.
+///
+/// An external crate is refused as well as a publishable member: the check
+/// is against the manifest of a member that opts out, not against a name
+/// list, so a name that is no member at all has nothing to be checked
+/// against.
+fn dev_dependency_violations(dev_deps: &[String], members: &[(String, String)]) -> Vec<String> {
+    dev_deps
+        .iter()
+        .filter(|d| {
+            !members
+                .iter()
+                .any(|(name, manifest)| name == *d && is_unpublished(manifest))
+        })
+        .cloned()
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -286,6 +336,88 @@ fn no_table_other_than_plain_dependencies_may_declare_an_edge() {
             facts.offending_tables
         );
     }
+}
+
+#[test]
+fn dev_dependencies_reach_only_unpublished_members() {
+    let dirs = gated_members();
+    let members: Vec<(String, String)> = dirs
+        .iter()
+        .map(|d| (crate_name(d), read_manifest(d)))
+        .collect();
+    let mut edges = 0;
+    for (name, manifest) in &members {
+        let facts = parse_manifest(manifest);
+        edges += facts.dev_deps.len();
+        let bad = dev_dependency_violations(&facts.dev_deps, &members);
+        assert!(
+            bad.is_empty(),
+            "{name} has a [dev-dependencies] edge to {bad:?}, which is not a \
+             workspace member with `publish = false`. A dev-dependency on a \
+             publishable crate is a dependency edge the C2 gate walks nowhere; \
+             share test support through an unpublished member instead."
+        );
+    }
+    // Non-vacuity: "no violations" and "read no edges" print the same. The
+    // support crate has dependents, so this fails if the scan went blind.
+    assert!(
+        edges >= 1,
+        "no [dev-dependencies] edge was read from {} manifests; either the \
+         scan is blind or the test-support crate lost all its dependents",
+        members.len()
+    );
+}
+
+#[test]
+fn a_dev_dependency_is_refused_unless_its_target_is_unpublished() {
+    // AD-2: the narrowing must be able to fail, on each way it could be wide.
+    let members = vec![
+        (
+            "private".to_string(),
+            "[package]\nname = \"private\"\npublish=false\n".to_string(),
+        ),
+        (
+            "public".to_string(),
+            "[package]\nname = \"public\"\n".to_string(),
+        ),
+        (
+            "explicit".to_string(),
+            "[package]\nname = \"explicit\"\npublish = true\n".to_string(),
+        ),
+        (
+            "registry".to_string(),
+            "[package]\nname = \"registry\"\npublish = [\"internal\"]\n".to_string(),
+        ),
+    ];
+    let ask = |names: &[&str]| {
+        let names: Vec<String> = names.iter().map(|n| n.to_string()).collect();
+        dev_dependency_violations(&names, &members)
+    };
+    assert!(
+        ask(&["private"]).is_empty(),
+        "an unpublished member is allowed"
+    );
+    assert_eq!(
+        ask(&["public"]),
+        ["public"],
+        "a publishable member is refused"
+    );
+    assert_eq!(
+        ask(&["explicit"]),
+        ["explicit"],
+        "publish = true is publishable"
+    );
+    assert_eq!(
+        ask(&["registry"]),
+        ["registry"],
+        "a registry list is publishable"
+    );
+    assert_eq!(ask(&["syn"]), ["syn"], "an external crate is refused");
+    assert_eq!(
+        ask(&["private", "public"]),
+        ["public"],
+        "one good edge must not excuse a bad one"
+    );
 }
 
 #[test]
@@ -432,10 +564,22 @@ fn the_gate_can_fail() {
         "a build-dependencies table must be reported (C5)"
     );
 
+    // A plain `[dev-dependencies]` is read, not refused outright: its edges
+    // are judged by `dev_dependency_violations`. Every other spelling of a
+    // dev edge stays refused.
     let dev_form = parse_manifest("[dev-dependencies]\nsyn = \"2\"\n");
+    assert_eq!(dev_form.dev_deps, vec!["syn".to_string()]);
+    assert!(dev_form.deps.is_empty() && dev_form.offending_tables.is_empty());
+
+    let dev_dotted = parse_manifest("[dev-dependencies.syn]\nversion = \"2\"\n");
     assert_eq!(
-        dev_form.offending_tables,
-        vec!["[dev-dependencies]".to_string()]
+        dev_dotted.offending_tables,
+        vec!["[dev-dependencies.syn]".to_string()]
+    );
+    let dev_target = parse_manifest("[target.'cfg(unix)'.dev-dependencies]\nsyn = \"2\"\n");
+    assert_eq!(
+        dev_target.offending_tables,
+        vec!["[target.'cfg(unix)'.dev-dependencies]".to_string()]
     );
 }
 

@@ -20,8 +20,7 @@
 
 use mlmf_pickle::parse_pth;
 
-#[path = "../../mlmf-core/tests/support/armed.rs"]
-mod armed;
+use mlmf_test_support as armed;
 
 #[test]
 fn the_fixture_has_the_152_rows_it_was_measured_on() {

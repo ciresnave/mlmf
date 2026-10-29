@@ -73,8 +73,7 @@ use std::io::Write as _;
 use mlmf_core::{DType, Encoding, MetaValue, MetadataSource, TensorContainer};
 use mlmf_safetensors::{parse_header, parse_metadata, parse_tensors};
 
-#[path = "../../mlmf-core/tests/support/armed.rs"]
-mod armed;
+use mlmf_test_support as armed;
 
 /// Where the corpus lives when it lives anywhere.
 ///
@@ -101,7 +100,7 @@ fn corpus_root() -> String {
 /// to have the corpus and a skip becomes red.
 ///
 /// Delegates to the portfolio's shared predicate — see
-/// `crates/mlmf-core/tests/support/armed.rs` for the three spellings this
+/// `crates/mlmf-test-support/src/lib.rs` for the three spellings this
 /// replaced and why each was wrong, **including this repo's own.**
 fn corpus_required() -> bool {
     armed::armed("MLMF_CORPUS_REQUIRED")

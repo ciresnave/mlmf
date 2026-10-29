@@ -1,0 +1,6 @@
+# C3: the std submodules mlmf-test-support may name.
+#
+# `env` -- the one thing `armed` exists to do: read a REQUIRE gate's variable
+# and decide. The crate is `publish = false` and only ever a
+# [dev-dependencies] edge, so it reaches no consumer.
+env

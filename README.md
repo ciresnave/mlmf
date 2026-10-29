@@ -27,6 +27,7 @@ supported ones; `mlmf` itself on crates.io stops at 0.2.0.
 | `mlmf-gguf-arch` | Name a GGUF file's architecture family from `general.architecture` or unambiguous tensor names; absent when the file does not say | format |
 | `mlmf-tensor-names` | Translate tensor names between HuggingFace and GGUF spellings (dense Llama-style layout) from a declared table; a name with no entry is reported, never guessed; also reads a mapping file of extra name pairs (`translate_with`, table first) | format |
 | `mlmf-oracle` | A checked `Oracle` seam for proposing tensor-name pairs offline, writing them as entries of the mapping file (the file type lives in `mlmf-tensor-names`); never on a load path, names compared byte-exactly | format |
+| `mlmf-test-support` | Never published. The REQUIRE-gate arming predicate shared by the workspace's integration tests, as a dev-dependency | format |
 | `mlmf-pickle` | Read PyTorch `.pth`/`.bin` checkpoints: zip directory and tensor index, nothing executed | format |
 | `mlmf-onnx` | Write ONNX `ModelProto` files (nodes supplied as opaque bytes) | format |
 | `mlmf-awq`, `mlmf-gptq` | Locate packed AWQ / GPTQ layers and parse their quantization configs | format |

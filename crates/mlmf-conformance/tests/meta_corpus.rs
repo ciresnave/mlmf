@@ -21,8 +21,7 @@ use mlmf_meta::template::TemplateSet;
 use mlmf_meta::tokens::SpecialTokens;
 use mlmf_meta::vocab::Format;
 
-#[path = "../../mlmf-core/tests/support/armed.rs"]
-mod armed;
+use mlmf_test_support as armed;
 
 fn corpus_root() -> Option<PathBuf> {
     let root =
@@ -39,7 +38,7 @@ fn corpus_root() -> Option<PathBuf> {
 /// to have the corpus and a skip becomes red.
 ///
 /// Delegates to the portfolio's shared predicate — see
-/// `crates/mlmf-core/tests/support/armed.rs` for the three spellings this
+/// `crates/mlmf-test-support/src/lib.rs` for the three spellings this
 /// replaced and why each was wrong, **including this repo's own.**
 fn corpus_required() -> bool {
     armed::armed("MLMF_CORPUS_REQUIRED")
