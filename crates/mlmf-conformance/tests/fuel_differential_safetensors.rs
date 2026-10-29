@@ -123,8 +123,7 @@
 use mlmf_core::{Encoding, MetadataSource, TensorContainer};
 use mlmf_safetensors::{Header, parse_header, parse_metadata, parse_tensors};
 
-#[path = "../../mlmf-core/tests/support/armed.rs"]
-mod armed;
+use mlmf_test_support as armed;
 
 const DEFAULT_CORPUS_ROOT: &str = "C:/Models";
 

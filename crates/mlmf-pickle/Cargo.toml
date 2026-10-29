@@ -8,3 +8,6 @@
 
 [dependencies]
     mlmf-core = { path = "../mlmf-core", version = "0.7.0" }
+
+[dev-dependencies]
+    mlmf-test-support = { path = "../mlmf-test-support" }

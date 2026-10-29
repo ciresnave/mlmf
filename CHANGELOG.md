@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.31] - 2026-10-29
+
+### Changed
+- `mlmf-test-support` (new, `publish = false`): holds `armed` / `armed_by`, the REQUIRE-gate arming predicate that lived in `mlmf-core`'s `tests/support` directory. `mlmf-core`, `mlmf-gguf`, `mlmf-safetensors`, `mlmf-pickle` and `mlmf-conformance` take it as a `[dev-dependencies]` edge instead of a `#[path = "../../mlmf-core/..."]` include, which reached outside the including crate's package and would not resolve when its tests ran from the published tarball (ROADMAP SUP-004: 8 of the 10 reads; the 2 `include_str!` reads left are in the unpublished `mlmf-conformance`).
+- `crates/mlmf-core/tests/deps.rs`: a plain `[dev-dependencies]` edge is allowed only to a workspace member whose own manifest says `publish = false`. A dev-dependency on a publishable member or an external crate, a `[dev-dependencies.NAME]` table and a `[target...dev-dependencies]` table are still refused. Tests: a publishable member, `publish = true`, a registry list and an external crate each refused; the real workspace read at least one edge.
+
 ## [0.7.30] - 2026-10-29
 
 ### Security

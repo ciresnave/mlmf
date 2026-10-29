@@ -135,8 +135,7 @@ use mlmf_core::{MetadataSource, TensorContainer};
 use mlmf_ggml::GgmlType;
 use mlmf_gguf::GgufMetadata;
 
-#[path = "../../mlmf-core/tests/support/armed.rs"]
-mod armed;
+use mlmf_test_support as armed;
 
 const DEFAULT_CORPUS_ROOT: &str = "C:/Models/gguf-corpus";
 

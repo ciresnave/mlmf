@@ -39,8 +39,7 @@ use std::path::{Path, PathBuf};
 use mlmf_core::MetadataSource;
 use mlmf_gguf::GgufMetadata;
 
-#[path = "../../mlmf-core/tests/support/armed.rs"]
-mod armed;
+use mlmf_test_support as armed;
 
 const DEFAULT_CORPUS_ROOT: &str = "C:/Models/gguf-corpus";
 

@@ -15,3 +15,6 @@
     # look up -- or refuses a valid file. Getting JSON right is not this
     # crate's contribution.
     serde_json = { version = "1.0", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+    mlmf-test-support = { path = "../mlmf-test-support" }

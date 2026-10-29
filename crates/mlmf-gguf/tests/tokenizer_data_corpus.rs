@@ -12,8 +12,7 @@
 
 use mlmf_gguf::{GgufMetadata, read_tokenizer_data};
 
-#[path = "../../mlmf-core/tests/support/armed.rs"]
-mod armed;
+use mlmf_test_support as armed;
 
 const DEFAULT_CORPUS_ROOT: &str = "C:/Models/gguf-corpus";
 

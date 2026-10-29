@@ -1,0 +1,13 @@
+[package]
+    description          = "Test support shared by the workspace's integration tests. Never shipped."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-test-support"
+    # NEVER SHIPPED. It is a [dev-dependencies] edge of the crates whose
+    # tests need it, replacing `#[path = "../../mlmf-core/tests/..."]`
+    # includes that reached outside the including crate's own package and so
+    # broke when its tests ran from the published tarball (SUP-004).
+    # `deps.rs` allows a [dev-dependencies] edge only to a member that says so.
+    publish              = false
+    repository.workspace = true
+    version.workspace    = true

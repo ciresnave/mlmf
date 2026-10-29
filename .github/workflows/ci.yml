@@ -259,6 +259,23 @@ jobs:
       - name: cargo clippy -p mlmf-oracle
         run: cargo clippy -p mlmf-oracle --all-targets -- -D warnings
 
+      # mlmf-test-support is never published: a [dev-dependencies] edge that
+      # shares the REQUIRE-gate predicate between crates' integration tests
+      # without a `#[path]` include that leaves the including package.
+      - name: cargo test -p mlmf-test-support
+        run: cargo test -p mlmf-test-support
+
+      - name: cargo test -p mlmf-test-support --no-default-features
+        run: cargo test -p mlmf-test-support --no-default-features
+
+      - name: cargo doc -p mlmf-test-support --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc -p mlmf-test-support --no-deps
+
+      - name: cargo clippy -p mlmf-test-support
+        run: cargo clippy -p mlmf-test-support --all-targets -- -D warnings
+
       # mlmf-pickle reads a torch.save checkpoint's zip directory and tensor
       # index with a bounded pickle reader that executes nothing. Format axis:
       # no I/O, `default = []`, so the plain four steps. The real-checkpoint
