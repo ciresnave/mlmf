@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.30] - 2026-10-29
+
+### Security
+- Dependabot alert 1 (critical, `zip` <= 9.0.4, fixed in 9.0.5): `Cargo.lock` now resolves `zip` 9.1.3. `zip` was never a direct dependency; it came in through `fuel-formats` and `fuel-ir`, which `mlmf-conformance` takes behind the off-by-default `fuel-differential` feature.
+
+### Changed
+- `mlmf-conformance`: `fuel-formats` is now a crates.io dependency (`0.24.0`) instead of a git pin at commit 6609d15, which also meets the rule that cross-repo dependencies are published versions. Pinned to the 0.24 line on purpose: `fuel-formats` 0.25 deleted its own GGUF parser and reads through `mlmf-gguf`, so a differential against it would compare mlmf with itself. 0.24.0 is the newest release with the independent parser and `zip` 9. `fuel_differential` (30 corpus files) and `fuel_differential_safetensors` (9 files) pass unchanged.
+- ROADMAP: S-61 marked done.
+
 ## [0.7.29] - 2026-10-29
 
 ### Changed
