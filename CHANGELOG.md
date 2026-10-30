@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.36] - 2026-10-30
+## [0.8.0] - 2026-10-30
 
 ### Changed
 - **Breaking (behaviour):** `crates/mlmf-awq/src/config.rs` `AwqConfig::parse_from_model_config` now returns `Err` when `quantization_config.quant_method` is present but not a string, matching `mlmf-gptq`; it previously recorded `quant_method` in `malformed` and returned `Ok`. Every other wrong-shaped field still lands in `malformed`. Callers that matched on `malformed` containing `"quant_method"` must handle the `Err`; none exist in this workspace.
