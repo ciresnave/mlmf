@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.4] - 2026-10-30
+
+### Added
+- `crates/mlmf-gguf/src/split.rs`: pure helpers for llama.cpp's split (sharded) GGUF layout, no I/O. `parse_split_file_name` reads `<prefix>-NNNNN-of-MMMMM.gguf`; `shard_file_names` builds the plain file names of every shard and refuses a prefix that could leave the model directory; `SplitInfo::from_source` reads `split.no` (u16, zero-based), `split.count` (u16) and `split.tensors.count` (i32, the total across shards) and rejects a missing `split.no`, `split.no >= split.count`, a `split.count` of 0 (the half-written placeholder) and a negative total; `SplitInfo::matches_file_name` compares a shard's declared position with its name. Key names, types and the zero-based numbering were checked against llama.cpp `master` on 2026-10-30. All new types are `#[non_exhaustive]`; additive. Requested by lightbulb.
+- ROADMAP: S-62.
+
 ## [0.10.2] - 2026-10-30
 
 ### Changed
