@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `Cargo.lock`: 30 packages updated to the latest compatible versions (`cargo update`; no manifest requirement changed). `crates/mlmf-core/tests/transitive-deps.snapshot` re-blessed for the five `mlmf-core` transitive bumps (smallvec, syn, thiserror, thiserror-impl, unicode-ident). `fuel-formats` stays at 0.24.0 on purpose, see ROADMAP S-61.
 
+## [0.10.5] - 2026-10-30
+
+### Changed
+- ROADMAP: S-37 closed as obsolete; the root crate it describes was retired in 0.7.12.
+
 ## [0.10.4] - 2026-10-30
 
 ### Added
