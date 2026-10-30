@@ -25,6 +25,6 @@ pub mod tensors;
 pub use dtype::{dtype_of, name_of};
 pub use encode::{EncodeError, EncodedHeader, TensorToWrite, encode_header, encode_safetensors};
 pub use error::{SafetensorsError, Stage};
-pub use header::{Header, parse_header};
+pub use header::{Header, parse_header, parse_header_from};
 pub use metadata::{SafetensorsMetadata, parse_metadata};
 pub use tensors::{SafetensorsTensors, parse_tensors};

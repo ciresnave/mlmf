@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - ROADMAP: S-38 closed as obsolete. `loader.rs` (`load_safetensors_mmap`) no longer exists at `origin/main` and the `For now, use regular loading` comment is in no `.rs` file; `crates/mlmf-conformance/tests/mmap_zero_copy.rs` asserts `tensor_bytes` returns a borrowed `Cow` through a live mmap for both GGUF and safetensors. Documentation only.
+## [0.10.0] - 2026-10-30
+
+### Added
+- **Breaking (struct shape):** `crates/mlmf-meta/src/template.rs` `TemplateSet` and `crates/mlmf-meta/src/tokens.rs` `SpecialTokens` gain `unreadable: Vec<String>` (format-spelled keys the file declared but the parse could not decode) and `index_incomplete: bool` (the source's `index_complete()` was `false`, so an empty result is not a fact about the file). Both extractors now read through `MetadataSource::declaration`, so an undecodable key is no longer indistinguishable from an absent one. Neither struct is `#[non_exhaustive]`, so a struct-literal construction outside this workspace breaks; `extract` callers are unaffected. The PM allocates the number.
+
+### Changed
+- ROADMAP: S-17 marked done.
+
+## [0.9.1] - 2026-10-30
+
+### Added
+- `crates/mlmf-gguf/src/metadata.rs` `GgufMetadata::parse_from(&dyn ByteSource, origin)` and `crates/mlmf-safetensors/src/header.rs` `parse_header_from(&dyn ByteSource)`: the `ByteSource` entry points, equal to `parse` / `parse_header` over `source.as_bytes()`. Additive. The PM allocates the number.
+
+### Changed
+- `crates/mlmf-conformance/tests/mmap_zero_copy.rs` now reaches the mapped file through the new constructors.
+- ROADMAP: S-10 marked done.
+
 
 ## [0.9.0] - 2026-10-30
 

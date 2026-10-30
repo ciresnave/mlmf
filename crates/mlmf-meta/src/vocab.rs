@@ -101,6 +101,26 @@ pub fn spelling(canonical: &str, format: Format) -> Option<&'static str> {
         .map(|(_, _, s)| *s)
 }
 
+/// Read `key` through [`MetadataSource::declaration`], so that a key the
+/// file declared but the parse could not decode is RECORDED in `unreadable`
+/// rather than collapsing into the `None` a missing key gives.
+///
+/// Returns the value only when it was decoded. `key` is pushed as given.
+pub(crate) fn read<'a, S: mlmf_core::MetadataSource + ?Sized>(
+    source: &'a S,
+    key: &str,
+    unreadable: &mut Vec<String>,
+) -> Option<&'a mlmf_core::MetaValue> {
+    match source.declaration(key) {
+        mlmf_core::Declaration::Declared(v) => Some(v),
+        mlmf_core::Declaration::Unreadable(_) => {
+            unreadable.push(key.to_string());
+            None
+        }
+        _ => None,
+    }
+}
+
 /// The canonical key a format's spelling maps to, or `None`.
 #[must_use]
 pub fn canonical_for(spelling: &str, format: Format) -> Option<&'static str> {
