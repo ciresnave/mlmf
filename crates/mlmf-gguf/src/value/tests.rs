@@ -147,7 +147,7 @@ fn decoding_preserves_bytes_exactly_including_invalid_utf8() {
     // R3, and the case no real file provides: 0xFF 0xFE is not valid
     // UTF-8. A `from_utf8_lossy` here replaces it with U+FFFD and the
     // tokenizer never matches the token again — with no error anywhere.
-    let raw = [0xFFu8, 0xFE, b'a'];
+    let raw = [0xFFu8, 0xFE, 0x61];
     let mut b = Vec::new();
     b.extend_from_slice(&(raw.len() as u64).to_le_bytes());
     b.extend_from_slice(&raw);
