@@ -27,7 +27,7 @@
 //!
 //! # Corpus and what it can and cannot falsify — widened 2026-09-25
 //!
-//! **Nine files, not two**, reusing `mlmf-safetensors/tests/corpus-safetensors.tsv`
+//! **Nine files, not two**, reusing `mlmf-test-support/data/corpus-safetensors.tsv`
 //! (that crate's own corpus, not re-measured here) — widened for VARIETY,
 //! not just count, per the PM's instruction that two convenient files prove
 //! the happy path twice:
@@ -141,7 +141,7 @@ fn corpus_required() -> bool {
 /// rather than hand-listed a second time (CLAUDE.md §5b: enumerate from an
 /// index, not by re-declaring one).
 fn corpus_files() -> Vec<String> {
-    include_str!("../../mlmf-safetensors/tests/corpus-safetensors.tsv")
+    mlmf_test_support::SAFETENSORS_CORPUS_TSV
         .lines()
         .filter(|l| !l.starts_with('#') && !l.starts_with("file\t") && !l.trim().is_empty())
         .map(|l| {

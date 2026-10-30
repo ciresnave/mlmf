@@ -374,7 +374,7 @@ pub fn parse_tensors<'a>(
     // NOT validated against the file length. A file with no tensors ends at
     // `dir_end` and this value can point one alignment block past the end —
     // 19 of the 28 corpus files are that shape, counted from
-    // `tests/corpus-metadata.tsv`, where every `llamacpp-vocab/*` row
+    // `mlmf-test-support/data/corpus-metadata.tsv`, where every `llamacpp-vocab/*` row
     // declares `n_tensors` 0. Validating here would refuse every
     // vocab-only GGUF, which is exactly what a metadata consumer opens.
     // The bound that matters is per-tensor, in `tensor_bytes`.
