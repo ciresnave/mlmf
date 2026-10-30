@@ -95,19 +95,19 @@ non-comment-LOC first, to split — none started.
 
 | File | Non-comment LOC | Status |
 |---|---|---|
-| src/loader.rs | 1228 | open |
-| src/formats/gguf.rs | 1091 | open |
-| src/lora.rs | 1011 | open |
+| src/loader.rs | 1228 | closed, obsolete (0.10.10 proposed): the root crate is retired (S-37); `git ls-tree -r origin/main` finds 0 files under `src/` and no `loader.rs`, `gguf.rs` or `lora.rs` anywhere, while the `crates/...` rows above resolve; no tracked `.rs` file exceeds 1000 lines |
+| src/formats/gguf.rs | 1091 | closed, obsolete (0.10.10 proposed): the root crate is retired (S-37); `git ls-tree -r origin/main` finds 0 files under `src/` and no `loader.rs`, `gguf.rs` or `lora.rs` anywhere, while the `crates/...` rows above resolve; no tracked `.rs` file exceeds 1000 lines |
+| src/lora.rs | 1011 | closed, obsolete (0.10.10 proposed): the root crate is retired (S-37); `git ls-tree -r origin/main` finds 0 files under `src/` and no `loader.rs`, `gguf.rs` or `lora.rs` anywhere, while the `crates/...` rows above resolve; no tracked `.rs` file exceeds 1000 lines |
 | `crates/mlmf-gguf/src/tensors.rs` | 822 | done (0.7.32 proposed: tests moved to `crates/mlmf-gguf/src/tensors/tests/{records,container}.rs`) |
-| src/formats/gguf_export.rs | 700 | open |
-| src/config.rs | 645 | open |
-| src/formats/onnx_import.rs | 644 | open |
+| src/formats/gguf_export.rs | 700 | closed, obsolete (0.10.10 proposed): the root crate is retired (S-37); `git ls-tree -r origin/main` finds 0 files under `src/` and no `loader.rs`, `gguf.rs` or `lora.rs` anywhere, while the `crates/...` rows above resolve; no tracked `.rs` file exceeds 1000 lines |
+| src/config.rs | 645 | closed, obsolete (0.10.10 proposed): the root crate is retired (S-37); `git ls-tree -r origin/main` finds 0 files under `src/` and no `loader.rs`, `gguf.rs` or `lora.rs` anywhere, while the `crates/...` rows above resolve; no tracked `.rs` file exceeds 1000 lines |
+| src/formats/onnx_import.rs | 644 | closed, obsolete (0.10.10 proposed): the root crate is retired (S-37); `git ls-tree -r origin/main` finds 0 files under `src/` and no `loader.rs`, `gguf.rs` or `lora.rs` anywhere, while the `crates/...` rows above resolve; no tracked `.rs` file exceeds 1000 lines |
 | `crates/mlmf-core/tests/purity.rs` | 640 | done (0.7.35 proposed: scanner moved to `crates/mlmf-core/tests/purity_scan/mod.rs`) |
-| src/formats/onnx_export.rs | 632 | open |
+| src/formats/onnx_export.rs | 632 | closed, obsolete (0.10.10 proposed): the root crate is retired (S-37); `git ls-tree -r origin/main` finds 0 files under `src/` and no `loader.rs`, `gguf.rs` or `lora.rs` anywhere, while the `crates/...` rows above resolve; no tracked `.rs` file exceeds 1000 lines |
 | `crates/mlmf-gguf/src/metadata.rs` | 616 | done (0.7.34 proposed: tests moved to `crates/mlmf-gguf/src/metadata/tests.rs`) |
-| src/metadata.rs | 528 | open |
+| src/metadata.rs | 528 | closed, obsolete (0.10.10 proposed): the root crate is retired (S-37); `git ls-tree -r origin/main` finds 0 files under `src/` and no `loader.rs`, `gguf.rs` or `lora.rs` anywhere, while the `crates/...` rows above resolve; no tracked `.rs` file exceeds 1000 lines |
 | `crates/mlmf-gguf/src/value.rs` | 515 | done (0.7.34 proposed: tests moved to `crates/mlmf-gguf/src/value/tests.rs`) |
-| src/validation.rs | 513 | open |
+| src/validation.rs | 513 | closed, obsolete (0.10.10 proposed): the root crate is retired (S-37); `git ls-tree -r origin/main` finds 0 files under `src/` and no `loader.rs`, `gguf.rs` or `lora.rs` anywhere, while the `crates/...` rows above resolve; no tracked `.rs` file exceeds 1000 lines |
 
 ## Known infrastructure defect in the same run (not a code finding)
 
