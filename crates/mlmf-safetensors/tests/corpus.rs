@@ -137,7 +137,7 @@ struct Row {
 }
 
 fn rows() -> Vec<Row> {
-    include_str!("corpus-safetensors.tsv")
+    mlmf_test_support::SAFETENSORS_CORPUS_TSV
         .lines()
         .filter(|l| !l.starts_with('#') && !l.starts_with("file\t") && !l.trim().is_empty())
         .map(|l| {

@@ -96,7 +96,7 @@ struct Row {
 }
 
 fn rows() -> Vec<Row> {
-    include_str!("corpus-metadata.tsv")
+    mlmf_test_support::GGUF_CORPUS_METADATA_TSV
         .lines()
         .filter(|l| !l.starts_with('#') && !l.starts_with("file\t") && !l.trim().is_empty())
         .map(|l| {

@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.8] - 2026-10-30
+
+### Changed
+- `mlmf-test-support`: now holds the two corpus tables `data/corpus-metadata.tsv` and `data/corpus-safetensors.tsv` (moved from `crates/mlmf-gguf/tests` and `crates/mlmf-safetensors/tests`) and exports them as `GGUF_CORPUS_METADATA_TSV` and `SAFETENSORS_CORPUS_TSV`. The two `include_str!("../../...")` reads in `mlmf-conformance` that reached outside their crate (SUP-004) now go through it; no test reads outside its own package. No shipped API changed.
+
 ## [0.10.7] - 2026-10-30
 
 ### Changed

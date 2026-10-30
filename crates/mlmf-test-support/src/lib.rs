@@ -99,3 +99,11 @@ pub fn armed(var: &str) -> bool {
         ),
     }
 }
+
+/// The GGUF corpus metadata table (`data/corpus-metadata.tsv`), shared by
+/// `mlmf-gguf`'s own corpus test and `mlmf-conformance`'s differential. It
+/// lives here, inside one package, so no test reads outside its own crate (SUP-004).
+pub const GGUF_CORPUS_METADATA_TSV: &str = include_str!("../data/corpus-metadata.tsv");
+
+/// The safetensors corpus table (`data/corpus-safetensors.tsv`), shared the same way.
+pub const SAFETENSORS_CORPUS_TSV: &str = include_str!("../data/corpus-safetensors.tsv");

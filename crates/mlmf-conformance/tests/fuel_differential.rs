@@ -172,7 +172,7 @@ fn v1_fixture_required() -> bool {
 /// measured fixture and never will be: they carry no pre-measured expectation
 /// to compare against, only a live differential.
 fn corpus_files() -> Vec<String> {
-    let mut files: Vec<String> = include_str!("../../mlmf-gguf/tests/corpus-metadata.tsv")
+    let mut files: Vec<String> = mlmf_test_support::GGUF_CORPUS_METADATA_TSV
         .lines()
         .filter(|l| !l.starts_with('#') && !l.starts_with("file\t") && !l.trim().is_empty())
         .map(|l| {
