@@ -173,7 +173,7 @@ Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10
 | S-35 | U-2 corpus currency: a test that fails on staleness against a recorded source URL and fetch date | core plan L1870; SPEC §7 L262-265 | open | CALL: sets the corpus lifecycle policy |
 | S-36 | Corpus roots default to `C:/Models`; the two large files are local-only; nothing counts how often skips fire | safetensors plan, carried items | open | CALL: a self-hosted runner for the local-only files (portfolio rule on tests that cannot run on GitHub) |
 | S-37 | Root crate has no integration tests (`tests/` is empty; 139 unit tests live in `src/`) | SPEC §11 L499-509 | open | - |
-| S-38 | `load_safetensors_mmap` still forwards to regular loading (`loader.rs:1408`) | SPEC L497; README L18 | open | - |
+| S-38 | `load_safetensors_mmap` still forwards to regular loading (`loader.rs:1408`) | SPEC L497; README L18 | closed, obsolete (0.10.1 proposed): `loader.rs` and the forwarding comment are gone from `origin/main`; `crates/mlmf-conformance/tests/mmap_zero_copy.rs` asserts a borrowed `Cow` through a live mmap for GGUF and safetensors | mlmf |
 | S-39 | AD-1 payload-identity half: tensor bytes are never compared | SPEC §9 §7 L393-395 | open | - |
 | S-40 | Record the ruling on whether `MetaValue` is format-neutral (code pins `as_u64` as non-coercing; no ruling is recorded) | safetensors-scope plan Q1 | open | CALL: changes what the seam promises |
 | S-41 | Lightbulb R5: "measure on the corpus and send the number" (`array_len` / `array_get` exist, the measurement is unverified) | lightbulb doc L195-196 | open (NOT VERIFIED) | - |
