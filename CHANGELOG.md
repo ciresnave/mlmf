@@ -5,10 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.4] - 2026-10-30
+
+### Added
+- `crates/mlmf-gguf/src/split.rs`: pure helpers for llama.cpp's split (sharded) GGUF layout, no I/O. `parse_split_file_name` reads `<prefix>-NNNNN-of-MMMMM.gguf`; `shard_file_names` builds the plain file names of every shard and refuses a prefix that could leave the model directory; `SplitInfo::from_source` reads `split.no` (u16, zero-based), `split.count` (u16) and `split.tensors.count` (i32, the total across shards) and rejects a missing `split.no`, `split.no >= split.count`, a `split.count` of 0 (the half-written placeholder) and a negative total; `SplitInfo::matches_file_name` compares a shard's declared position with its name. Key names, types and the zero-based numbering were checked against llama.cpp `master` on 2026-10-30. All new types are `#[non_exhaustive]`; additive. Requested by lightbulb.
+- ROADMAP: S-62.
 ## [0.10.3] - 2026-10-30
 
 ### Changed
 - `crates/mlmf-conformance/tests/fuel_differential.rs`: the GGUF/GGML AD-1 differential now compares payload bytes, in a weak form: mlmf `tensor_bytes` against the file buffer sliced by fuel's range, because `fuel-formats` 0.24 exposes offsets and no GGUF payload reader. Measured 2026-10-30 over the 30-file corpus: 30 files agreed, 2562 tensors, 1156925952 bytes identical; slicing one byte short turns it red. ROADMAP S-39 done. Test only; no library change.
+
 
 ## [0.10.2] - 2026-10-30
 
