@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.7.34] - 2026-10-30
 
 ### Changed
-- `crates/mlmf-gguf/src/metadata.rs` and `crates/mlmf-gguf/src/value.rs`: each `tests` module moves to `metadata/tests.rs` and `value/tests.rs` (1147 to 520 plus 626, 734 to 350 plus 383 lines). No code change; the same 99 `mlmf-gguf` unit tests run under the same names.
+- `crates/mlmf-gguf/src/metadata.rs` and `crates/mlmf-gguf/src/value.rs`: each `tests` module moves to `crates/mlmf-gguf/src/metadata/tests.rs` and `crates/mlmf-gguf/src/value/tests.rs` (1147 to 520 plus 626, 734 to 350 plus 383 lines). No code change; the same 99 `mlmf-gguf` unit tests run under the same names.
 - ROADMAP: those two File-length rows marked done.
 
 ## [0.7.33] - 2026-10-30
