@@ -102,7 +102,7 @@ non-comment-LOC first, to split — none started.
 | src/formats/gguf_export.rs | 700 | open |
 | src/config.rs | 645 | open |
 | src/formats/onnx_import.rs | 644 | open |
-| `crates/mlmf-core/tests/purity.rs` | 640 | open |
+| `crates/mlmf-core/tests/purity.rs` | 640 | done (0.7.35 proposed: scanner moved to `crates/mlmf-core/tests/purity_scan/mod.rs`) |
 | src/formats/onnx_export.rs | 632 | open |
 | `crates/mlmf-gguf/src/metadata.rs` | 616 | done (0.7.34 proposed: tests moved to `crates/mlmf-gguf/src/metadata/tests.rs`) |
 | src/metadata.rs | 528 | open |
