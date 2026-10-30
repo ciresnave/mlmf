@@ -174,21 +174,9 @@ fn a_trailing_nul_is_part_of_the_string_not_a_terminator() {
     }
 }
 
-#[test]
-fn decode_value_round_trips_every_type() {
-    // `decode_value` had tests for exactly two of thirteen types, and
-    // none at all for its Array arm. This loop covers the eleven
-    // scalars; String and Array are exercised by their own tests
-    // because both need structured fixtures rather than a width and a
-    // literal — the branch carrying this crate's
-    // whole 500,000-element rationale. A copy-paste width slip in any
-    // scalar arm (`I16` reaching for `cursor.u32()`, say) would
-    // desynchronise the cursor and no test would have noticed.
-    //
-    // Each case asserts the decoded value AND the bytes consumed,
-    // because a reader that returns the right value after eating the
-    // wrong number of bytes breaks the NEXT key rather than this one.
-    let cases: Vec<(ValueType, Vec<u8>, MetaValue, u64)> = vec![
+/// One (type, encoded bytes, decoded value, width) row per scalar type.
+fn scalar_cases() -> Vec<(ValueType, Vec<u8>, MetaValue, u64)> {
+    vec![
         (ValueType::U8, vec![0xFE], MetaValue::U8(0xFE), 1),
         (ValueType::I8, vec![0xFE], MetaValue::I8(-2), 1),
         (ValueType::U16, vec![0x01, 0x02], MetaValue::U16(0x0201), 2),
@@ -230,7 +218,24 @@ fn decode_value_round_trips_every_type() {
             8,
         ),
         (ValueType::Bool, vec![0], MetaValue::Bool(false), 1),
-    ];
+    ]
+}
+
+#[test]
+fn decode_value_round_trips_every_type() {
+    // `decode_value` had tests for exactly two of thirteen types, and
+    // none at all for its Array arm. This loop covers the eleven
+    // scalars; String and Array are exercised by their own tests
+    // because both need structured fixtures rather than a width and a
+    // literal — the branch carrying this crate's
+    // whole 500,000-element rationale. A copy-paste width slip in any
+    // scalar arm (`I16` reaching for `cursor.u32()`, say) would
+    // desynchronise the cursor and no test would have noticed.
+    //
+    // Each case asserts the decoded value AND the bytes consumed,
+    // because a reader that returns the right value after eating the
+    // wrong number of bytes breaks the NEXT key rather than this one.
+    let cases = scalar_cases();
     for (ty, bytes, want, width) in cases {
         let mut c = Cursor::new(&bytes);
         assert_eq!(decode_value(&mut c, ty).unwrap(), want, "{ty:?} value");
