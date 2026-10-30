@@ -119,8 +119,8 @@ impl AwqConfig {
     /// # Errors
     ///
     /// The bytes are not valid JSON, the top level is not a JSON object,
-    /// or `quantization_config` is present but is not itself a JSON
-    /// object.
+    /// `quantization_config` is present but is not itself a JSON object,
+    /// or its `quant_method` is present but is not a string.
     pub fn parse_from_model_config(bytes: &[u8]) -> Result<Option<Self>, AwqConfigError> {
         let root: serde_json::Value = serde_json::from_slice(bytes)
             .map_err(|e| AwqConfigError::new(format!("not valid JSON: {e}")))?;
@@ -135,11 +135,10 @@ impl AwqConfig {
         })?;
 
         let mut out = AwqConfig::default();
-        match check_quant_method(section) {
+        match check_quant_method(section)? {
             QuantMethodCheck::NotAwq => return Ok(None),
             QuantMethodCheck::Confirmed(method) => out.quant_method = Some(method),
             QuantMethodCheck::Unconfirmed => {}
-            QuantMethodCheck::Malformed => out.malformed.push("quant_method".to_string()),
         }
         parse_u64_field(section, "bits", &mut out.bits, &mut out.malformed);
         parse_u64_field(
@@ -175,19 +174,25 @@ enum QuantMethodCheck {
     /// [`AwqConfig::quant_method`]'s doc comment for why), but not
     /// recorded as confirmed.
     Unconfirmed,
-    /// Declared, but not a string -- neither a confirmed match nor a
-    /// confirmed mismatch, so `malformed`, never silently treated as
-    /// `Unconfirmed`.
-    Malformed,
 }
 
-fn check_quant_method(section: &serde_json::Map<String, serde_json::Value>) -> QuantMethodCheck {
+/// A `quant_method` present but not a string is an `Err`, matching
+/// `mlmf-gptq` (PM ruling, S-43): it is evidence the section was not
+/// written by the convention this reader uses to tell AWQ from
+/// GPTQ/bitsandbytes/EXL2/MLX, so a populated config would be
+/// indistinguishable from a verified one. Every other wrong-shaped field
+/// stays in `malformed`.
+fn check_quant_method(
+    section: &serde_json::Map<String, serde_json::Value>,
+) -> Result<QuantMethodCheck, AwqConfigError> {
     match section.get("quant_method") {
-        None => QuantMethodCheck::Unconfirmed,
+        None => Ok(QuantMethodCheck::Unconfirmed),
         Some(v) => match v.as_str() {
-            Some(s) if s != "awq" => QuantMethodCheck::NotAwq,
-            Some(s) => QuantMethodCheck::Confirmed(s.to_string()),
-            None => QuantMethodCheck::Malformed,
+            Some(s) if s != "awq" => Ok(QuantMethodCheck::NotAwq),
+            Some(s) => Ok(QuantMethodCheck::Confirmed(s.to_string())),
+            None => Err(AwqConfigError::new(
+                "quant_method is present but is not a string",
+            )),
         },
     }
 }
@@ -397,21 +402,19 @@ mod tests {
         assert_eq!(cfg.malformed, vec!["bits".to_string()]);
     }
 
-    /// Final-review finding I1: a `quant_method` present but the wrong
-    /// JSON shape (not a string) was previously collapsed into the same
-    /// case as "absent", silently defaulting to AWQ. It must be reported
-    /// in `malformed` instead, same as any other wrong-shaped field.
+    /// Final-review finding I1, superseded by the S-43 ruling: a
+    /// `quant_method` present but not a string must not default to AWQ
+    /// (I1) and is not a `malformed` entry either: it is an `Err`, as in
+    /// `mlmf-gptq`.
     #[test]
-    fn a_non_string_quant_method_is_malformed_not_silently_awq() {
+    fn a_non_string_quant_method_is_an_err_not_silently_awq() {
         let bad_shape = br#"{"quantization_config": {
             "quant_method": 5,
             "bits": 4,
             "group_size": 128
         }}"#;
-        let cfg = AwqConfig::parse_from_model_config(bad_shape)
-            .expect("parses")
-            .expect("quantization_config present");
-        assert_eq!(cfg.quant_method, None);
-        assert_eq!(cfg.malformed, vec!["quant_method".to_string()]);
+        let err = AwqConfig::parse_from_model_config(bad_shape)
+            .expect_err("a non-string quant_method must be an Err");
+        assert!(err.to_string().contains("quant_method"), "{err}");
     }
 }
