@@ -98,7 +98,7 @@ non-comment-LOC first, to split — none started.
 | src/loader.rs | 1228 | open |
 | src/formats/gguf.rs | 1091 | open |
 | src/lora.rs | 1011 | open |
-| `crates/mlmf-gguf/src/tensors.rs` | 822 | open |
+| `crates/mlmf-gguf/src/tensors.rs` | 822 | done (0.7.32 proposed: tests moved to `crates/mlmf-gguf/src/tensors/tests.rs`) |
 | src/formats/gguf_export.rs | 700 | open |
 | src/config.rs | 645 | open |
 | src/formats/onnx_import.rs | 644 | open |
