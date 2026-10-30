@@ -152,6 +152,60 @@ fn a_non_string_template_value_is_not_coerced_and_the_loss_is_named() {
 }
 
 #[test]
+fn an_empty_template_name_key_is_reported_not_dropped() {
+    let f = Fake(vec![("tokenizer.chat_template.".into(), s("BODY"))]);
+    let set = TemplateSet::extract(&f, Format::Gguf);
+    assert!(set.entries.is_empty(), "an empty name is no template");
+    assert_eq!(
+        set.malformed_names,
+        vec!["tokenizer.chat_template.".to_string()]
+    );
+}
+
+#[test]
+fn a_non_string_element_of_the_names_array_is_reported_by_index() {
+    let f = Fake(vec![
+        (
+            "tokenizer.chat_templates".into(),
+            MetaValue::Array(vec![s("a"), MetaValue::U32(7), s("b")]),
+        ),
+        ("tokenizer.chat_template.a".into(), s("A")),
+        ("tokenizer.chat_template.b".into(), s("B")),
+    ]);
+    let set = TemplateSet::extract(&f, Format::Gguf);
+    assert_eq!(
+        set.malformed_names,
+        vec!["tokenizer.chat_templates[1]".to_string()]
+    );
+    // The well-formed names still cross-check cleanly.
+    assert!(set.present_but_unnamed.is_empty() && set.named_but_absent.is_empty());
+}
+
+#[test]
+fn a_names_key_that_is_not_an_array_is_reported() {
+    let f = Fake(vec![("tokenizer.chat_templates".into(), s("a,b"))]);
+    let set = TemplateSet::extract(&f, Format::Gguf);
+    assert_eq!(
+        set.malformed_names,
+        vec!["tokenizer.chat_templates".to_string()]
+    );
+}
+
+#[test]
+fn well_formed_names_report_nothing_malformed() {
+    let f = Fake(vec![
+        (
+            "tokenizer.chat_templates".into(),
+            MetaValue::Array(vec![s("a")]),
+        ),
+        ("tokenizer.chat_template.a".into(), s("A")),
+    ]);
+    let set = TemplateSet::extract(&f, Format::Gguf);
+    assert!(set.malformed_names.is_empty());
+    assert_eq!(set.entries.len(), 1);
+}
+
+#[test]
 fn named_entries_come_back_sorted_whatever_order_the_source_offers() {
     // `MetadataSource::keys()` is documented "in unspecified order". This
     // Fake hands the SAME three templates back in two different orders; the

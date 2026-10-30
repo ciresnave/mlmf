@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.36] - 2026-10-30
+## [0.9.1] - 2026-10-30
 
 ### Added
 - `crates/mlmf-gguf/src/metadata.rs` `GgufMetadata::parse_from(&dyn ByteSource, origin)` and `crates/mlmf-safetensors/src/header.rs` `parse_header_from(&dyn ByteSource)`: the `ByteSource` entry points, equal to `parse` / `parse_header` over `source.as_bytes()`. Additive. The PM allocates the number.
@@ -13,6 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `crates/mlmf-conformance/tests/mmap_zero_copy.rs` now reaches the mapped file through the new constructors.
 - ROADMAP: S-10 marked done.
+## [0.9.0] - 2026-10-30
+
+### Added
+- **Breaking (struct shape):** `crates/mlmf-meta/src/template.rs` `TemplateSet::malformed_names` records the three malformed template-name shapes that were dropped with no record: an empty-name key (`tokenizer.chat_template.`), a non-string element of the names array (`tokenizer.chat_templates[<i>]`) and a names key that is not an array (`tokenizer.chat_templates`). The field is new on a struct without `#[non_exhaustive]`, so a struct-literal construction outside this workspace breaks; `TemplateSet::extract` callers are unaffected. The PM allocates the number.
+- `crates/mlmf-gguf/src/lib.rs`: a "Metadata only" doc section pointing at `GgufMetadata::parse`.
+
+### Changed
+- ROADMAP: S-18 marked done; S-09 closed as satisfied by `GgufMetadata::parse` (`crates/mlmf-gguf/src/metadata.rs:87`).
+## [0.8.0] - 2026-10-30
+
+### Changed
+- **Breaking (behaviour):** `crates/mlmf-awq/src/config.rs` `AwqConfig::parse_from_model_config` now returns `Err` when `quantization_config.quant_method` is present but not a string, matching `mlmf-gptq`; it previously recorded `quant_method` in `malformed` and returned `Ok`. Every other wrong-shaped field still lands in `malformed`. Callers that matched on `malformed` containing `"quant_method"` must handle the `Err`; none exist in this workspace.
+- ROADMAP: S-43 marked done.
 
 ## [0.7.35] - 2026-10-30
 
