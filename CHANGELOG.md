@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.9] - 2026-10-30
+
+### Added
+- `mlmf-mlx` (S-23): new format-axis crate, `crates/mlmf-mlx`. `locate_layers` finds MLX-packed linear layers (`U32` `weight` `[out, in*bits/32]`, `scales` and `biases` `[out, in/group_size]`, plus the Linear's own optional `bias`) and `MlxConfig` parses `config.json`'s `quantization` section (`bits`, `group_size`, `mode`, each `Option`, none defaulted). Shapes were read from the real safetensors header of `mlx-community/Qwen2.5-0.5B-Instruct-4bit`. No I/O and no dequantization, so no packing-order claim is made beyond the shapes.
+
 ## [0.10.8] - 2026-10-30
 
 ### Changed

@@ -31,6 +31,7 @@ supported ones; `mlmf` itself on crates.io stops at 0.2.0.
 | `mlmf-pickle` | Read PyTorch `.pth`/`.bin` checkpoints: zip directory and tensor index, nothing executed | format |
 | `mlmf-onnx` | Write ONNX `ModelProto` files (nodes supplied as opaque bytes) | format |
 | `mlmf-awq`, `mlmf-gptq` | Locate packed AWQ / GPTQ layers and parse their quantization configs | format |
+| `mlmf-mlx` | Locate packed MLX layers and parse the `quantization` config | format |
 | `mlmf-bnb` | Locate bitsandbytes 4-bit layers and read their raw pieces and `quant_state` | format |
 | `mlmf-exl2` | Detect and refuse EXL2 | format |
 | `mlmf-hf-layout` | HuggingFace shard index: where each tensor lives | format |

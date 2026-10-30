@@ -19,6 +19,7 @@ default-members = [
     "crates/mlmf-hf-layout",
     "crates/mlmf-hf-tokenizer",
     "crates/mlmf-meta",
+    "crates/mlmf-mlx",
     "crates/mlmf-onnx",
     "crates/mlmf-oracle",
     "crates/mlmf-pickle",
@@ -35,4 +36,4 @@ default-members = [
 edition    = "2024"
 license    = "MIT OR Apache-2.0"
 repository = "https://github.com/CireSnave/mlmf"
-version    = "0.10.8"
+version    = "0.10.9"
