@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.33] - 2026-10-30
+
+### Added
+- `SECURITY.md`: "Supported versions" (CireSnave 2026-10-29): the latest release line receives security fixes; an older line gets a backport only when it is small, otherwise the advisory says it is not fixed; no support period is promised.
+
 ## [0.7.32] - 2026-10-30
 
 ### Changed
