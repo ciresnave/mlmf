@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-10-30
+
+### Changed
+- ROADMAP: S-38 closed as obsolete. `loader.rs` (`load_safetensors_mmap`) no longer exists at `origin/main` and the `For now, use regular loading` comment is in no `.rs` file; `crates/mlmf-conformance/tests/mmap_zero_copy.rs` asserts `tensor_bytes` returns a borrowed `Cow` through a live mmap for both GGUF and safetensors. Documentation only.
 ## [0.10.0] - 2026-10-30
 
 ### Added
@@ -21,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `crates/mlmf-conformance/tests/mmap_zero_copy.rs` now reaches the mapped file through the new constructors.
 - ROADMAP: S-10 marked done.
+
 
 ## [0.9.0] - 2026-10-30
 
