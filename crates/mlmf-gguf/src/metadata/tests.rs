@@ -19,6 +19,41 @@ fn gguf(kvs: &[(&str, u32, Vec<u8>)]) -> Vec<u8> {
     b
 }
 
+/// An owned buffer as a `ByteSource`, so `parse_from` is exercised without
+/// a source crate.
+struct Owned(Vec<u8>);
+
+impl mlmf_core::ByteSource for Owned {
+    fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+#[test]
+fn parse_from_agrees_with_parse_on_the_same_bytes() {
+    let b = gguf(&[
+        ("general.name", 8, s("m")),
+        ("general.alignment", 4, 64u32.to_le_bytes().to_vec()),
+    ]);
+    let src = Owned(b.clone());
+    let (via_source, r1) = GgufMetadata::parse_from(&src, "t").expect("parses");
+    let (via_slice, r2) = GgufMetadata::parse(&b, "t").expect("parses");
+    assert_eq!(via_source.header(), via_slice.header());
+    assert_eq!(via_source.kv_end(), via_slice.kv_end());
+    assert_eq!(via_source.alignment(), 64);
+    assert_eq!(via_source.alignment(), via_slice.alignment());
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn parse_from_refuses_what_parse_refuses() {
+    let src = Owned(b"NOPE and then some".to_vec());
+    assert!(matches!(
+        GgufMetadata::parse_from(&src, "t"),
+        Err(GgufError::NotGguf { .. })
+    ));
+}
+
 fn s(v: &str) -> Vec<u8> {
     let mut b = (v.len() as u64).to_le_bytes().to_vec();
     b.extend_from_slice(v.as_bytes());

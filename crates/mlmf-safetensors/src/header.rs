@@ -28,6 +28,8 @@
 //! 34 GB. An allocation guard that succeeds is not a guard. The explicit
 //! bound is.
 
+use mlmf_core::ByteSource;
+
 use crate::error::{SafetensorsError, Stage};
 
 /// Bytes of little-endian `u64` at the start of every safetensors file.
@@ -83,6 +85,20 @@ pub(crate) fn json_kind(value: &serde_json::Value) -> &'static str {
 /// [`SafetensorsError::NotAnObject`] if the header parses and its top level
 /// is not an object.
 pub fn parse_header(bytes: &[u8]) -> Result<Header, SafetensorsError> {
+    parse_header_bytes(bytes)
+}
+
+/// [`parse_header`] over a [`ByteSource`], so a caller holding a source (a
+/// memory map, an owned buffer) need not know to call `as_bytes` itself.
+///
+/// # Errors
+///
+/// Exactly those of [`parse_header`].
+pub fn parse_header_from(source: &dyn ByteSource) -> Result<Header, SafetensorsError> {
+    parse_header_bytes(source.as_bytes())
+}
+
+fn parse_header_bytes(bytes: &[u8]) -> Result<Header, SafetensorsError> {
     let Some(prefix) = bytes.get(..LENGTH_PREFIX) else {
         return Err(SafetensorsError::Truncated {
             stage: Stage::Header,
@@ -179,6 +195,29 @@ mod tests {
         let mut v = (json.len() as u64).to_le_bytes().to_vec();
         v.extend_from_slice(json);
         v
+    }
+
+    struct Owned(Vec<u8>);
+
+    impl ByteSource for Owned {
+        fn as_bytes(&self) -> &[u8] {
+            &self.0
+        }
+    }
+
+    #[test]
+    fn parse_header_from_agrees_with_parse_header_on_the_same_bytes() {
+        let img = image(WELL_FORMED);
+        assert_eq!(parse_header_from(&Owned(img.clone())), parse_header(&img),);
+        assert!(parse_header_from(&Owned(img)).is_ok());
+    }
+
+    #[test]
+    fn parse_header_from_refuses_what_parse_header_refuses() {
+        let short = vec![1u8, 2, 3];
+        let got = parse_header_from(&Owned(short.clone()));
+        assert!(got.is_err());
+        assert_eq!(got, parse_header(&short));
     }
 
     /// The same, with the prefix declaring `declared` rather than the truth.

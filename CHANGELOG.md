@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.36] - 2026-10-30
+
+### Added
+- `crates/mlmf-gguf/src/metadata.rs` `GgufMetadata::parse_from(&dyn ByteSource, origin)` and `crates/mlmf-safetensors/src/header.rs` `parse_header_from(&dyn ByteSource)`: the `ByteSource` entry points, equal to `parse` / `parse_header` over `source.as_bytes()`. Additive. The PM allocates the number.
+
+### Changed
+- `crates/mlmf-conformance/tests/mmap_zero_copy.rs` now reaches the mapped file through the new constructors.
+- ROADMAP: S-10 marked done.
+
 ## [0.7.35] - 2026-10-30
 
 ### Changed
