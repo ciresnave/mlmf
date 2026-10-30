@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.32] - 2026-10-30
+
+### Changed
+- `crates/mlmf-gguf/src/tensors.rs`: the `tests` module moves to `crates/mlmf-gguf/src/tensors/tests/records.rs` and `crates/mlmf-gguf/src/tensors/tests/container.rs` (1419 lines to 560 plus two test files of about 430 lines each, each under Codacy's file-length limit), clearing the file-length row for it. No code change; the same 99 `mlmf-gguf` unit tests run under the same names.
+- ROADMAP: that File-length row marked done.
+
 ## [0.7.31] - 2026-10-29
 
 ### Changed
