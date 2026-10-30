@@ -7,4 +7,4 @@
     version.workspace    = true
 
 [dependencies]
-    mlmf-core = { path = "../mlmf-core", version = "0.10.2" }
+    mlmf-core = { path = "../mlmf-core", version = "0.10.3" }
