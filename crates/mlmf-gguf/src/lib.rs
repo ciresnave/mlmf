@@ -130,6 +130,7 @@ pub mod header;
 pub mod imatrix;
 pub mod imatrix_raw;
 pub mod metadata;
+pub mod ranged;
 pub mod requirements;
 pub mod split;
 pub mod tensors;
@@ -143,6 +144,9 @@ pub use error::{GgufError, Stage};
 pub use header::{Header, parse_header};
 pub use imatrix_raw::{RawImatrix, RawImatrixEntry, RawImatrixError, parse_raw_imatrix};
 pub use metadata::GgufMetadata;
+pub use ranged::{
+    DEFAULT_HEADER_LIMIT, HeaderRegion, INITIAL_READ, RangedGgufTensors, read_header_region,
+};
 pub use split::{SplitError, SplitFileName, SplitInfo, parse_split_file_name, shard_file_names};
 pub use tensors::{GgufTensors, parse_tensors};
 pub use tokenizer_data::{GgufTokenizerData, TokenizerDataError, read_tokenizer_data};

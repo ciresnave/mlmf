@@ -354,6 +354,33 @@ pub fn parse_tensors<'a>(
     meta: &GgufMetadata<'a>,
     origin: &str,
 ) -> Result<(GgufTensors<'a>, Report), GgufError> {
+    let (descriptors, index, data_start, report) =
+        directory(bytes, meta, bytes.len() as u64, origin)?;
+    Ok((
+        GgufTensors {
+            bytes,
+            descriptors,
+            index,
+            data_start,
+        },
+        report,
+    ))
+}
+
+/// A directory as `parse_tensors` and the ranged parse both build it:
+/// descriptors, name index, data start, report.
+pub(crate) type Directory = (Vec<TensorDescriptor>, HashMap<String, usize>, u64, Report);
+
+/// Read the tensor directory out of `bytes` (which need only reach the end
+/// of the directory) and resolve it against a file of `file_len` bytes.
+/// `file_len` is the only thing that differs between the slice parse (its
+/// length) and the ranged parse (the source's, or `u64::MAX` when unknown).
+pub(crate) fn directory(
+    bytes: &[u8],
+    meta: &GgufMetadata<'_>,
+    file_len: u64,
+    origin: &str,
+) -> Result<Directory, GgufError> {
     let mut cursor = Cursor::new(bytes);
     cursor
         .seek(meta.kv_end())
@@ -394,7 +421,7 @@ pub fn parse_tensors<'a>(
     let mut descriptors = Vec::new();
     let mut index = HashMap::new();
     for raw in &raws {
-        let Some(d) = resolve(raw, data_start, bytes.len() as u64, origin, &mut report) else {
+        let Some(d) = resolve(raw, data_start, file_len, origin, &mut report) else {
             continue;
         };
         if index.contains_key(&d.name) {
@@ -490,15 +517,7 @@ pub fn parse_tensors<'a>(
         }
     }
 
-    Ok((
-        GgufTensors {
-            bytes,
-            descriptors,
-            index,
-            data_start,
-        },
-        report,
-    ))
+    Ok((descriptors, index, data_start, report))
 }
 
 impl TensorContainer for GgufTensors<'_> {

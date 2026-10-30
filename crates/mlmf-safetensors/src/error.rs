@@ -166,6 +166,18 @@ pub enum SafetensorsError {
         /// What was wrong, naming the JSON kind or value seen.
         detail: String,
     },
+
+    /// A [`mlmf_core::RangedSource`] failed while the header was being read
+    /// from it (`crate::parse_header_ranged`): the transport broke, or the
+    /// source broke the `read_range` contract. A range past the end of the
+    /// artifact is [`SafetensorsError::Truncated`] instead, as it is for an
+    /// in-memory slice. `detail` is the source's own message.
+    Source {
+        /// Which stage was being read.
+        stage: Stage,
+        /// The source's message.
+        detail: String,
+    },
 }
 
 impl fmt::Display for SafetensorsError {
@@ -198,6 +210,9 @@ impl fmt::Display for SafetensorsError {
                 f,
                 "the {stage} at offset {offset} is a JSON {found}, not an object"
             ),
+            SafetensorsError::Source { stage, detail } => {
+                write!(f, "the source failed while reading the {stage}: {detail}")
+            }
             SafetensorsError::MalformedEntry {
                 stage,
                 name,
