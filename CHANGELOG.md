@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-10-30
+
+### Changed
+- `crates/mlmf-conformance/tests/fuel_differential_safetensors.rs`: the AD-1 differential now compares tensor payload bytes (mlmf `tensor_bytes` against the reference `TensorView::data()`), not only descriptors and ranges. Measured 2026-10-30 over the 9-file corpus: 664 tensors, 2924751236 bytes, all identical; a one-byte truncation of the reference side turns it red. The GGUF/GGML half (`crates/mlmf-conformance/tests/fuel_differential.rs`) still compares ranges only, so ROADMAP S-39 is partial. Test only; no library change.
+
 ## [0.10.1] - 2026-10-30
 
 ### Changed

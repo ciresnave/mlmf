@@ -109,11 +109,13 @@
 //!
 //! # What this file does NOT check — unchanged by widening the corpus
 //!
-//! - **Tensor payload bytes.** Same gap as the GGUF half, and the widened
-//!   corpus does not close it: ranges are compared, not the bytes at them.
-//!   AD-1's byte-identical-payload requirement remains untested by this
-//!   file (see the spec's own accounting of this, §9 §7, corrected in #84).
-//!   A bigger corpus is not a stronger claim about this.
+//! - **Tensor payload bytes for GGUF/GGML.** That half is still ranges only.
+//!   Safetensors payloads ARE compared here since ROADMAP S-39 (see
+//!   `assert_payloads_agree`): every tensor's bytes, as mlmf's
+//!   `tensor_bytes` returns them, against the bytes the reference
+//!   `TensorView::data()` returns. Both views are over the same in-memory
+//!   file, so this checks that the two parsers' ranges select identical
+//!   bytes, not that either reads the disk correctly.
 //! - **Dtypes outside `{BF16, F32, I64}`.** Listed above; not sourced.
 //! - **Report entries** from either side beyond what the tensor-set
 //!   comparison surfaces.
@@ -350,6 +352,40 @@ fn assert_descriptors_agree(
     }
 }
 
+/// AD-1's payload-identity half (ROADMAP S-39): for every tensor, the bytes
+/// mlmf's `tensor_bytes` returns equal the reference `TensorView::data()`.
+/// Returns `(tensors compared, bytes compared)` so the caller can assert the
+/// population rather than trust a loop that may have walked nothing.
+fn assert_payloads_agree(file: &str, bytes: &[u8], header: &Header) -> (usize, u64) {
+    let (tensors, _report) = parse_tensors(bytes, header, file)
+        .unwrap_or_else(|e| panic!("{file}: mlmf tensor table: {e}"));
+    let reference = fuel_formats::safetensors::SafeTensors::deserialize(bytes)
+        .unwrap_or_else(|e| panic!("{file}: reference deserialize: {e}"));
+    let views = reference.tensors();
+    assert_eq!(
+        views.len(),
+        tensors.tensors().len(),
+        "{file}: tensor count disagrees before any payload is compared"
+    );
+    let mut total = 0u64;
+    for (name, view) in &views {
+        let d = tensors
+            .tensor(name)
+            .unwrap_or_else(|| panic!("{file}/{name}: reference has it, mlmf does not"));
+        let mine = tensors
+            .tensor_bytes(d)
+            .unwrap_or_else(|e| panic!("{file}/{name}: mlmf tensor_bytes: {e}"));
+        assert!(
+            mine.as_ref() == view.data(),
+            "{file}/{name}: payload bytes differ ({} vs {} bytes)",
+            mine.len(),
+            view.data().len()
+        );
+        total += mine.len() as u64;
+    }
+    (views.len(), total)
+}
+
 #[test]
 fn the_corpus_is_present_and_the_harness_resolves_it() {
     let Some(_root) = corpus_or_skip("the_corpus_is_present_and_the_harness_resolves_it") else {
@@ -371,6 +407,7 @@ fn descriptors_agree_over_the_corpus() {
     let files = corpus_files();
     let mut checked = 0usize;
     let mut skipped_large = 0usize;
+    let (mut payload_tensors, mut payload_bytes) = (0usize, 0u64);
 
     for file in &files {
         let path = root.join(file);
@@ -390,6 +427,10 @@ fn descriptors_agree_over_the_corpus() {
                     fuel_formats::safetensors::SafeTensors::read_metadata(&bytes)
                         .unwrap_or_else(|e| panic!("{file}: {e}"));
                 assert_descriptors_agree(file, &header, fuel_metadata.metadata(), m, f);
+                let (n, nbytes) = assert_payloads_agree(file, &bytes, &header);
+                assert_eq!(n, m.len(), "{file}: payload walk covered a different set");
+                payload_tensors += n;
+                payload_bytes += nbytes;
             }
             (Err(mlmf_err), Ok(_)) => panic!(
                 "{file}: mlmf refused a file fuel reads cleanly -- \
@@ -412,10 +453,14 @@ fn descriptors_agree_over_the_corpus() {
         files.len(),
         "corpus present but not fully walked"
     );
+    assert!(
+        payload_tensors > 0 && payload_bytes > 0,
+        "the payload comparison walked nothing"
+    );
     use std::io::Write as _;
     let _ = writeln!(
         std::io::stderr(),
-        "{}: AD-1-for-safetensors ran on {checked} files ({skipped_large} large local-only files not present here), all agreed on descriptors and metadata (payload bytes not compared -- see this file's own doc).",
+        "{}: AD-1-for-safetensors ran on {checked} files ({skipped_large} large local-only files not present here), all agreed on descriptors, metadata and payload ({payload_tensors} tensors, {payload_bytes} bytes compared).",
         mlmf_core::NOTICE_TOKEN
     );
 }
