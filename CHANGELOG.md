@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - ROADMAP: S-17 marked done.
 
+## [0.9.1] - 2026-10-30
+
+### Added
+- `crates/mlmf-gguf/src/metadata.rs` `GgufMetadata::parse_from(&dyn ByteSource, origin)` and `crates/mlmf-safetensors/src/header.rs` `parse_header_from(&dyn ByteSource)`: the `ByteSource` entry points, equal to `parse` / `parse_header` over `source.as_bytes()`. Additive. The PM allocates the number.
+
+### Changed
+- `crates/mlmf-conformance/tests/mmap_zero_copy.rs` now reaches the mapped file through the new constructors.
+- ROADMAP: S-10 marked done.
+
 ## [0.9.0] - 2026-10-30
 
 ### Added

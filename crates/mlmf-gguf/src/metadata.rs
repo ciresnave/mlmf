@@ -3,7 +3,9 @@
 
 use std::sync::OnceLock;
 
-use mlmf_core::{Declaration, MetaValue, MetadataSource, Report, Unrecognized, UnrecognizedKind};
+use mlmf_core::{
+    ByteSource, Declaration, MetaValue, MetadataSource, Report, Unrecognized, UnrecognizedKind,
+};
 
 use crate::cursor::Cursor;
 use crate::error::{GgufError, Stage};
@@ -176,6 +178,20 @@ impl<'a> GgufMetadata<'a> {
         };
         me.alignment = me.resolve_alignment(origin, &mut report);
         Ok((me, report))
+    }
+
+    /// [`Self::parse`] over a [`ByteSource`], so a caller holding a source
+    /// (a memory map, an owned buffer) need not know to call `as_bytes`
+    /// itself. The metadata borrows from `source`, so a map stays zero-copy.
+    ///
+    /// # Errors
+    ///
+    /// Exactly those of [`Self::parse`].
+    pub fn parse_from(
+        source: &'a dyn ByteSource,
+        origin: &str,
+    ) -> Result<(Self, Report), GgufError> {
+        Self::parse(source.as_bytes(), origin)
     }
 
     /// The file's header.

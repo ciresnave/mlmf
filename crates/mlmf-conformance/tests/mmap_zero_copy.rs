@@ -85,7 +85,7 @@ fn gguf_tensor_bytes_borrows_through_a_live_mmap() {
     let source = FileSource::open(&path).expect("the scratch file opens");
     let bytes = source.as_bytes();
 
-    let (metadata, _report) = mlmf_gguf::GgufMetadata::parse(bytes, "mmap_zero_copy")
+    let (metadata, _report) = mlmf_gguf::GgufMetadata::parse_from(&source, "mmap_zero_copy")
         .expect("the hand-built file parses");
     let (tensors, _report) = mlmf_gguf::parse_tensors(bytes, &metadata, "mmap_zero_copy")
         .expect("the tensor directory parses");
@@ -111,7 +111,7 @@ fn safetensors_tensor_bytes_borrows_through_a_live_mmap() {
     let source = FileSource::open(&path).expect("the scratch file opens");
     let bytes = source.as_bytes();
 
-    let header = mlmf_safetensors::parse_header(bytes).expect("the header parses");
+    let header = mlmf_safetensors::parse_header_from(&source).expect("the header parses");
     let (tensors, _report) = mlmf_safetensors::parse_tensors(bytes, &header, "mmap_zero_copy")
         .expect("the tensor table parses");
 
