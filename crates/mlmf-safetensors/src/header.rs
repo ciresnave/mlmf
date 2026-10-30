@@ -85,20 +85,6 @@ pub(crate) fn json_kind(value: &serde_json::Value) -> &'static str {
 /// [`SafetensorsError::NotAnObject`] if the header parses and its top level
 /// is not an object.
 pub fn parse_header(bytes: &[u8]) -> Result<Header, SafetensorsError> {
-    parse_header_bytes(bytes)
-}
-
-/// [`parse_header`] over a [`ByteSource`], so a caller holding a source (a
-/// memory map, an owned buffer) need not know to call `as_bytes` itself.
-///
-/// # Errors
-///
-/// Exactly those of [`parse_header`].
-pub fn parse_header_from(source: &dyn ByteSource) -> Result<Header, SafetensorsError> {
-    parse_header_bytes(source.as_bytes())
-}
-
-fn parse_header_bytes(bytes: &[u8]) -> Result<Header, SafetensorsError> {
     let Some(prefix) = bytes.get(..LENGTH_PREFIX) else {
         return Err(SafetensorsError::Truncated {
             stage: Stage::Header,
@@ -176,6 +162,16 @@ fn parse_header_bytes(bytes: &[u8]) -> Result<Header, SafetensorsError> {
             found: json_kind(&other),
         }),
     }
+}
+
+/// [`parse_header`] over a [`ByteSource`], so a caller holding a source (a
+/// memory map, an owned buffer) need not know to call `as_bytes` itself.
+///
+/// # Errors
+///
+/// Exactly those of [`parse_header`].
+pub fn parse_header_from(source: &dyn ByteSource) -> Result<Header, SafetensorsError> {
+    parse_header(source.as_bytes())
 }
 
 #[cfg(test)]

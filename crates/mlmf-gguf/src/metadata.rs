@@ -87,24 +87,6 @@ impl<'a> GgufMetadata<'a> {
     /// [`GgufError::Malformed`] with `Stage::Metadata` if the KV block ends
     /// early or contains something structurally impossible.
     pub fn parse(bytes: &'a [u8], origin: &str) -> Result<(Self, Report), GgufError> {
-        Self::parse_bytes(bytes, origin)
-    }
-
-    /// [`Self::parse`] over a [`ByteSource`], so a caller holding a source
-    /// (a memory map, an owned buffer) need not know to call `as_bytes`
-    /// itself. The metadata borrows from `source`, so a map stays zero-copy.
-    ///
-    /// # Errors
-    ///
-    /// Exactly those of [`Self::parse`].
-    pub fn parse_from(
-        source: &'a dyn ByteSource,
-        origin: &str,
-    ) -> Result<(Self, Report), GgufError> {
-        Self::parse_bytes(source.as_bytes(), origin)
-    }
-
-    fn parse_bytes(bytes: &'a [u8], origin: &str) -> Result<(Self, Report), GgufError> {
         let mut cursor = Cursor::new(bytes);
         let header = parse_header(&mut cursor)?;
         let mut report = Report::new();
@@ -196,6 +178,20 @@ impl<'a> GgufMetadata<'a> {
         };
         me.alignment = me.resolve_alignment(origin, &mut report);
         Ok((me, report))
+    }
+
+    /// [`Self::parse`] over a [`ByteSource`], so a caller holding a source
+    /// (a memory map, an owned buffer) need not know to call `as_bytes`
+    /// itself. The metadata borrows from `source`, so a map stays zero-copy.
+    ///
+    /// # Errors
+    ///
+    /// Exactly those of [`Self::parse`].
+    pub fn parse_from(
+        source: &'a dyn ByteSource,
+        origin: &str,
+    ) -> Result<(Self, Report), GgufError> {
+        Self::parse(source.as_bytes(), origin)
     }
 
     /// The file's header.
