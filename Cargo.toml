@@ -35,4 +35,4 @@ default-members = [
 edition    = "2024"
 license    = "MIT OR Apache-2.0"
 repository = "https://github.com/CireSnave/mlmf"
-version    = "0.9.0"
+version    = "0.10.0"
