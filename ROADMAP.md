@@ -178,7 +178,7 @@ Short names: SPEC = `2026-08-14-backend-agnostic-mlmf-design.md`, QSF = `2026-10
 | S-40 | Record the ruling on whether `MetaValue` is format-neutral (code pins `as_u64` as non-coercing; no ruling is recorded) | safetensors-scope plan Q1 | open | CALL: changes what the seam promises |
 | S-41 | Lightbulb R5: "measure on the corpus and send the number" (`array_len` / `array_get` exist, the measurement is unverified) | lightbulb doc L195-196 | open (NOT VERIFIED) | - |
 | S-42 | gguf-tensors plan Step 2b: classify multi-assert tests by tier and report the distribution; Step 3 liveness-control rate | gguf-tensors plan L1400-1500 | open (NOT VERIFIED; may be in a PR body) | - |
-| S-43 | `mlmf-gptq` and `mlmf-awq` disagree on a non-string `quant_method` (gptq returns `Err`, awq records `malformed`) | gptq plan Review Focus vs `gptq/config.rs:157-166`, `awq/config.rs:405` | open | - |
+| S-43 | `mlmf-gptq` and `mlmf-awq` disagree on a non-string `quant_method` (gptq returns `Err`, awq records `malformed`) | gptq plan Review Focus vs `gptq/config.rs:157-166`, `awq/config.rs:405` | done (0.7.36 proposed: PM ruled gptq's `Err` wins; awq aligned) | mlmf |
 | S-44 | OQ-2 naive round-to-nearest quantization | SPEC L559 | held (until an operator asks) | - |
 | S-45 | `mlmf-source-hub`'s range implementation and Fuel's use of `ShardIndex` are unchecked | core plan L1886; shards plan L631 | open (NOT VERIFIED; the second is consumer-side) | - |
 | S-46 | `MLMF_TEAM_BRIEFING.md`: rewrite or delete (its header warns it is stale, its body claims v0.1.0 production-ready) | MLMF_TEAM_BRIEFING.md L1-7 | open | CALL: a document with a named audience |
