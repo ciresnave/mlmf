@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.10.7] - 2026-10-30
 
 ### Changed
-- ROADMAP: the `unused-parameters` / `unused-return-values` row closed as obsolete. All 18 cited items sat in files that no longer exist at `origin/main` (`distributed*`, `multimodal*`, `gguf_export`, `onnx_export`, `progress`; the root crate was retired in 0.7.12).
+- ROADMAP: the `unused-parameters` / `unused-return-values` row closed on a measurement: 0 / 0 from `coderipper check` over all 22 members, with a seeded positive control. S-34 (provenance stamp) closed as moot under S-33.
 
 ## [0.10.6] - 2026-10-30
 
