@@ -14,6 +14,16 @@
 //! eagerly costs about 26 MB of allocations to answer a question about one
 //! key.
 //!
+//! # Metadata only
+//!
+//! [`GgufMetadata::parse`] is the metadata-only entry point: it reads the
+//! header and indexes the key-value block and never enters the tensor
+//! loop, so a file whose tensors this build cannot read still yields its
+//! metadata. It returns the [`mlmf_core::Report`] beside the metadata on purpose (a
+//! caller cannot have the content without the account of what was
+//! skipped), which is why there is no separate `metadata_only(bytes)`
+//! returning the metadata alone.
+//!
 //! # The tensor directory
 //!
 //! [`parse_tensors`] is a separate call taking a parsed
