@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.35] - 2026-10-30
+
+### Changed
+- `crates/mlmf-core/tests/purity.rs`: the lexer, tokenizer and `use`-tree expander move to `crates/mlmf-core/tests/purity_scan/mod.rs` (788 lines to 488 plus 310), clearing the last File-length row. The scanner is moved unchanged apart from four `pub` markers; the policy and the five tests, including `the_gate_can_fail`, stay in `purity.rs` and run through it. No behaviour change.
+- ROADMAP: that File-length row marked done.
+
 ## [0.7.34] - 2026-10-30
 
 ### Changed
