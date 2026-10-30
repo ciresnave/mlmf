@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3] - 2026-10-30
+
+### Changed
+- `crates/mlmf-conformance/tests/fuel_differential.rs`: the GGUF/GGML AD-1 differential now compares payload bytes, in a weak form: mlmf `tensor_bytes` against the file buffer sliced by fuel's range, because `fuel-formats` 0.24 exposes offsets and no GGUF payload reader. Measured 2026-10-30 over the 30-file corpus: 30 files agreed, 2562 tensors, 1156925952 bytes identical; slicing one byte short turns it red. ROADMAP S-39 done. Test only; no library change.
+
 ## [0.10.2] - 2026-10-30
 
 ### Changed

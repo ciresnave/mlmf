@@ -64,8 +64,13 @@
 //!   set-membership assertions, but the report's own text is not read.
 //! - **Tensor BYTES.** AD-1 asks for byte-identical tensor bytes too; this
 //!   file compares byte **ranges** (offset + length), which is what both
-//!   sides' descriptors carry, and does not read the tensor payload itself
-//!   to diff it byte-for-byte. Ranges agreeing is necessary, not sufficient.
+//!   sides' descriptors carry. Since ROADMAP S-39 it also compares payload,
+//!   but WEAKLY: `fuel-formats` 0.24 has no GGUF payload reader (its
+//!   `TensorInfo` is offsets only), so the fuel side of the byte comparison
+//!   is the file buffer sliced by fuel's own range, against mlmf's
+//!   `tensor_bytes`. That checks mlmf's bounds handling and borrowing
+//!   against fuel's range; it is not two independent readers producing the
+//!   same bytes, as the safetensors half is.
 //! - **GGUF v1.** `fuel_formats::gguf::VersionedMagic` reads `GgufV1`;
 //!   `mlmf-gguf` refuses it by name (`GgufError::UnsupportedVersion`,
 //!   `crates/mlmf-gguf/src/lib.rs:81-104`). The one v1 file in the corpus
@@ -382,12 +387,18 @@ struct Tally {
     both_ok: usize,
     fuel_refused_known_divergence: usize,
     both_refused: usize,
+    payload_tensors: usize,
+    payload_bytes: u64,
 }
 
 impl Tally {
     fn record(&mut self, outcome: Outcome) {
         match outcome {
-            Outcome::BothAgreed => self.both_ok += 1,
+            Outcome::BothAgreed(n, nbytes) => {
+                self.both_ok += 1;
+                self.payload_tensors += n;
+                self.payload_bytes += nbytes;
+            }
             Outcome::FuelRefusedKnownDivergence => self.fuel_refused_known_divergence += 1,
             Outcome::BothRefused => self.both_refused += 1,
         }
@@ -398,7 +409,7 @@ impl Tally {
 /// variant here: [`assess_file`] panics on that arm directly, because it is
 /// a regression, not an outcome to tally alongside the expected ones.
 enum Outcome {
-    BothAgreed,
+    BothAgreed(usize, u64),
     FuelRefusedKnownDivergence,
     BothRefused,
 }
@@ -415,8 +426,8 @@ fn assess_file(
 ) -> Outcome {
     match (mlmf, fuel) {
         (Ok(m), Ok(f)) => {
-            assert_descriptors_agree(file, bytes, m, f);
-            Outcome::BothAgreed
+            let (n, nbytes) = assert_descriptors_agree(file, bytes, m, f);
+            Outcome::BothAgreed(n, nbytes)
         }
         (Ok(_), Err(fuel_err)) => {
             // The documented divergence. Assert it is what we think it is,
@@ -438,7 +449,7 @@ fn assess_file(
 
 /// Metadata key sets and every tensor's code/shape/byte-range, for one file
 /// both sides parsed successfully.
-fn assert_descriptors_agree(file: &str, bytes: &[u8], m: &[Facts], f: &[Facts]) {
+fn assert_descriptors_agree(file: &str, bytes: &[u8], m: &[Facts], f: &[Facts]) -> (usize, u64) {
     // Metadata key sets. Re-parsed here rather than threaded out of
     // mlmf_facts/fuel_facts, both of which discard their metadata object
     // once the tensor directory is built -- cheap to redo since
@@ -486,6 +497,41 @@ fn assert_descriptors_agree(file: &str, bytes: &[u8], m: &[Facts], f: &[Facts]) 
             mf.name
         );
     }
+    assert_payloads_agree(file, bytes, &meta, f)
+}
+
+/// AD-1's payload half for GGUF (ROADMAP S-39), the weak form described in
+/// the file doc: mlmf's `tensor_bytes` against `bytes` sliced by fuel's
+/// range. Returns `(tensors, bytes)` compared so the caller can assert the
+/// population.
+fn assert_payloads_agree(
+    file: &str,
+    bytes: &[u8],
+    meta: &GgufMetadata<'_>,
+    f: &[Facts],
+) -> (usize, u64) {
+    let (tensors, _report) = mlmf_gguf::parse_tensors(bytes, meta, file)
+        .unwrap_or_else(|e| panic!("{file}: mlmf tensor table: {e}"));
+    let mut total = 0u64;
+    for ff in f {
+        let d = tensors
+            .tensor(&ff.name)
+            .unwrap_or_else(|| panic!("{file}/{}: fuel has it, mlmf does not", ff.name));
+        let mine = tensors
+            .tensor_bytes(d)
+            .unwrap_or_else(|e| panic!("{file}/{}: mlmf tensor_bytes: {e}", ff.name));
+        let (start, end) = (
+            usize::try_from(ff.byte_start).expect("fits"),
+            usize::try_from(ff.byte_end).expect("fits"),
+        );
+        assert!(
+            mine.as_ref() == &bytes[start..end],
+            "{file}/{}: payload bytes differ from fuel's range",
+            ff.name
+        );
+        total += mine.len() as u64;
+    }
+    (f.len(), total)
 }
 
 /// The differential proper: every file's tensor descriptors and metadata
@@ -522,14 +568,20 @@ fn descriptors_agree_over_the_corpus() {
         files.len(),
         "corpus present but not fully walked"
     );
+    assert!(
+        tally.both_ok == 0 || (tally.payload_tensors > 0 && tally.payload_bytes > 0),
+        "files agreed but the payload comparison walked nothing"
+    );
     use std::io::Write as _;
     let _ = writeln!(
         std::io::stderr(),
-        "{}: AD-1 ran on {checked} files ({skipped_local_only} local-only files not present here): {} agreed, {} show the known ggml-coverage divergence, {} both refused.",
+        "{}: AD-1 ran on {checked} files ({skipped_local_only} local-only files not present here): {} agreed, {} show the known ggml-coverage divergence, {} both refused. Payload (weak form, against fuel's range): {} tensors, {} bytes.",
         mlmf_core::NOTICE_TOKEN,
         tally.both_ok,
         tally.fuel_refused_known_divergence,
-        tally.both_refused
+        tally.both_refused,
+        tally.payload_tensors,
+        tally.payload_bytes
     );
 }
 
