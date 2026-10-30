@@ -140,6 +140,27 @@ fn five_digits(s: &[u8]) -> Option<u32> {
     }
 }
 
+/// Split `name` into its prefix and the `-NNNNN-of-MMMMM` tail.
+fn split_tail(name: &str) -> Option<(&str, &[u8])> {
+    let stem = name.strip_suffix(SUFFIX)?;
+    let cut = stem.len().checked_sub(TAIL_LEN)?;
+    if cut == 0 || !stem.is_char_boundary(cut) {
+        return None;
+    }
+    let (prefix, tail) = stem.split_at(cut);
+    Some((prefix, tail.as_bytes()))
+}
+
+/// The shard number and count of a `-NNNNN-of-MMMMM` tail, or `None` if the
+/// tail is malformed or the number is not in `1..=count`.
+fn numbering(t: &[u8]) -> Option<(u32, u32)> {
+    if t[0] != b'-' || &t[6..10] != b"-of-" {
+        return None;
+    }
+    let (number, count) = (five_digits(&t[1..6])?, five_digits(&t[10..15])?);
+    (number != 0 && number <= count).then_some((number, count))
+}
+
 /// Parse `<prefix>-NNNNN-of-MMMMM.gguf`, or `None` if `name` is not one.
 ///
 /// `None` also for a number of `0` or above the count, and for a prefix that
@@ -147,21 +168,9 @@ fn five_digits(s: &[u8]) -> Option<u32> {
 /// exact, as llama.cpp's is: five ASCII digits each, lower-case `.gguf`.
 #[must_use]
 pub fn parse_split_file_name(name: &str) -> Option<SplitFileName> {
-    let stem = name.strip_suffix(SUFFIX)?;
-    let cut = stem.len().checked_sub(TAIL_LEN)?;
-    if cut == 0 || !stem.is_char_boundary(cut) {
-        return None;
-    }
-    let (prefix, tail) = stem.split_at(cut);
-    let t = tail.as_bytes();
-    if t[0] != b'-' || &t[6..10] != b"-of-" {
-        return None;
-    }
-    let (number, count) = (five_digits(&t[1..6])?, five_digits(&t[10..15])?);
-    if number == 0 || number > count || !plain(prefix) {
-        return None;
-    }
-    Some(SplitFileName {
+    let (prefix, tail) = split_tail(name)?;
+    let (number, count) = numbering(tail)?;
+    plain(prefix).then(|| SplitFileName {
         prefix: prefix.to_string(),
         number,
         count,
@@ -240,6 +249,16 @@ fn read_tensors_total<S: MetadataSource + ?Sized>(src: &S) -> Result<Option<u32>
     }
 }
 
+/// `split.count` when it declares a multi-file split (`> 1`); `None` when it
+/// is absent or `1`; an error for the `0` placeholder.
+fn read_multi_count<S: MetadataSource + ?Sized>(src: &S) -> Result<Option<u16>, SplitError> {
+    match read_u16(src, KEY_COUNT)? {
+        None | Some(1) => Ok(None),
+        Some(0) => Err(SplitError::CountZero),
+        Some(n) => Ok(Some(n)),
+    }
+}
+
 impl SplitInfo {
     /// Read the `split.*` keys from `src`.
     ///
@@ -253,14 +272,9 @@ impl SplitInfo {
     /// and [`SplitError::WrongType`] / [`SplitError::Unreadable`] for a key
     /// that is declared but not usable.
     pub fn from_source<S: MetadataSource + ?Sized>(src: &S) -> Result<Option<Self>, SplitError> {
-        let Some(count) = read_u16(src, KEY_COUNT)? else {
+        let Some(count) = read_multi_count(src)? else {
             return Ok(None);
         };
-        match count {
-            0 => return Err(SplitError::CountZero),
-            1 => return Ok(None),
-            _ => {}
-        }
         let no = read_u16(src, KEY_NO)?.ok_or(SplitError::MissingNo)?;
         if no >= count {
             return Err(SplitError::NoOutOfRange { no, count });
