@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.11] - 2026-10-30
+
+### Changed
+- `mlmf-hf-layout`: package description now names all four modules (shard index, `config.json`, `generation_config.json`, `special_tokens_map.json`) instead of only the shard index (ROADMAP D-10).
+- ROADMAP: D-01, D-02 and D-03 closed on a measurement (the README claim is gone; `ONNX_SUPPORT.md` and `GGUF_EXPORT_SUMMARY.md` no longer exist). D-06, D-08, D-12 and D-13 stay open: they live in historical plan documents kept verbatim.
+
 ## [0.10.10] - 2026-10-30
 
 ### Changed
