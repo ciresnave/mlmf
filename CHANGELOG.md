@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.7] - 2026-10-30
+
+### Changed
+- ROADMAP: the `unused-parameters` / `unused-return-values` row closed on a measurement: 0 / 0 from `coderipper check` over all 22 members, with a seeded positive control. S-34 (provenance stamp) closed as moot under S-33.
+
 ## [0.10.6] - 2026-10-30
 
 ### Changed
