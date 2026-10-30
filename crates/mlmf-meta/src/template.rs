@@ -20,7 +20,7 @@
 //! fail at that intermediate commit. The full linked reference lives on the
 //! target itself, where it always resolves.)
 
-use mlmf_core::{MetaValue, MetadataSource};
+use mlmf_core::MetadataSource;
 
 use crate::vocab::{Format, keys, spelling};
 
@@ -92,6 +92,21 @@ pub struct TemplateSet {
     /// §5 rule 3 requires; only the label is coarse, and it is coarse in
     /// the direction of over-reporting.
     pub not_a_string: Vec<String>,
+    /// Malformed declarations of the template NAMES, which no template body
+    /// can carry. Each entry is the format-spelled key of the thing that
+    /// was unusable, in the same vocabulary as the other lists:
+    ///
+    /// - `tokenizer.chat_template.` -- a key with an empty name under the
+    ///   template prefix;
+    /// - `tokenizer.chat_templates[<i>]` -- element `i` of the names array
+    ///   is not a string;
+    /// - `tokenizer.chat_templates` -- the names key is present but its
+    ///   value is not an array.
+    ///
+    /// Before this list existed each of the three was dropped with no
+    /// record, so a file declaring one was indistinguishable from a file
+    /// declaring no names at all (ROADMAP S-18).
+    pub malformed_names: Vec<String>,
 }
 
 impl TemplateSet {
@@ -157,8 +172,13 @@ impl TemplateSet {
             .keys()
             .into_iter()
             .filter_map(|k| k.strip_prefix(prefix.as_str()).map(ToString::to_string))
-            .filter(|n| !n.is_empty())
             .collect();
+        // The exact key `<default_key>.` names no template: report it
+        // rather than let the filter swallow it.
+        if named.iter().any(String::is_empty) {
+            out.malformed_names.push(prefix.clone());
+        }
+        named.retain(|n| !n.is_empty());
 
         // `MetadataSource::keys()` is documented "in unspecified order", so
         // WITHOUT this sort the order of the named entries is whatever the
@@ -183,16 +203,22 @@ impl TemplateSet {
 
         // Cross-check against the declared names, if the format has such a
         // key and the source declared it.
-        let declared: Vec<String> = spelling(keys::CHAT_TEMPLATE_NAMES, format)
-            .and_then(|k| source.get(k))
-            .and_then(MetaValue::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(MetaValue::as_str)
-                    .map(ToString::to_string)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut declared: Vec<String> = Vec::new();
+        if let Some(names_key) = spelling(keys::CHAT_TEMPLATE_NAMES, format)
+            && let Some(value) = source.get(names_key)
+        {
+            match value.as_array() {
+                Some(items) => {
+                    for (i, item) in items.iter().enumerate() {
+                        match item.as_str() {
+                            Some(name) => declared.push(name.to_string()),
+                            None => out.malformed_names.push(format!("{names_key}[{i}]")),
+                        }
+                    }
+                }
+                None => out.malformed_names.push(names_key.to_string()),
+            }
+        }
 
         // Both push the FULL key, never the bare name -- see the field
         // docs. All four loss lists must speak one vocabulary.
@@ -216,6 +242,7 @@ impl TemplateSet {
         out.present_but_unnamed.sort_unstable();
         out.blank.sort_unstable();
         out.not_a_string.sort_unstable();
+        out.malformed_names.sort_unstable();
         out
     }
 }
