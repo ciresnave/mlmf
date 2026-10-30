@@ -22,7 +22,7 @@
 
 use mlmf_core::MetadataSource;
 
-use crate::vocab::{Format, keys, spelling};
+use crate::vocab::{Format, keys, read, spelling};
 
 /// One template: the default (`name: None`) or a named variant.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,6 +107,17 @@ pub struct TemplateSet {
     /// record, so a file declaring one was indistinguishable from a file
     /// declaring no names at all (ROADMAP S-18).
     pub malformed_names: Vec<String>,
+    /// Format-spelled keys the file DECLARED but whose value the parse could
+    /// not decode: the default key, a named body key, or the names key. A
+    /// body key listed here is also in [`Self::named_but_absent`] when the
+    /// names array announced it, since no body was obtained. Repair the file;
+    /// do not supply a value (S-17).
+    pub unreadable: Vec<String>,
+    /// `true` when the source did not see every key its container declared
+    /// ([`MetadataSource::index_complete`] was `false`). Then an empty
+    /// result means only *nothing found in the part that could be read*:
+    /// "this model declares no chat template" cannot be concluded.
+    pub index_incomplete: bool,
 }
 
 impl TemplateSet {
@@ -125,7 +136,10 @@ impl TemplateSet {
     /// array, rather than trusting either alone.
     #[must_use]
     pub fn extract<S: MetadataSource + ?Sized>(source: &S, format: Format) -> Self {
-        let mut out = Self::default();
+        let mut out = Self {
+            index_incomplete: !source.index_complete(),
+            ..Self::default()
+        };
 
         let Some(default_key) = spelling(keys::CHAT_TEMPLATE, format) else {
             return out;
@@ -142,7 +156,7 @@ impl TemplateSet {
         // ci.yml, so a `mut` here would be a build failure in this crate's
         // own gate rather than a style nit.
         let classify = |key: &str, out: &mut Self| -> Option<String> {
-            let value = source.get(key)?;
+            let value = read(source, key, &mut out.unreadable)?;
             let Some(body) = value.as_str() else {
                 out.not_a_string.push(key.to_string());
                 return None;
@@ -205,7 +219,7 @@ impl TemplateSet {
         // key and the source declared it.
         let mut declared: Vec<String> = Vec::new();
         if let Some(names_key) = spelling(keys::CHAT_TEMPLATE_NAMES, format)
-            && let Some(value) = source.get(names_key)
+            && let Some(value) = read(source, names_key, &mut out.unreadable)
         {
             match value.as_array() {
                 Some(items) => {
@@ -243,6 +257,7 @@ impl TemplateSet {
         out.blank.sort_unstable();
         out.not_a_string.sort_unstable();
         out.malformed_names.sort_unstable();
+        out.unreadable.sort_unstable();
         out
     }
 }

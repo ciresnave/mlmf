@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-10-30
+
+### Added
+- **Breaking (struct shape):** `crates/mlmf-meta/src/template.rs` `TemplateSet` and `crates/mlmf-meta/src/tokens.rs` `SpecialTokens` gain `unreadable: Vec<String>` (format-spelled keys the file declared but the parse could not decode) and `index_incomplete: bool` (the source's `index_complete()` was `false`, so an empty result is not a fact about the file). Both extractors now read through `MetadataSource::declaration`, so an undecodable key is no longer indistinguishable from an absent one. Neither struct is `#[non_exhaustive]`, so a struct-literal construction outside this workspace breaks; `extract` callers are unaffected. The PM allocates the number.
+
+### Changed
+- ROADMAP: S-17 marked done.
+
 ## [0.9.1] - 2026-10-30
 
 ### Added
@@ -13,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `crates/mlmf-conformance/tests/mmap_zero_copy.rs` now reaches the mapped file through the new constructors.
 - ROADMAP: S-10 marked done.
+
 ## [0.9.0] - 2026-10-30
 
 ### Added
