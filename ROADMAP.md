@@ -104,9 +104,9 @@ non-comment-LOC first, to split — none started.
 | src/formats/onnx_import.rs | 644 | open |
 | `crates/mlmf-core/tests/purity.rs` | 640 | open |
 | src/formats/onnx_export.rs | 632 | open |
-| `crates/mlmf-gguf/src/metadata.rs` | 616 | open |
+| `crates/mlmf-gguf/src/metadata.rs` | 616 | done (0.7.34 proposed: tests moved to `crates/mlmf-gguf/src/metadata/tests.rs`) |
 | src/metadata.rs | 528 | open |
-| `crates/mlmf-gguf/src/value.rs` | 515 | open |
+| `crates/mlmf-gguf/src/value.rs` | 515 | done (0.7.34 proposed: tests moved to `crates/mlmf-gguf/src/value/tests.rs`) |
 | src/validation.rs | 513 | open |
 
 ## Known infrastructure defect in the same run (not a code finding)

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.34] - 2026-10-30
+
+### Changed
+- `crates/mlmf-gguf/src/metadata.rs` and `crates/mlmf-gguf/src/value.rs`: each `tests` module moves to `crates/mlmf-gguf/src/metadata/tests.rs` and `crates/mlmf-gguf/src/value/tests.rs` (1147 to 520 plus 626, 734 to 350 plus 383 lines). The one test edit: the case table in `decode_value_round_trips_every_type` becomes a `scalar_cases()` helper, because Codacy counted the moved function at 84 lines against a limit of 50. The same 99 `mlmf-gguf` unit tests run under the same names.
+- ROADMAP: those two File-length rows marked done.
+
 ## [0.7.33] - 2026-10-30
 
 ### Added
