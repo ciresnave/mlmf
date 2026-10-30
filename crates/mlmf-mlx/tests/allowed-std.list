@@ -1,0 +1,8 @@
+# C3: the std submodules mlmf-mlx may name.
+#
+# `borrow` -- `std::borrow::Cow`, in `layer.rs` test module only (FakeContainer).
+# `error`  -- `impl std::error::Error` for the config and locate errors.
+# `fmt`    -- `impl std::fmt::Display` for the same, hand-written.
+borrow
+error
+fmt

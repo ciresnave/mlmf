@@ -1,0 +1,13 @@
+[package]
+    description          = "MLX quantization geometry: locate packed linear layers in a safetensors container and parse the `quantization` config section. No I/O, no dequantization."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-mlx"
+    repository.workspace = true
+    version.workspace    = true
+
+# NO [features] SECTION, matching mlmf-awq and mlmf-gptq.
+
+[dependencies]
+    mlmf-core  = { path = "../mlmf-core", version = "0.10.9" }
+    serde_json = { version = "1.0", default-features = false, features = ["std"] }
