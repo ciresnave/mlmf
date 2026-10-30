@@ -7,5 +7,5 @@
     version.workspace    = true
 
 [dependencies]
-    mlmf-core  = { path = "../mlmf-core", version = "0.10.4" }
+    mlmf-core  = { path = "../mlmf-core", version = "0.10.6" }
     serde_json = { version = "1.0", default-features = false, features = ["std"] }
