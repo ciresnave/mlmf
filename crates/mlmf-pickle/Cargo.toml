@@ -7,7 +7,7 @@
     version.workspace    = true
 
 [dependencies]
-    mlmf-core = { path = "../mlmf-core", version = "0.10.12" }
+    mlmf-core = { path = "../mlmf-core", version = "0.10.13" }
 
 [dev-dependencies]
     mlmf-test-support = { path = "../mlmf-test-support" }

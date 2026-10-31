@@ -130,6 +130,7 @@ pub mod header;
 pub mod imatrix;
 pub mod imatrix_raw;
 pub mod metadata;
+pub mod model_config;
 pub mod ranged;
 pub mod requirements;
 pub mod split;
@@ -144,6 +145,7 @@ pub use error::{GgufError, Stage};
 pub use header::{Header, parse_header};
 pub use imatrix_raw::{RawImatrix, RawImatrixEntry, RawImatrixError, parse_raw_imatrix};
 pub use metadata::GgufMetadata;
+pub use model_config::{GgufCount, GgufModelConfig};
 pub use ranged::{
     DEFAULT_HEADER_LIMIT, HeaderRegion, INITIAL_READ, RangedGgufTensors, read_header_region,
 };

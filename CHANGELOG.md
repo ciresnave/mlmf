@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.13] - 2026-10-30
+
+### Added
+- `mlmf-gguf`: `GgufMetadata::model_config()` returns `GgufModelConfig`, the model-shape keys the file DECLARES (`architecture`, `context_length`, `embedding_length`, `block_count`, `feed_forward_length`, `head_count`, `head_count_kv`, both layer-norm epsilons, `rope_freq_base`, `rope_dimension_count`, `vocab_size`). Every field is `Option`; nothing is derived from another field (`head_count_kv` is `None` when undeclared, never copied from `head_count`); the `{arch}` prefix is the file's own `general.architecture`; counts the file declares per layer are kept as `GgufCount::PerLayer`; a key present with a wrong shape or unreadable to the parser is named in `malformed` rather than folded into `None`. The key names were read from the 30 local corpus files (S-13).
+
 ## [0.10.12] - 2026-10-30
 
 ### Added
