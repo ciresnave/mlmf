@@ -218,7 +218,7 @@ fn every_declared_special_token_id_resolves_to_text() {
                 checked += 1;
                 assert!(
                     tok.text.is_some(),
-                    "{path:?}: {which} id {} is past the vocabulary",
+                    "{path:?}: {which} id {:?} is past the vocabulary",
                     tok.id
                 );
             }

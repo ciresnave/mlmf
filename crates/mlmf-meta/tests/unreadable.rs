@@ -128,7 +128,7 @@ fn unreadable_special_token_keys_are_reported_per_key() {
     // The id survives; the text is None because the vocabulary is unreadable.
     assert_eq!(
         t.eos.as_ref().map(|e| (e.id, e.text.clone())),
-        Some((2, None))
+        Some((Some(2), None))
     );
     assert_eq!(
         t.unreadable,
