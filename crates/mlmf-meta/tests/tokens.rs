@@ -41,11 +41,11 @@ fn ids_resolve_to_their_token_text() {
     let t = SpecialTokens::extract(&f, Format::Gguf);
     assert_eq!(
         t.bos.as_ref().map(|b| (b.id, b.text.as_deref())),
-        Some((1, Some("<s>")))
+        Some((Some(1), Some("<s>")))
     );
     assert_eq!(
         t.eos.as_ref().map(|e| (e.id, e.text.as_deref())),
-        Some((2, Some("</s>")))
+        Some((Some(2), Some("</s>")))
     );
 }
 
@@ -105,7 +105,7 @@ fn an_id_past_the_vocabulary_keeps_the_id_and_reports_no_text() {
     ]);
     let t = SpecialTokens::extract(&f, Format::Gguf);
     let bos = t.bos.expect("the declared id survives");
-    assert_eq!(bos.id, 99);
+    assert_eq!(bos.id, Some(99));
     assert_eq!(bos.text, None);
 }
 
@@ -161,4 +161,117 @@ fn a_declared_bos_and_a_declared_false_add_bos_coexist_unreconciled() {
     let t = SpecialTokens::extract(&f, Format::Gguf);
     assert_eq!(t.bos.unwrap().text.as_deref(), Some("<|im_start|>"));
     assert_eq!(t.add_bos_declared, Some(false));
+}
+
+// ---- HuggingFace spellings (S-15 PR3), shapes measured 2026-10-31 --------
+
+use mlmf_meta::tokens::TextSource;
+
+fn hf(pairs: &[(&str, MetaValue)]) -> Fake {
+    Fake(
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), v.clone()))
+            .collect(),
+    )
+}
+
+#[test]
+fn text_comes_from_a_direct_declaration_when_the_format_has_one() {
+    // The regression this exists for: extract once resolved text ONLY
+    // through the token table, so an HF source (which has no table and
+    // declares the text directly) returned text: None on every checkpoint
+    // while every test passed.
+    let f = hf(&[(
+        "tokenizer_config.json:bos_token",
+        MetaValue::String("<s>".into()),
+    )]);
+    let t = SpecialTokens::extract(&f, Format::HuggingFace);
+    let bos = t.bos.expect("declared by text, with no id anywhere");
+    assert_eq!(bos.text.as_deref(), Some("<s>"));
+    assert_eq!(bos.text_source, Some(TextSource::Declared));
+    assert_eq!(bos.id, None, "no id was declared, so none is invented");
+}
+
+#[test]
+fn gguf_still_resolves_text_by_indexing_the_id() {
+    let f = Fake(vec![
+        ("tokenizer.ggml.tokens".into(), vocab_of(&["<unk>", "<s>"])),
+        ("tokenizer.ggml.bos_token_id".into(), MetaValue::U32(1)),
+    ]);
+    let bos = SpecialTokens::extract(&f, Format::Gguf).bos.unwrap();
+    assert_eq!(bos.text.as_deref(), Some("<s>"));
+    assert_eq!(bos.text_source, Some(TextSource::Indexed));
+    assert_eq!(bos.id, Some(1));
+}
+
+#[test]
+fn a_hugging_face_token_with_both_an_id_and_a_text_keeps_both() {
+    let f = hf(&[
+        ("config.json:bos_token_id", MetaValue::U64(1)),
+        (
+            "tokenizer_config.json:bos_token",
+            MetaValue::String("<s>".into()),
+        ),
+        ("tokenizer_config.json:add_bos_token", MetaValue::Bool(true)),
+    ]);
+    let t = SpecialTokens::extract(&f, Format::HuggingFace);
+    let bos = t.bos.unwrap();
+    assert_eq!((bos.id, bos.text.as_deref()), (Some(1), Some("<s>")));
+    assert_eq!(t.add_bos_declared, Some(true));
+    assert_eq!(t.add_eos_declared, None, "absent is None, not false");
+}
+
+#[test]
+fn an_id_with_no_text_anywhere_has_no_text_and_no_source() {
+    let f = hf(&[("config.json:bos_token_id", MetaValue::U64(1))]);
+    let bos = SpecialTokens::extract(&f, Format::HuggingFace).bos.unwrap();
+    assert_eq!((bos.id, bos.text, bos.text_source), (Some(1), None, None));
+}
+
+/// `NousResearch/Meta-Llama-3.1-8B-Instruct` declares
+/// `"eos_token_id": [128001, 128008, 128009]`. A single-id slot has no place
+/// for that, and it must not read as a file that declared nothing.
+#[test]
+fn an_eos_id_declared_as_a_list_is_reported_unusable_not_silently_absent() {
+    let f = hf(&[
+        (
+            "config.json:eos_token_id",
+            MetaValue::Array(vec![
+                MetaValue::U64(128001),
+                MetaValue::U64(128008),
+                MetaValue::U64(128009),
+            ]),
+        ),
+        (
+            "tokenizer_config.json:eos_token",
+            MetaValue::String("<|eot_id|>".into()),
+        ),
+    ]);
+    let t = SpecialTokens::extract(&f, Format::HuggingFace);
+    let eos = t.eos.expect("the declared text still makes a token");
+    assert_eq!(eos.id, None);
+    assert_eq!(eos.text.as_deref(), Some("<|eot_id|>"));
+    assert_eq!(t.unusable, vec!["config.json:eos_token_id".to_string()]);
+    assert!(t.unreadable.is_empty(), "nothing is broken");
+}
+
+#[test]
+fn a_wrong_typed_text_or_flag_is_unusable() {
+    let f = hf(&[
+        ("tokenizer_config.json:bos_token", MetaValue::U32(5)),
+        (
+            "tokenizer_config.json:add_bos_token",
+            MetaValue::String("yes".into()),
+        ),
+    ]);
+    let t = SpecialTokens::extract(&f, Format::HuggingFace);
+    assert!(t.bos.is_none() && t.add_bos_declared.is_none());
+    assert_eq!(
+        t.unusable,
+        vec![
+            "tokenizer_config.json:add_bos_token".to_string(),
+            "tokenizer_config.json:bos_token".to_string()
+        ]
+    );
 }

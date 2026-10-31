@@ -35,6 +35,13 @@ pub mod keys {
     pub const BOS_TOKEN_ID: &str = "tokenizer.bos_token_id";
     /// End-of-sequence token id.
     pub const EOS_TOKEN_ID: &str = "tokenizer.eos_token_id";
+    /// The beginning-of-sequence token's TEXT, as a format declares it
+    /// directly (HuggingFace's `tokenizer_config.json`). GGUF declares only
+    /// an id and resolves the text through its token table, so it has no
+    /// row for this key.
+    pub const BOS_TOKEN_TEXT: &str = "tokenizer.bos_token_text";
+    /// The end-of-sequence token's TEXT. See [`BOS_TOKEN_TEXT`].
+    pub const EOS_TOKEN_TEXT: &str = "tokenizer.eos_token_text";
     /// The token string table.
     pub const TOKENS: &str = "tokenizer.tokens";
     /// The file's DECLARATION about prepending BOS. Not a computed rule.
@@ -56,7 +63,7 @@ pub type Row = (&'static str, Format, &'static str);
 /// carries `bos_token`/`eos_token` as **strings** — so inventing
 /// `tokenizer_config.json:bos_token_id` here would put a wrong spelling in
 /// the one place a later reader would trust without checking. Those rows
-/// arrive with `mlmf-hf-layout` (§12 step 5), measured.
+/// were added below once `mlmf-hf-layout` could produce them (S-15), measured.
 pub const TABLE: &[Row] = &[
     (keys::CHAT_TEMPLATE, Format::Gguf, "tokenizer.chat_template"),
     (
@@ -89,6 +96,49 @@ pub const TABLE: &[Row] = &[
         keys::CHAT_TEMPLATE,
         Format::HuggingFace,
         "tokenizer_config.json:chat_template",
+    ),
+    // The other HuggingFace rows, measured 2026-10-31 over 16 Hub repos and
+    // produced by `mlmf-hf-layout`'s `HfLayout`. The ids live in
+    // `config.json`; the TEXT and the `add_*` flags live in
+    // `tokenizer_config.json`. There is deliberately NO
+    // `tokenizer_config.json:bos_token_id` row, and there must never be one:
+    // that file declares text, and an id spelling for it was invented once
+    // before (S-15). The text keys have no GGUF row, for the reason on
+    // [`keys::BOS_TOKEN_TEXT`].
+    (
+        keys::BOS_TOKEN_ID,
+        Format::HuggingFace,
+        "config.json:bos_token_id",
+    ),
+    (
+        keys::EOS_TOKEN_ID,
+        Format::HuggingFace,
+        "config.json:eos_token_id",
+    ),
+    (
+        keys::BOS_TOKEN_TEXT,
+        Format::HuggingFace,
+        "tokenizer_config.json:bos_token",
+    ),
+    (
+        keys::EOS_TOKEN_TEXT,
+        Format::HuggingFace,
+        "tokenizer_config.json:eos_token",
+    ),
+    (
+        keys::ADD_BOS_TOKEN,
+        Format::HuggingFace,
+        "tokenizer_config.json:add_bos_token",
+    ),
+    (
+        keys::ADD_EOS_TOKEN,
+        Format::HuggingFace,
+        "tokenizer_config.json:add_eos_token",
+    ),
+    (
+        keys::CHAT_TEMPLATE_NAMES,
+        Format::HuggingFace,
+        "tokenizer_config.json:chat_template_names",
     ),
 ];
 
