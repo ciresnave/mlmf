@@ -226,6 +226,22 @@ fn add_tokenizer_config(sink: &mut Sink<'_>, bytes: &[u8]) -> Result<(), String>
     }
     flatten_under(sink, &rest, TC, "tokenizer_config.json:");
 
+    add_tokens_and_flags(sink, &typed);
+    if let Some(template) = &typed.chat_template {
+        add_chat_template(sink, template);
+    }
+    for key in &typed.malformed {
+        sink.unreadable.push(unreadable_entry(
+            TC,
+            format!("{TC}:{key}"),
+            "declared with a JSON shape this reader cannot use",
+        ));
+    }
+    Ok(())
+}
+
+/// The four tokens as text, then the two `add_*_token` flags.
+fn add_tokens_and_flags(sink: &mut Sink<'_>, typed: &TokenizerConfig) {
     let tokens = [
         ("bos_token", &typed.bos_token),
         ("eos_token", &typed.eos_token),
@@ -244,17 +260,6 @@ fn add_tokenizer_config(sink: &mut Sink<'_>, bytes: &[u8]) -> Result<(), String>
                 .push((format!("{TC}:{key}"), MetaValue::Bool(b)));
         }
     }
-    if let Some(template) = &typed.chat_template {
-        add_chat_template(sink, template);
-    }
-    for key in &typed.malformed {
-        sink.unreadable.push(unreadable_entry(
-            TC,
-            format!("{TC}:{key}"),
-            "declared with a JSON shape this reader cannot use",
-        ));
-    }
-    Ok(())
 }
 
 /// One token as its text, plus its declared flags.
