@@ -18,15 +18,19 @@ const PROVENANCE: &str = include_str!("../data/corpus-provenance.tsv");
 /// How long a recorded fetch stays current. The policy knob.
 const MAX_AGE_DAYS: i64 = 180;
 
-/// Days since 1970-01-01 of a proleptic-Gregorian `YYYY-MM-DD`, or `None`.
-fn days_from_ymd(s: &str) -> Option<i64> {
+/// `(year, month, day)` of a `YYYY-MM-DD`, with month and day range-checked.
+fn parse_ymd(s: &str) -> Option<(i64, i64, i64)> {
     let mut it = s.split('-');
     let y: i64 = it.next()?.parse().ok()?;
     let m: i64 = it.next()?.parse().ok()?;
     let d: i64 = it.next()?.parse().ok()?;
-    if it.next().is_some() || !(1..=12).contains(&m) || !(1..=31).contains(&d) {
-        return None;
-    }
+    let ok = it.next().is_none() && (1..=12).contains(&m) && (1..=31).contains(&d);
+    ok.then_some((y, m, d))
+}
+
+/// Days since 1970-01-01 of a proleptic-Gregorian `YYYY-MM-DD`, or `None`.
+fn days_from_ymd(s: &str) -> Option<i64> {
+    let (y, m, d) = parse_ymd(s)?;
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
     let yoe = y - era * 400;
