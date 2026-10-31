@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `mlmf-gguf`: `GgufModelConfig::effective_head_count_kv()` applies the one default the GGUF specification states for `head_count_kv`: absent with a declared scalar `head_count` gives `Uniform(head_count)`. The declared `head_count_kv` field is untouched, so declared and derived stay distinguishable. A declared `head_count_kv` is returned as declared; the result is `None` for per-layer or absent `head_count`, for a `head_count_kv` that was declared but unusable, and for an incomplete metadata index. Warrant: `ggml-org/ggml` `docs/gguf.md` at `6af560d55df03ad92116e3c0a697779584477e85`, line 465, "If not present or if present and equal to `[llm].attention.head_count`, the model does not use GQA", read as key/value heads equal to `head_count` (an inference, ruled acceptable by the PM).
 
+## [0.10.15] - 2026-10-31
+
+### Added
+- `mlmf-source-hub`: `HubSource::open_ranged(repo, revision, filename)` returns a `HubRangedFile`, a `mlmf_core::RangedSource` that reads a Hub file by HTTP `Range` request instead of downloading it, so `mlmf-safetensors`' `parse_header_ranged` and `mlmf-gguf`'s `read_header_region` move only the header over the network. The length comes from a one-byte `Content-Range` probe, which also proves the server honours `Range`; a server answering 200 is an error, never a silent whole-file download. Every reply is checked (206, the `Content-Range` asked for, exactly the bytes asked for); a range past the end is `Truncated` before any request; nothing is cached. Also `HubSource::with_endpoint` (mirror or test server).
+- `mlmf-source-hub` tests: `crates/mlmf-source-hub/tests/support/range_server.rs`, a loopback HTTP server that serves a blob with `Range` support and counts the bytes it sends, so "reads only the header" is measured on the wire. Closes the Hub half of ROADMAP S-08.
+
 ## [0.10.14] - 2026-10-31
 
 ### Changed

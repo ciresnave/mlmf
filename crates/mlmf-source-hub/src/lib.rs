@@ -58,6 +58,10 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod ranged;
+
+pub use ranged::HubRangedFile;
+
 use std::fmt;
 use std::fs;
 use std::io;
@@ -140,6 +144,14 @@ impl HubSource {
     #[must_use]
     pub fn with_token(mut self, token: impl Into<String>) -> Self {
         self.token = Some(token.into());
+        self
+    }
+
+    /// Talk to `endpoint` instead of `https://huggingface.co`: a mirror
+    /// (`HF_ENDPOINT`-style) or a test server. A trailing `/` is dropped.
+    #[must_use]
+    pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.endpoint = endpoint.into().trim_end_matches('/').to_string();
         self
     }
 

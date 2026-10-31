@@ -146,3 +146,53 @@ fn a_nonexistent_file_is_a_named_error_not_a_panic() {
     );
     let _ = fs::remove_dir_all(&cache_root);
 }
+
+#[test]
+fn a_ranged_read_matches_the_downloaded_bytes_and_an_lfs_header_read_is_small() {
+    if !hub_reachable() {
+        println!("SKIPPED: Hub not reachable from this environment");
+        return;
+    }
+    use mlmf_core::RangedSource;
+    let cache_root = std::env::temp_dir().join(format!(
+        "mlmf-source-hub-test-ranged-{}",
+        std::process::id()
+    ));
+    let hub = HubSource::new(&cache_root);
+    let main = Revision::Ref("main".to_string());
+
+    // A plain git file: the ranged bytes equal the downloaded ones.
+    let fetched = hub.fetch(REPO, &main, "config.json").expect("fetches");
+    let whole = fs::read(&fetched.path).expect("readable");
+    let ranged = hub
+        .open_ranged(
+            REPO,
+            &Revision::Pinned(fetched.resolved_revision),
+            "config.json",
+        )
+        .expect("opens ranged");
+    assert_eq!(ranged.len(), Some(whole.len() as u64));
+    let mut got = vec![0u8; 20];
+    ranged.read_range(5..25, &mut got).expect("reads");
+    assert_eq!(got, whole[5..25]);
+
+    // An LFS file (served through a redirect to the CDN): the safetensors
+    // length prefix and header, and nothing else, with the size known.
+    let lfs = hub
+        .open_ranged(
+            "mlx-community/Qwen2.5-0.5B-Instruct-4bit",
+            &main,
+            "model.safetensors",
+        )
+        .expect("opens an LFS file ranged");
+    let total = lfs.len().expect("length known");
+    let mut prefix = [0u8; 8];
+    lfs.read_range(0..8, &mut prefix).expect("prefix");
+    let n = u64::from_le_bytes(prefix);
+    assert!(n > 0 && n < total / 100, "header {n} of {total} bytes");
+    let mut header = vec![0u8; n as usize];
+    lfs.read_range(8..8 + n, &mut header).expect("header");
+    assert_eq!(header[0], b'{', "a safetensors header is a JSON object");
+
+    let _ = fs::remove_dir_all(&cache_root);
+}

@@ -8,9 +8,12 @@
 #   on-disk cache this crate exists to maintain.
 # `io`    -- `io::copy` streaming a download into the cache file without
 #   materializing the whole response in memory first.
+# `ops`   -- `std::ops::Range<u64>`, the type of `RangedSource::read_range`'s
+#   first parameter, which `HubRangedFile` implements.
 # `path`  -- `Path`/`PathBuf`, the cache key and `FetchedFile::path`'s type.
 error
 fmt
 fs
 io
+ops
 path
