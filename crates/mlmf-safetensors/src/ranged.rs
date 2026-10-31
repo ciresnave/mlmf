@@ -98,7 +98,7 @@ fn check_declared(known: Option<u64>, declared: u64) -> Result<(), SafetensorsEr
             stage: Stage::Header,
             offset: 0,
             detail: format!(
-                "declared header length {declared} exceeds the                  {UNKNOWN_LENGTH_HEADER_LIMIT}-byte guard applied to a source                  that reports no length"
+                "declared header length {declared} exceeds the {UNKNOWN_LENGTH_HEADER_LIMIT}-byte guard applied to a source that reports no length"
             ),
         }),
         _ => Ok(()),
