@@ -492,7 +492,32 @@ pub fn parse_tensors<'a>(
     header: &Header,
     origin: &str,
 ) -> Result<(SafetensorsTensors<'a>, Report), SafetensorsError> {
-    let file_len = bytes.len() as u64;
+    let (descriptors, index, report) = directory(header, bytes.len() as u64, origin)?;
+    Ok((
+        SafetensorsTensors {
+            bytes,
+            descriptors,
+            index,
+            data_start: header.data_start,
+        },
+        report,
+    ))
+}
+
+/// A directory as `parse_tensors` and the ranged parse both build it: the
+/// descriptors, their name index, and the report. `file_len` is the only
+/// thing that differs between the two callers.
+pub(crate) type Directory = (Vec<TensorDescriptor>, HashMap<String, usize>, Report);
+
+/// Resolve every tensor record of `header` against a file of `file_len`
+/// bytes. Shared by [`parse_tensors`] (the slice's length) and
+/// `crate::parse_tensors_ranged` (the source's, or `u64::MAX` when it
+/// cannot say).
+pub(crate) fn directory(
+    header: &Header,
+    file_len: u64,
+    origin: &str,
+) -> Result<Directory, SafetensorsError> {
     let mut report = Report::new();
     let mut descriptors = Vec::new();
     let mut index = HashMap::new();
@@ -521,15 +546,7 @@ pub fn parse_tensors<'a>(
     // weights are a standard safetensors layout and reporting them would
     // blame a valid file.
 
-    Ok((
-        SafetensorsTensors {
-            bytes,
-            descriptors,
-            index,
-            data_start: header.data_start,
-        },
-        report,
-    ))
+    Ok((descriptors, index, report))
 }
 
 impl TensorContainer for SafetensorsTensors<'_> {

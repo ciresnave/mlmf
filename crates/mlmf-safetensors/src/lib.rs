@@ -20,6 +20,7 @@ pub mod encode;
 pub mod error;
 pub mod header;
 pub mod metadata;
+pub mod ranged;
 pub mod tensors;
 
 pub use dtype::{dtype_of, name_of};
@@ -27,4 +28,7 @@ pub use encode::{EncodeError, EncodedHeader, TensorToWrite, encode_header, encod
 pub use error::{SafetensorsError, Stage};
 pub use header::{Header, parse_header, parse_header_from};
 pub use metadata::{SafetensorsMetadata, parse_metadata};
+pub use ranged::{
+    RangedTensors, UNKNOWN_LENGTH_HEADER_LIMIT, parse_header_ranged, parse_tensors_ranged,
+};
 pub use tensors::{SafetensorsTensors, parse_tensors};

@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `mlmf-gguf`: `GgufMetadata::model_config()` returns `GgufModelConfig`, the model-shape keys the file DECLARES (`architecture`, `context_length`, `embedding_length`, `block_count`, `feed_forward_length`, `head_count`, `head_count_kv`, both layer-norm epsilons, `rope_freq_base`, `rope_dimension_count`, `vocab_size`). Every field is `Option`; nothing is derived from another field (`head_count_kv` is `None` when undeclared, never copied from `head_count`); the `{arch}` prefix is the file's own `general.architecture`; counts the file declares per layer are kept as `GgufCount::PerLayer`; a key present with a wrong shape or unreadable to the parser is named in `malformed` rather than folded into `None`. The key names were read from the 30 local corpus files (S-13).
 
+## [0.10.12] - 2026-10-30
+
+### Added
+- `mlmf-safetensors`: `parse_header_ranged` and `parse_tensors_ranged` read the length prefix and header through a `mlmf_core::RangedSource` (exactly two ranges, `0..8` and `8..8 + header_len`) and return `RangedTensors`, whose `tensor_bytes` reads one tensor's range on demand. `SafetensorsError::Source` (non-exhaustive enum) reports a failing source.
+- `mlmf-gguf`: `read_header_region` reads from a `RangedSource` until the key-value block and tensor directory both parse (doubling from `INITIAL_READ`, bounded by a caller `limit` and the source's length, never re-reading) and returns a `HeaderRegion`; `HeaderRegion::tensors` gives `RangedGgufTensors`. `GgufError::Source` (non-exhaustive enum) reports a failing source.
+- ROADMAP S-08: the header half is done, the trait CALL is answered, and the hub HTTP Range implementation stays open. No tensor data is read while parsing, and the tests count the bytes read to prove it.
+
 ## [0.10.11] - 2026-10-30
 
 ### Changed
