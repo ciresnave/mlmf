@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.6] - 2026-10-31
+
+### Added
+- `LICENSE-MIT` and `LICENSE-APACHE` in the 18 published crates that carried none, byte-identical to the root files (holder "Eric Evans", decision 263). All 21 published crates now ship both in their `cargo package --list`; `mlmf-conformance` and `mlmf-test-support` are `publish = false` and carry none.
+
 ## [0.11.5] - 2026-10-31
 
 ### Changed
