@@ -127,19 +127,31 @@ pub fn read_header_region(
             return Err(err);
         }
         let held = bytes.len() as u64;
-        let cut_by_limit = held >= limit && file_len.is_none_or(|len| len > limit);
-        if cut_by_limit {
-            return Err(GgufError::Malformed {
-                stage: Stage::Header,
-                offset: held,
-                detail: format!("the header region is still incomplete at the {limit}-byte limit"),
-            });
-        }
-        if ended || held >= ceiling {
-            return Err(err);
-        }
+        refuse_or_continue(err, held, (limit, ceiling, file_len), ended)?;
         want = held.saturating_mul(2);
     }
+}
+
+/// After a Truncated probe: the error to give up with, or `Ok` to read
+/// more. `limits` is `(limit, ceiling, file_len)`.
+fn refuse_or_continue(
+    err: GgufError,
+    held: u64,
+    limits: (u64, u64, Option<u64>),
+    ended: bool,
+) -> Result<(), GgufError> {
+    let (limit, ceiling, file_len) = limits;
+    if held >= limit && file_len.is_none_or(|len| len > limit) {
+        return Err(GgufError::Malformed {
+            stage: Stage::Header,
+            offset: held,
+            detail: format!("the header region is still incomplete at the {limit}-byte limit"),
+        });
+    }
+    if ended || held >= ceiling {
+        return Err(err);
+    }
+    Ok(())
 }
 
 /// Both stages over `bytes`, reports discarded. `Ok` means `bytes` reaches

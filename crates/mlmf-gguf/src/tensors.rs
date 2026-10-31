@@ -367,20 +367,9 @@ pub fn parse_tensors<'a>(
     ))
 }
 
-/// A directory as `parse_tensors` and the ranged parse both build it:
-/// descriptors, name index, data start, report.
-pub(crate) type Directory = (Vec<TensorDescriptor>, HashMap<String, usize>, u64, Report);
-
-/// Read the tensor directory out of `bytes` (which need only reach the end
-/// of the directory) and resolve it against a file of `file_len` bytes.
-/// `file_len` is the only thing that differs between the slice parse (its
-/// length) and the ranged parse (the source's, or `u64::MAX` when unknown).
-pub(crate) fn directory(
-    bytes: &[u8],
-    meta: &GgufMetadata<'_>,
-    file_len: u64,
-    origin: &str,
-) -> Result<Directory, GgufError> {
+/// Seek to the end of the key-value block and read every tensor-info
+/// record. Returns them with the offset just past the last one.
+fn read_raws(bytes: &[u8], meta: &GgufMetadata<'_>) -> Result<(Vec<RawInfo>, u64), GgufError> {
     let mut cursor = Cursor::new(bytes);
     cursor
         .seek(meta.kv_end())
@@ -390,56 +379,15 @@ pub(crate) fn directory(
             needed: t.needed,
             available: t.available,
         })?;
-
-    let mut report = Report::new();
     let mut raws = Vec::new();
     for _ in 0..meta.header().tensor_count {
         raws.push(read_info(&mut cursor)?);
     }
-    let dir_end = cursor.pos();
+    Ok((raws, cursor.pos()))
+}
 
-    // NOT validated against the file length. A file with no tensors ends at
-    // `dir_end` and this value can point one alignment block past the end —
-    // 19 of the 28 corpus files are that shape, counted from
-    // `mlmf-test-support/data/corpus-metadata.tsv`, where every `llamacpp-vocab/*` row
-    // declares `n_tensors` 0. Validating here would refuse every
-    // vocab-only GGUF, which is exactly what a metadata consumer opens.
-    // The bound that matters is per-tensor, in `tensor_bytes`.
-    //
-    // Task 2c added a SECOND per-tensor bound, in `resolve`, which reports
-    // a past-end-of-file range rather than erroring on it. It cannot fire
-    // on any of those 19 files: a bound that runs once per tensor runs zero
-    // times on a file declaring zero tensors. That is why the measurement
-    // above does not transfer, and why this line is still deliberately
-    // unvalidated rather than validated now that a length is in scope.
-    let data_start = data_start(dir_end, meta.alignment()).ok_or(GgufError::Malformed {
-        stage: Stage::TensorDirectory,
-        offset: dir_end,
-        detail: "the data region's start overflows".to_string(),
-    })?;
-
-    let mut descriptors = Vec::new();
-    let mut index = HashMap::new();
-    for raw in &raws {
-        let Some(d) = resolve(raw, data_start, file_len, origin, &mut report) else {
-            continue;
-        };
-        if index.contains_key(&d.name) {
-            // `TensorDeclined`, not `TensorEncoding`: this tensor's encoding
-            // resolved perfectly well. See Task 0.
-            report.push(Unrecognized {
-                kind: UnrecognizedKind::TensorDeclined {
-                    name: d.name.clone(),
-                    reason: "declared more than once; the first occurrence is kept".to_string(),
-                },
-                origin: origin.to_string(),
-            });
-            continue;
-        }
-        index.insert(d.name.clone(), descriptors.len());
-        descriptors.push(d);
-    }
-
+/// Report every tensor whose byte range overlaps an earlier one.
+fn report_overlaps(descriptors: &[TensorDescriptor], origin: &str, report: &mut Report) {
     // Sort by start once and compare neighbours, rather than comparing every
     // pair. At 272 tensors the quadratic form is 37,000 comparisons and at a
     // thousand it is half a million, for a check that runs on every open.
@@ -516,6 +464,54 @@ pub(crate) fn directory(
             furthest = Some(i);
         }
     }
+}
+
+/// A directory as `parse_tensors` and the ranged parse both build it:
+/// descriptors, name index, data start, report.
+pub(crate) type Directory = (Vec<TensorDescriptor>, HashMap<String, usize>, u64, Report);
+
+/// Read the tensor directory out of `bytes` (which need only reach the end
+/// of the directory) and resolve it against a file of `file_len` bytes.
+/// `file_len` is the only thing that differs between the slice parse (its
+/// length) and the ranged parse (the source's, or `u64::MAX` when unknown).
+pub(crate) fn directory(
+    bytes: &[u8],
+    meta: &GgufMetadata<'_>,
+    file_len: u64,
+    origin: &str,
+) -> Result<Directory, GgufError> {
+    let mut report = Report::new();
+    let (raws, dir_end) = read_raws(bytes, meta)?;
+
+    let data_start = data_start(dir_end, meta.alignment()).ok_or(GgufError::Malformed {
+        stage: Stage::TensorDirectory,
+        offset: dir_end,
+        detail: "the data region's start overflows".to_string(),
+    })?;
+
+    let mut descriptors = Vec::new();
+    let mut index = HashMap::new();
+    for raw in &raws {
+        let Some(d) = resolve(raw, data_start, file_len, origin, &mut report) else {
+            continue;
+        };
+        if index.contains_key(&d.name) {
+            // `TensorDeclined`, not `TensorEncoding`: this tensor's encoding
+            // resolved perfectly well. See Task 0.
+            report.push(Unrecognized {
+                kind: UnrecognizedKind::TensorDeclined {
+                    name: d.name.clone(),
+                    reason: "declared more than once; the first occurrence is kept".to_string(),
+                },
+                origin: origin.to_string(),
+            });
+            continue;
+        }
+        index.insert(d.name.clone(), descriptors.len());
+        descriptors.push(d);
+    }
+
+    report_overlaps(&descriptors, origin, &mut report);
 
     Ok((descriptors, index, data_start, report))
 }

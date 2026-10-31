@@ -79,30 +79,30 @@ pub fn parse_header_ranged(source: &dyn RangedSource) -> Result<Header, Safetens
     if declared == 0 {
         return parse_header(&bytes);
     }
-    match known {
-        Some(len) if declared > len - LENGTH_PREFIX => {
-            return Err(SafetensorsError::Truncated {
-                stage: Stage::Header,
-                offset: LENGTH_PREFIX,
-                needed: declared,
-                available: len - LENGTH_PREFIX,
-            });
-        }
-        None if declared > UNKNOWN_LENGTH_HEADER_LIMIT => {
-            return Err(SafetensorsError::Malformed {
-                stage: Stage::Header,
-                offset: 0,
-                detail: format!(
-                    "declared header length {declared} exceeds the \
-                     {UNKNOWN_LENGTH_HEADER_LIMIT}-byte guard applied to a source \
-                     that reports no length"
-                ),
-            });
-        }
-        _ => {}
-    }
+    check_declared(known, declared)?;
     bytes.extend(fetch(source, LENGTH_PREFIX, declared)?);
     parse_header(&bytes)
+}
+
+/// Refuse a declared header length the source cannot honour, before any
+/// allocation: against its length when it has one, else against the guard.
+fn check_declared(known: Option<u64>, declared: u64) -> Result<(), SafetensorsError> {
+    match known {
+        Some(len) if declared > len - LENGTH_PREFIX => Err(SafetensorsError::Truncated {
+            stage: Stage::Header,
+            offset: LENGTH_PREFIX,
+            needed: declared,
+            available: len - LENGTH_PREFIX,
+        }),
+        None if declared > UNKNOWN_LENGTH_HEADER_LIMIT => Err(SafetensorsError::Malformed {
+            stage: Stage::Header,
+            offset: 0,
+            detail: format!(
+                "declared header length {declared} exceeds the                  {UNKNOWN_LENGTH_HEADER_LIMIT}-byte guard applied to a source                  that reports no length"
+            ),
+        }),
+        _ => Ok(()),
+    }
 }
 
 /// Resolve `header`'s tensor records into a container that reads tensor
