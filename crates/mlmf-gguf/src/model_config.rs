@@ -9,8 +9,10 @@
 //!   field is ever derived from another: in particular
 //!   [`GgufModelConfig::head_count_kv`] is `None` when the file declares
 //!   `head_count` but no `head_count_kv`, however much a consumer might
-//!   expect them to be equal. That equality is a statement about a model
-//!   this crate has not been told (S-13; the section 6 fence).
+//!   expect them to be equal. The one default the GGUF specification itself
+//!   states is offered separately, as
+//!   [`GgufModelConfig::effective_head_count_kv`], so declared and derived
+//!   never share a field (S-13; the section 6 fence).
 //! * **The architecture prefix is read, not guessed.** `{arch}` is the
 //!   file's own `general.architecture`. Without it no `{arch}.*` key can be
 //!   located, so every such field is `None`.
@@ -75,6 +77,51 @@ pub struct GgufModelConfig {
     /// only "not found in the part that could be read"; see
     /// [`GgufMetadata::index_complete`].
     pub index_complete: bool,
+}
+
+impl GgufModelConfig {
+    /// The number of key/value heads, applying the one default the GGUF
+    /// specification states. [`Self::head_count_kv`] is NOT changed: this
+    /// is a separate answer, so a caller can always tell declared from
+    /// derived.
+    ///
+    /// * `head_count_kv` declared: that value, as declared (arrays too).
+    /// * `head_count_kv` absent and `head_count` a declared scalar `h`:
+    ///   `Uniform(h)`.
+    /// * Anything else: `None`. In particular `None` when `head_count` is
+    ///   absent or per-layer (the specification says nothing about those),
+    ///   when `head_count_kv` was declared but unusable (named in
+    ///   [`Self::malformed`]: it is not absent), and when the metadata
+    ///   index was incomplete (an absent key proves nothing).
+    ///
+    /// **The warrant, and what it is not.** The specification
+    /// (`ggml-org/ggml`, `docs/gguf.md` at
+    /// `6af560d55df03ad92116e3c0a697779584477e85`, line 465) says of
+    /// `[llm].attention.head_count_kv`: *"If not present or if present and
+    /// equal to `[llm].attention.head_count`, the model does not use GQA."*
+    /// It states the ABSENT case, as a fact about grouped-query attention
+    /// rather than as a value. Reading "does not use GQA" as "key/value
+    /// heads equal `head_count`" is an inference one step from the words,
+    /// ruled acceptable by the PM (2026-10-31) because the standard defines
+    /// the absent case; it is recorded here so nobody mistakes it for
+    /// something the file said.
+    #[must_use]
+    pub fn effective_head_count_kv(&self) -> Option<GgufCount> {
+        if let Some(declared) = &self.head_count_kv {
+            return Some(declared.clone());
+        }
+        let unusable = self.architecture.as_ref().is_some_and(|arch| {
+            self.malformed
+                .contains(&key(arch, "attention.head_count_kv"))
+        });
+        if unusable || !self.index_complete {
+            return None;
+        }
+        match self.head_count {
+            Some(GgufCount::Uniform(h)) => Some(GgufCount::Uniform(h)),
+            _ => None,
+        }
+    }
 }
 
 impl GgufMetadata<'_> {

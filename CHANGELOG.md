@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.16] - 2026-10-31
+
+### Added
+- `mlmf-gguf`: `GgufModelConfig::effective_head_count_kv()` applies the one default the GGUF specification states for `head_count_kv`: absent with a declared scalar `head_count` gives `Uniform(head_count)`. The declared `head_count_kv` field is untouched, so declared and derived stay distinguishable. A declared `head_count_kv` is returned as declared; the result is `None` for per-layer or absent `head_count`, for a `head_count_kv` that was declared but unusable, and for an incomplete metadata index. Warrant: `ggml-org/ggml` `docs/gguf.md` at `6af560d55df03ad92116e3c0a697779584477e85`, line 465, "If not present or if present and equal to `[llm].attention.head_count`, the model does not use GQA", read as key/value heads equal to `head_count` (an inference, ruled acceptable by the PM).
+
 ## [0.10.15] - 2026-10-31
 
 ### Added
