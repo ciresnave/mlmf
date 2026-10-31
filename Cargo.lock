@@ -416,7 +416,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-awq"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -424,7 +424,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-bnb"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -432,7 +432,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-conformance"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "fuel-formats",
  "mlmf-bnb",
@@ -450,7 +450,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-core"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "bytemuck",
  "mlmf-test-support",
@@ -460,21 +460,21 @@ dependencies = [
 
 [[package]]
 name = "mlmf-exl2"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "mlmf-ggml"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-core",
 ]
 
 [[package]]
 name = "mlmf-gguf"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-core",
  "mlmf-ggml",
@@ -483,14 +483,14 @@ dependencies = [
 
 [[package]]
 name = "mlmf-gguf-arch"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-core",
 ]
 
 [[package]]
 name = "mlmf-gptq"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -498,7 +498,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-hf-layout"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -506,21 +506,21 @@ dependencies = [
 
 [[package]]
 name = "mlmf-hf-tokenizer"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "mlmf-meta"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-core",
 ]
 
 [[package]]
 name = "mlmf-mlx"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -528,21 +528,21 @@ dependencies = [
 
 [[package]]
 name = "mlmf-onnx"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-core",
 ]
 
 [[package]]
 name = "mlmf-oracle"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-tensor-names",
 ]
 
 [[package]]
 name = "mlmf-pickle"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-core",
  "mlmf-test-support",
@@ -550,7 +550,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-pt2"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-core",
  "mlmf-pickle",
@@ -559,7 +559,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-safetensors"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-core",
  "mlmf-test-support",
@@ -568,7 +568,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-source-file"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "memmap2",
  "mlmf-core",
@@ -576,7 +576,7 @@ dependencies = [
 
 [[package]]
 name = "mlmf-source-hub"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "mlmf-core",
  "serde_json",
@@ -585,18 +585,18 @@ dependencies = [
 
 [[package]]
 name = "mlmf-stablehlo"
-version = "0.10.11"
+version = "0.10.13"
 
 [[package]]
 name = "mlmf-tensor-names"
-version = "0.10.11"
+version = "0.10.13"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "mlmf-test-support"
-version = "0.10.11"
+version = "0.10.13"
 
 [[package]]
 name = "nix"
