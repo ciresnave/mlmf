@@ -84,6 +84,16 @@ pub enum GgufError {
         /// What was wrong, naming the value seen.
         detail: String,
     },
+    /// A [`mlmf_core::RangedSource`] failed while the header region was
+    /// being read from it (`crate::read_header_region`): the transport
+    /// broke, or the source broke the `read_range` contract. A range past
+    /// the end of the artifact is [`GgufError::Truncated`] instead.
+    Source {
+        /// Where the failed read started.
+        offset: u64,
+        /// The source's own message.
+        detail: String,
+    },
 }
 
 impl fmt::Display for GgufError {
@@ -116,6 +126,9 @@ impl fmt::Display for GgufError {
                 offset,
                 detail,
             } => write!(f, "malformed {stage} at offset {offset}: {detail}"),
+            GgufError::Source { offset, detail } => {
+                write!(f, "the source failed reading at offset {offset}: {detail}")
+            }
         }
     }
 }
