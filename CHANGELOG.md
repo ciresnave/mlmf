@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `mlmf-source-hub`: `HubSource::open_ranged(repo, revision, filename)` returns a `HubRangedFile`, a `mlmf_core::RangedSource` that reads a Hub file by HTTP `Range` request instead of downloading it, so `mlmf-safetensors`' `parse_header_ranged` and `mlmf-gguf`'s `read_header_region` move only the header over the network. The length comes from a one-byte `Content-Range` probe, which also proves the server honours `Range`; a server answering 200 is an error, never a silent whole-file download. Every reply is checked (206, the `Content-Range` asked for, exactly the bytes asked for); a range past the end is `Truncated` before any request; nothing is cached. Also `HubSource::with_endpoint` (mirror or test server).
 - `mlmf-source-hub` tests: `crates/mlmf-source-hub/tests/support/range_server.rs`, a loopback HTTP server that serves a blob with `Range` support and counts the bytes it sends, so "reads only the header" is measured on the wire. Closes the Hub half of ROADMAP S-08.
 
+## [0.10.14] - 2026-10-31
+
+### Changed
+- ROADMAP: S-16 closed as superseded by S-13 (`GgufMetadata::model_config()`), with the reason recorded: the GGUF spelling is `{arch}`-templated and `mlmf-meta`'s lookups match static strings, and a one-sided cross-format row has no consumer. Reopens with the HuggingFace spellings (S-15). Docs only.
+
 ## [0.10.13] - 2026-10-30
 
 ### Added
