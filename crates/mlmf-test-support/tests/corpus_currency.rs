@@ -62,7 +62,9 @@ fn offences(table: &str, today: i64, max_age: i64) -> Vec<String> {
         .filter_map(|(dir, date)| match days_from_ymd(&date) {
             None => Some(format!("{dir}: fetched_utc {date:?} is not YYYY-MM-DD")),
             Some(d) if today - d > max_age => Some(format!(
-                "{dir}: fetched {date}, {} days ago (max {max_age}); re-fetch, re-run the census, record the new date",
+                "{dir}: fetched {date}, {} days ago (max {max_age}); TO FIX: re-fetch the source, re-run the census, then update fetched_utc in \
+                 crates/mlmf-test-support/data/corpus-provenance.tsv; or, if the tier is \
+                 retired, delete its row and its rows in corpus-metadata.tsv",
                 today - d
             )),
             Some(d) if d > today => Some(format!("{dir}: fetched {date} is in the future")),
