@@ -132,17 +132,7 @@ impl<'a, S: MetadataSource + ?Sized> Reader<'a, S> {
     ) -> Option<SpecialToken> {
         let id = self.typed(id_key, MetaValue::as_u64);
         let declared = self.typed(text_key, |v| v.as_str().cloned());
-        let indexed = || {
-            let at = usize::try_from(id?).ok()?;
-            vocab?.get(at)?.as_str().cloned()
-        };
-        let (text, text_source) = match declared {
-            Some(t) => (Some(t), Some(TextSource::Declared)),
-            None => match indexed() {
-                Some(t) => (Some(t), Some(TextSource::Indexed)),
-                None => (None, None),
-            },
-        };
+        let (text, text_source) = resolve_text(declared, id, vocab);
         if id.is_none() && text.is_none() {
             return None;
         }
@@ -151,6 +141,25 @@ impl<'a, S: MetadataSource + ?Sized> Reader<'a, S> {
             text,
             text_source,
         })
+    }
+}
+
+/// A token's text: a direct declaration first, then indexing `id` into
+/// `vocab`; the source says which.
+fn resolve_text(
+    declared: Option<String>,
+    id: Option<u64>,
+    vocab: Option<&[MetaValue]>,
+) -> (Option<String>, Option<TextSource>) {
+    if let Some(t) = declared {
+        return (Some(t), Some(TextSource::Declared));
+    }
+    let indexed = id
+        .and_then(|i| usize::try_from(i).ok())
+        .and_then(|at| vocab?.get(at)?.as_str().cloned());
+    match indexed {
+        Some(t) => (Some(t), Some(TextSource::Indexed)),
+        None => (None, None),
     }
 }
 
