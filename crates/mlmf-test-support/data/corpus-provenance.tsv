@@ -1,0 +1,24 @@
+# Provenance of the corpus behind corpus-metadata.tsv: where each part came
+# from and when. SPEC section 7 U-2: currency is its own check, never inferred
+# from agreement. The test is crates/mlmf-test-support/tests/corpus_currency.rs.
+#
+# POLICY (S-35). A row is CURRENT for MAX_AGE_DAYS (180) after `fetched_utc`;
+# after that the test FAILS until someone re-fetches the source, re-runs the
+# census, and records the new date and revision here. Bumping the date
+# without re-fetching defeats the check: this file records a fetch, not a wish.
+# Offline by design (CI has no model files and no network), so it measures
+# AGE, not "upstream moved". A moved upstream is found at the refresh.
+#
+# `basis`: `manifest` = date copied from the corpus's MANIFEST.json;
+# `mtime` = no recorded fetch date, so the files' modification time (UTC) is
+# used as the nearest available lower bound on it.
+# `revision`: the upstream commit the files were fetched at, `-` = not recorded.
+#
+# Corpus tiers whose provenance is NOT recorded here (listed so a partial
+# record is visible, not silent): gguf-corpus/tinyllamas (added 2026-09-25,
+# absent from MANIFEST.json) and the safetensors checkouts behind
+# corpus-safetensors.tsv (TinyLlama-1.1B-Chat-v1.0 has a git origin and revision but no fetch date).
+dir	source	revision	fetched_utc	basis
+llamacpp-vocab	github:ggml-org/llama.cpp (models/)	9d57ce456c94d241dde672b2db9cf18879766568	2026-08-15	manifest
+legacy	hf:klosax/tinyllamas-stories-gguf	-	2026-08-15	mtime
+quants	hf:bartowski/SmolLM2-135M-Instruct-GGUF	-	2026-08-15	mtime
