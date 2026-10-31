@@ -174,3 +174,84 @@ fn string_value(text: &str) -> Vec<u8> {
     v.extend_from_slice(text.as_bytes());
     v
 }
+
+/// `effective_head_count_kv` over a config built by hand, so each case is
+/// stated by its fields and nothing else.
+fn cfg(heads: Option<GgufCount>, kv: Option<GgufCount>) -> GgufModelConfig {
+    GgufModelConfig {
+        architecture: Some("llama".into()),
+        head_count: heads,
+        head_count_kv: kv,
+        index_complete: true,
+        ..GgufModelConfig::default()
+    }
+}
+
+#[test]
+fn an_absent_kv_with_a_scalar_head_count_takes_the_spec_default() {
+    // Two head counts, so a constant answer cannot pass both.
+    for h in [8u64, 32] {
+        let c = cfg(Some(GgufCount::Uniform(h)), None);
+        assert_eq!(c.effective_head_count_kv(), Some(GgufCount::Uniform(h)));
+        assert_eq!(c.head_count_kv, None, "the declared field is untouched");
+    }
+}
+
+#[test]
+fn a_declared_kv_wins_whatever_head_count_is() {
+    let c = cfg(Some(GgufCount::Uniform(32)), Some(GgufCount::Uniform(4)));
+    assert_eq!(c.effective_head_count_kv(), Some(GgufCount::Uniform(4)));
+    let equal = cfg(Some(GgufCount::Uniform(8)), Some(GgufCount::Uniform(8)));
+    assert_eq!(equal.effective_head_count_kv(), Some(GgufCount::Uniform(8)));
+    let per_layer = GgufCount::PerLayer(vec![8, 4, 0]);
+    let a = cfg(Some(GgufCount::Uniform(8)), Some(per_layer.clone()));
+    assert_eq!(a.effective_head_count_kv(), Some(per_layer));
+}
+
+#[test]
+fn the_default_is_not_applied_where_the_spec_is_silent() {
+    let array_heads = cfg(Some(GgufCount::PerLayer(vec![8, 8])), None);
+    assert_eq!(array_heads.effective_head_count_kv(), None);
+    assert_eq!(cfg(None, None).effective_head_count_kv(), None);
+}
+
+#[test]
+fn an_unusable_kv_is_not_absent_so_it_gets_no_default() {
+    // Through the real reader: kv declared as a string.
+    let c = config_of(&[
+        ("general.architecture", s("llama")),
+        ("llama.attention.head_count", MetaValue::U32(32)),
+        ("llama.attention.head_count_kv", s("4")),
+    ]);
+    assert_eq!(c.head_count_kv, None);
+    assert_eq!(c.malformed, vec!["llama.attention.head_count_kv"]);
+    assert_eq!(c.effective_head_count_kv(), None);
+}
+
+#[test]
+fn an_incomplete_index_gets_no_default() {
+    let mut c = cfg(Some(GgufCount::Uniform(32)), None);
+    c.index_complete = false;
+    assert_eq!(c.effective_head_count_kv(), None);
+}
+
+#[test]
+fn through_the_real_reader_an_undeclared_kv_defaults_and_a_declared_one_does_not() {
+    let absent = config_of(&[
+        ("general.architecture", s("llama")),
+        ("llama.attention.head_count", MetaValue::U32(32)),
+    ]);
+    assert_eq!(
+        absent.effective_head_count_kv(),
+        Some(GgufCount::Uniform(32))
+    );
+    let declared = config_of(&[
+        ("general.architecture", s("llama")),
+        ("llama.attention.head_count", MetaValue::U32(32)),
+        ("llama.attention.head_count_kv", MetaValue::U32(8)),
+    ]);
+    assert_eq!(
+        declared.effective_head_count_kv(),
+        Some(GgufCount::Uniform(8))
+    );
+}
