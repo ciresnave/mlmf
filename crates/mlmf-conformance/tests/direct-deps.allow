@@ -29,6 +29,7 @@ mlmf-bnb
 mlmf-core
 mlmf-ggml
 mlmf-gguf
+mlmf-hf-layout
 mlmf-meta
 mlmf-safetensors
 mlmf-source-file

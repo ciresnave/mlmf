@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-10-31
+
+### Added
+- `mlmf-meta`: canonical keys `BOS_TOKEN_TEXT` and `EOS_TOKEN_TEXT`, and the HuggingFace rows for the token ids (`config.json:bos_token_id` / `eos_token_id`), the token texts (`tokenizer_config.json:bos_token` / `eos_token`), the two `add_*_token` flags and the chat-template names array (`tokenizer_config.json:chat_template_names`). The text keys have no GGUF row (GGUF declares an id and indexes its token table), and there is no `tokenizer_config.json:*_token_id` row, asserted by a test. `SpecialTokens::extract` now reads a token's text by two paths in order, a direct declaration first and then the token table, and records which in `SpecialToken::text_source` (`TextSource::{Declared, Indexed}`). New `SpecialTokens::unusable` names keys the file declared with a shape the extractor does not read, such as `config.json:eos_token_id` as a list of ids (Llama-3.1 declares three).
+- `mlmf-conformance` `hf_meta`: `HfLayout` read through `mlmf-meta`, so the table's spellings are checked against what the producer emits, including the `chat_template.<name>` join `TemplateSet` needs; plus a local-checkpoint scan that announces its skip.
+
+### Changed
+- **Breaking** (`mlmf-meta`): `SpecialToken::id` is now `Option<u64>`, and `SpecialToken` has a new `text_source` field. A token declared by text alone, as HuggingFace's `tokenizer_config.json` does, has no id, and inventing `0` would be a supplied default. The GGUF path is unchanged in behaviour: `id` is `Some(n)` and `text_source` is `Some(Indexed)` when the table resolved it. Pre-1.0, so the second number moves; the PM allocates the version.
+
 ## [0.10.18] - 2026-10-31
 
 ### Added
