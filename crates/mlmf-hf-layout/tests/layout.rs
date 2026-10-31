@@ -93,15 +93,15 @@ fn a_named_list_gives_the_default_a_names_array_and_one_key_per_body() {
         "file order, and the default is not in it"
     );
     assert_eq!(
-        string(&l, "tokenizer_config.json:chat_template:tool_use"),
+        string(&l, "tokenizer_config.json:chat_template.tool_use"),
         Some("T")
     );
     assert_eq!(
-        string(&l, "tokenizer_config.json:chat_template:rag"),
+        string(&l, "tokenizer_config.json:chat_template.rag"),
         Some("R")
     );
     assert!(
-        l.get("tokenizer_config.json:chat_template:default")
+        l.get("tokenizer_config.json:chat_template.default")
             .is_none()
     );
 }
@@ -127,7 +127,7 @@ fn with_no_entry_named_default_no_default_is_invented() {
         Declaration::Absent
     ));
     assert_eq!(
-        string(&l, "tokenizer_config.json:chat_template:tool_use"),
+        string(&l, "tokenizer_config.json:chat_template.tool_use"),
         Some("T")
     );
 }
@@ -140,7 +140,7 @@ fn a_name_declared_twice_keeps_the_first_and_reports_the_second() {
             {"name": "rag", "template": "first"},
             {"name": "rag", "template": "second"}]}"#,
     )]);
-    let key = "tokenizer_config.json:chat_template:rag";
+    let key = "tokenizer_config.json:chat_template.rag";
     assert_eq!(string(&l, key), Some("first"));
     assert!(matches!(l.declaration(key), Declaration::Unreadable(_)));
 }

@@ -40,7 +40,7 @@
 //!     means no such key: the first entry is not promoted.
 //!   - every other name is listed, in file order, in the string array
 //!     `tokenizer_config.json:chat_template_names`, and its body is
-//!     `tokenizer_config.json:chat_template:<name>`. The array never
+//!     `tokenizer_config.json:chat_template.<name>`. The array never
 //!     includes the default and is absent when there are no other names.
 //!   - **The sidecars are separate keys and are never merged** with the
 //!     `tokenizer_config.json` ones. A checkpoint can carry both
@@ -297,7 +297,7 @@ fn add_named_templates(sink: &mut Sink<'_>, key: &str, list: &[NamedTemplate]) {
         if seen.contains(&entry.name.as_str()) {
             sink.unreadable.push(unreadable_entry(
                 TC,
-                format!("{key}:{}", entry.name),
+                format!("{key}.{}", entry.name),
                 "a chat template name declared more than once; the first is kept",
             ));
             continue;
@@ -308,7 +308,7 @@ fn add_named_templates(sink: &mut Sink<'_>, key: &str, list: &[NamedTemplate]) {
             sink.entries.push((key.to_string(), body));
         } else {
             others.push(MetaValue::String(entry.name.clone()));
-            sink.entries.push((format!("{key}:{}", entry.name), body));
+            sink.entries.push((format!("{key}.{}", entry.name), body));
         }
     }
     if !others.is_empty() {
