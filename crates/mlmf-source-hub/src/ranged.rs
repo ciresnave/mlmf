@@ -143,26 +143,7 @@ impl RangedSource for HubRangedFile {
     }
 
     fn read_range(&self, range: Range<u64>, into: &mut [u8]) -> mlmf_core::Result<()> {
-        let Some(width) = range.end.checked_sub(range.start) else {
-            return Err(source_error(format!(
-                "inverted range {}..{}",
-                range.start, range.end
-            )));
-        };
-        if width != into.len() as u64 {
-            return Err(source_error(format!(
-                "range {}..{} is {width} bytes but the buffer is {}",
-                range.start,
-                range.end,
-                into.len()
-            )));
-        }
-        if range.end > self.len {
-            return Err(Error::from(ErrorKind::Truncated {
-                needed: range.end,
-                available: self.len,
-            }));
-        }
+        let width = check_call(&range, into.len(), self.len)?;
         if width == 0 {
             return Ok(());
         }
@@ -171,18 +152,49 @@ impl RangedSource for HubRangedFile {
         let mut reply = get_range(&self.url, self.token.as_deref(), range.start, last)
             .map_err(|e| source_error(format!("fetching {what}: {e}")))?;
         check_reply(&reply, range.start, last, self.len, &what)?;
-        let mut reader = reply.body.as_reader();
-        reader
-            .read_exact(into)
-            .map_err(|e| source_error(format!("reading {what}: {e}")))?;
-        let mut extra = [0u8; 1];
-        match reader.read(&mut extra) {
-            Ok(0) => Ok(()),
-            Ok(_) => Err(source_error(format!(
-                "{what}: the server sent more than the {width} bytes asked for"
-            ))),
-            Err(e) => Err(source_error(format!("reading {what}: {e}"))),
-        }
+        read_exactly(&mut reply, into, &what)
+    }
+}
+
+/// The call's own faults, before any request: an inverted range or a buffer
+/// of the wrong size is `Source`, a range past the end is `Truncated`.
+/// Returns the range's width.
+fn check_call(range: &Range<u64>, buffer: usize, len: u64) -> mlmf_core::Result<u64> {
+    let Some(width) = range.end.checked_sub(range.start) else {
+        return Err(source_error(format!(
+            "inverted range {}..{}",
+            range.start, range.end
+        )));
+    };
+    if width != buffer as u64 {
+        return Err(source_error(format!(
+            "range {}..{} is {width} bytes but the buffer is {buffer}",
+            range.start, range.end
+        )));
+    }
+    if range.end > len {
+        return Err(Error::from(ErrorKind::Truncated {
+            needed: range.end,
+            available: len,
+        }));
+    }
+    Ok(width)
+}
+
+/// Fill `into` from the body, and refuse a body that goes on past it.
+fn read_exactly(reply: &mut Reply, into: &mut [u8], what: &str) -> mlmf_core::Result<()> {
+    let mut reader = reply.body.as_reader();
+    reader
+        .read_exact(into)
+        .map_err(|e| source_error(format!("reading {what}: {e}")))?;
+    let mut extra = [0u8; 1];
+    match reader.read(&mut extra) {
+        Ok(0) => Ok(()),
+        Ok(_) => Err(source_error(format!(
+            "{what}: the server sent more than the {} bytes asked for",
+            into.len()
+        ))),
+        Err(e) => Err(source_error(format!("reading {what}: {e}"))),
     }
 }
 
