@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.18] - 2026-10-31
+
+### Added
+- `mlmf-hf-layout`: `HfLayout::from_files` builds ONE `MetadataSource` over a checkpoint's sidecars, with keys spelled `<filename>:<key>` (S-15 PR2). `config.json`, `generation_config.json` and `special_tokens_map.json` are flattened to dotted paths exactly as `ConfigJson` does; `tokenizer_config.json` gives `tokenizer_config.json:bos_token` (and `eos_token`, `unk_token`, `pad_token`) as the token's text whether the file used a bare string or an `AddedToken` object, with declared flags as `...:bos_token.lstrip` and so on, the `add_bos_token` / `add_eos_token` booleans, every other leaf flattened, and the chat template under PM ruling A: the string, or the list entry named `default`, at `tokenizer_config.json:chat_template`, the other names in `tokenizer_config.json:chat_template_names` with one `tokenizer_config.json:chat_template.<name>` key per body. The `chat_template.jinja` and `chat_template.json` sidecars sit under their own filename keys and are never merged with the `tokenizer_config.json` ones. An explicit `null` token is absent; a typed key with the wrong shape, an unrepresentable leaf, and a template name declared twice are `Declaration::Unreadable`. A file name `HfLayout` does not read is refused by name. No `tokenizer_config.json:*_token_id` key exists.
+
 ## [0.10.17] - 2026-10-31
 
 ### Added
