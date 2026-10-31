@@ -7,6 +7,6 @@
     version.workspace    = true
 
 [dependencies]
-    mlmf-core   = { path = "../mlmf-core", version = "0.10.13" }
-    mlmf-pickle = { path = "../mlmf-pickle", version = "0.10.13" }
+    mlmf-core   = { path = "../mlmf-core", version = "0.10.14" }
+    mlmf-pickle = { path = "../mlmf-pickle", version = "0.10.14" }
     serde_json  = { version = "1.0", default-features = false, features = ["std"] }
