@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.14] - 2026-10-31
+
+### Changed
+- ROADMAP: S-16 closed as superseded by S-13 (`GgufMetadata::model_config()`), with the reason recorded: the GGUF spelling is `{arch}`-templated and `mlmf-meta`'s lookups match static strings, and a one-sided cross-format row has no consumer. Reopens with the HuggingFace spellings (S-15). Docs only.
+
 ## [0.10.13] - 2026-10-30
 
 ### Added
