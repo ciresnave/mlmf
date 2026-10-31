@@ -148,7 +148,7 @@ impl SpecialTokensMap {
 /// A JSON value as a [`SpecialToken`]: a bare string, or an object carrying
 /// `content` plus optional flags. `None` for anything else, including an
 /// object with no `content` string.
-fn special_token(v: &serde_json::Value) -> Option<SpecialToken> {
+pub(crate) fn special_token(v: &serde_json::Value) -> Option<SpecialToken> {
     if let Some(s) = v.as_str() {
         return Some(SpecialToken {
             content: s.to_string(),

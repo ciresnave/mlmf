@@ -10,4 +10,4 @@
 # second configuration to lint or document.
 
 [dependencies]
-    mlmf-core = { path = "../mlmf-core", version = "0.10.16" }
+    mlmf-core = { path = "../mlmf-core", version = "0.10.17" }
