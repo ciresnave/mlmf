@@ -9,4 +9,4 @@
 # NO [features] SECTION, matching mlmf-awq and mlmf-gptq.
 
 [dependencies]
-    mlmf-tensor-names = { path = "../mlmf-tensor-names", version = "0.10.16" }
+    mlmf-tensor-names = { path = "../mlmf-tensor-names", version = "0.10.17" }

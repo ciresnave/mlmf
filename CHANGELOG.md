@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.17] - 2026-10-31
+
+### Added
+- `mlmf-hf-layout`: `TokenizerConfig::parse` reads `tokenizer_config.json` (`bos_token`, `eos_token`, `unk_token`, `pad_token` as text in either of their shapes, `add_bos_token`, `add_eos_token`, `chat_template`), with the chat template kept in the shape the file used (`ChatTemplate::Single`, or `Named` for the `{name, template}` list). An explicit `null` token is "declared nothing", not malformed (Qwen3 and Qwen2.5 declare `"bos_token": null`). `parse_chat_template_jinja` and `parse_chat_template_json` read the two sidecar spellings; sources are returned separately and never merged. First slice of ROADMAP S-15; measured over 16 Hub repos and 3 local checkpoints.
+
 ## [0.10.16] - 2026-10-31
 
 ### Added
