@@ -9,5 +9,5 @@
 # NO [features] SECTION, matching mlmf-awq and mlmf-gptq.
 
 [dependencies]
-    mlmf-core  = { path = "../mlmf-core", version = "0.11.3" }
+    mlmf-core  = { path = "../mlmf-core", version = "0.11.4" }
     serde_json = { version = "1.0", default-features = false, features = ["std"] }

@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.4] - 2026-10-31
+
+### Changed
+- Docs: ROADMAP rows S-01, S-03, S-11, S-19, S-20, S-27, S-28, S-29 and S-32 closed as moot, each with its grep and positive control in the row. The legacy root package they concern was retired in 0.7.12, or their work was delivered under other rows (S-47, S-48, S-49, S-51, S-54, S-58). No row was decided; the CALL each carried was overtaken by events.
+
 ## [0.11.3] - 2026-10-31
 
 ### Changed
