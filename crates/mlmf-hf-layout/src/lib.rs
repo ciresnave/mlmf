@@ -33,6 +33,7 @@
 pub mod chat_template;
 pub mod config;
 pub mod generation_config;
+pub mod layout;
 pub mod shards;
 pub mod special_tokens_map;
 pub mod tokenizer_config;

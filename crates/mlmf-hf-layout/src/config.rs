@@ -84,18 +84,18 @@
 //! walk that can stop early, so a negative answer from this source is a
 //! positive fact about the file.
 //!
-//! # Narrower than the original "Part B"
+//! # Narrower than the original "Part B", which is now [`crate::layout`]
 //!
 //! The deleted `tests/part_b_deferral.rs` envisioned ONE unified
 //! `MetadataSource` across every HuggingFace sidecar, with keys spelled
 //! `<filename>:<key>` (`docs/superpowers/plans/
-//! 2026-09-05-mlmf-hf-layout-metadata-DEFERRED.md`). What ships here is
+//! 2026-09-05-mlmf-hf-layout-metadata-DEFERRED.md`). What ships HERE is
 //! narrower, by explicit ruling (board #111, 2026-10-03): a
-//! `config.json`-only `MetadataSource`, bare (unprefixed) keys.
-//! `mlmf-meta`'s one `Format::HuggingFace` row (`tokenizer_config.json:
-//! chat_template`) names a DIFFERENT sidecar and a prefixed spelling
-//! this type does not produce -- it is still unfed. Not claimed as
-//! closed here.
+//! `config.json`-only `MetadataSource`, bare (unprefixed) keys. The unified
+//! source is [`crate::layout::HfLayout`] (S-15 PR2), which reuses this
+//! module's flattening under the `config.json:` prefix and produces
+//! `tokenizer_config.json:chat_template`, the spelling `mlmf-meta`'s one
+//! `Format::HuggingFace` row names.
 
 use std::fmt;
 
@@ -161,9 +161,18 @@ impl ConfigJson {
             .as_object()
             .ok_or_else(|| ConfigJsonError::new("the top level is not a JSON object"))?;
 
-        let mut entries = Vec::new();
-        let mut unreadable = Vec::new();
-        flatten(root, None, &mut entries, &mut unreadable);
+        let mut sink = Sink {
+            entries: Vec::new(),
+            unreadable: Vec::new(),
+            origin: "config.json",
+            key_prefix: "",
+        };
+        flatten(root, None, &mut sink);
+        let Sink {
+            mut entries,
+            mut unreadable,
+            ..
+        } = sink;
         entries.sort_by(|a, b| a.0.cmp(&b.0));
         unreadable.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -202,16 +211,15 @@ fn escape_segment(key: &str) -> String {
 /// as `None` -- the join below always inserts a separator when there IS
 /// a parent, even an empty-string one, so a root-level `""` object's
 /// nested `b` cannot read back as an unrelated top-level `b`.
-fn flatten(
+pub(crate) fn flatten(
     obj: &serde_json::Map<String, serde_json::Value>,
     prefix: Option<&str>,
-    entries: &mut Vec<(String, MetaValue)>,
-    unreadable: &mut Vec<(String, Unrecognized)>,
+    sink: &mut Sink<'_>,
 ) {
     for (key, value) in obj {
         let escaped = escape_segment(key);
         let path = match prefix {
-            None => escaped,
+            None => format!("{}{escaped}", sink.key_prefix),
             Some(p) => format!("{p}.{escaped}"),
         };
         if let serde_json::Value::Object(nested) = value {
@@ -219,18 +227,20 @@ fn flatten(
                 // No leaf to flatten -- without reporting this, the key
                 // vanishes and declaration() falsely reports Absent for a
                 // key the file DID declare (see module doc).
-                unreadable.push(unreadable_entry(
+                sink.unreadable.push(unreadable_entry(
+                    sink.origin,
                     path,
                     "declared as an empty object, which MetaValue has no representation for",
                 ));
                 continue;
             }
-            flatten(nested, Some(&path), entries, unreadable);
+            flatten(nested, Some(&path), sink);
             continue;
         }
         match meta_value(value) {
-            Some(v) => entries.push((path, v)),
-            None => unreadable.push(unreadable_entry(
+            Some(v) => sink.entries.push((path, v)),
+            None => sink.unreadable.push(unreadable_entry(
+                sink.origin,
                 path,
                 "declared as null, an array containing a null or an object, or an integer \
                  literal too large for u64 or i64 (reporting it as a float would silently \
@@ -244,7 +254,7 @@ fn flatten(
 /// represented. Shared by both unrepresentable-value cases in [`flatten`]
 /// so each stays a single call rather than repeating the `Unrecognized`
 /// construction inline.
-fn unreadable_entry(path: String, reason: &str) -> (String, Unrecognized) {
+pub(crate) fn unreadable_entry(origin: &str, path: String, reason: &str) -> (String, Unrecognized) {
     (
         path.clone(),
         Unrecognized {
@@ -253,9 +263,21 @@ fn unreadable_entry(path: String, reason: &str) -> (String, Unrecognized) {
                 value: None,
                 reason: Some(reason.to_string()),
             },
-            origin: "config.json".to_string(),
+            origin: origin.to_string(),
         },
     )
+}
+
+/// Where [`flatten`] puts what it finds, and what to call it.
+pub(crate) struct Sink<'a> {
+    /// Leaf entries, in walk order.
+    pub(crate) entries: Vec<(String, MetaValue)>,
+    /// Unrepresentable values, in walk order.
+    pub(crate) unreadable: Vec<(String, Unrecognized)>,
+    /// The file name an [`Unrecognized`] reports as its origin.
+    pub(crate) origin: &'a str,
+    /// Prepended to every root-level key (`""` for a bare-key source).
+    pub(crate) key_prefix: &'a str,
 }
 
 /// Whether `n`'s ORIGINAL text (kept intact by this crate's
