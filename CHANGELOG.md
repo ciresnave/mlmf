@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.7] - 2026-11-01
+
+### Added
+- U-2 corpus currency (ROADMAP S-35): `crates/mlmf-test-support/data/corpus-provenance.tsv` records source, revision and fetch date per corpus tier, and `corpus_currency.rs` fails when a fetch is older than 180 days or a tier replayed by `corpus-metadata.tsv` has no row. Offline: it measures age, not upstream. Test and docs only; no published crate changes behaviour.
+
 ## [0.11.6] - 2026-10-31
 
 ### Added
