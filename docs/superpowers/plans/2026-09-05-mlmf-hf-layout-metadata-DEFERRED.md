@@ -1,5 +1,7 @@
 > # ⚠️ SUPERSEDED — DO NOT IMPLEMENT THIS FILE
 >
+> **STATUS (2026-11-04): the metadata half has since shipped** (`HfLayout::from_files`, #119 and S-15 PR1-3), written fresh as this file says; `part_b_deferral.rs` is deleted. Everything below is unchanged history.
+>
 > **This is the two-half plan, kept verbatim as the record of two audit rounds. It was RENAMED, not rewritten, and nothing below was changed.**
 >
 > **What replaced it:**
