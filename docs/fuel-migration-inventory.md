@@ -1,6 +1,6 @@
 # Fuel/Lightbulb → MLMF migration inventory
 
-Written 2026-09-30. Answers CireSnave's standing rule (`CIRESNAVE-EXPECTATIONS.md`
+Written 2026-09-30. **Snapshot: where a cell or plan item carries a "Superseded" or "Done" note dated 0.11.9, that note is current and the text after it is the original measurement. Items without a note were not re-read.** Answers CireSnave's standing rule (`CIRESNAVE-EXPECTATIONS.md`
 §5.1-mlmf-owns-loading), verbatim: *"Everything directly relating to Machine
 Learning Model File loading and saving should be in MLMF. That means Fuel
 should be using MLMF for loading and saving any model-related files."*
@@ -73,7 +73,7 @@ it is not lost when write support is built.
 |---|---|---|
 | Header/metadata parse | **HAS** — `crates/mlmf-safetensors/src/{header,metadata}.rs` | **HAS** — `fuel-formats/src/safetensors.rs`, `fuel-core/src/safetensors.rs` |
 | Tensor byte-range parse | **HAS** — `crates/mlmf-safetensors/src/tensors.rs` | **HAS** — `fuel-loaders/src/safetensors.rs` |
-| mmap-backed zero-copy tensor access | **HAS the primitive, not yet wired into mlmf-safetensors** — `crates/mlmf-source-file/src/file.rs:101-190` (`SourceFile::open`/`open_mmap`, real `memmap2::Mmap`, feature `mmap` on by default) + `crates/mlmf-core/src/align.rs:72-86` (`try_as_slice::<T>` — fallible borrow, **deliberately no infallible accessor** — and `to_aligned_vec` as the named copy escape hatch). `mlmf-safetensors` itself does not yet call these; no `mmap`/`try_as_slice` reference found in `crates/mlmf-safetensors/src/tensors.rs` | **MISSING in practice — this is GAP-204.** `fuel-core/src/lazy.rs` (`load_tensor_as_f32`, `:10309`) eagerly byte-decodes every tensor into an owned `Vec`/`Arc<[f32]>`; the `Mmap` is a **local, dropped after decode**, so OS page-sharing never survives the load regardless of alignment. GAP-204 also measured BF16/F16/F64 tensors are upcast to f32 unconditionally — 2x RAM vs. disk for BF16 checkpoints, which dominates the memory story more than the copy itself |
+| mmap-backed zero-copy tensor access | **Superseded (0.11.9): wired and verified by `crates/mlmf-conformance/tests/mmap_zero_copy.rs` (#115).** Original: **HAS the primitive, not yet wired into mlmf-safetensors** — `crates/mlmf-source-file/src/file.rs:101-190` (`SourceFile::open`/`open_mmap`, real `memmap2::Mmap`, feature `mmap` on by default) + `crates/mlmf-core/src/align.rs:72-86` (`try_as_slice::<T>` — fallible borrow, **deliberately no infallible accessor** — and `to_aligned_vec` as the named copy escape hatch). `mlmf-safetensors` itself does not yet call these; no `mmap`/`try_as_slice` reference found in `crates/mlmf-safetensors/src/tensors.rs` | **MISSING in practice — this is GAP-204.** `fuel-core/src/lazy.rs` (`load_tensor_as_f32`, `:10309`) eagerly byte-decodes every tensor into an owned `Vec`/`Arc<[f32]>`; the `Mmap` is a **local, dropped after decode**, so OS page-sharing never survives the load regardless of alignment. GAP-204 also measured BF16/F16/F64 tensors are upcast to f32 unconditionally — 2x RAM vs. disk for BF16 checkpoints, which dominates the memory story more than the copy itself |
 | Endianness | safetensors is little-endian by spec; both sides correct (not at issue for this format) | same |
 
 **Why this matters for the migration**: mlmf already has the exact primitive
@@ -185,11 +185,11 @@ at all.
 
 | file | mlmf | fuel/lightbulb |
 |---|---|---|
-| `config.json` (`ModelConfig`) | **HAS** — `crates/mlmf-core/src/meta.rs`, consumed via `MetadataSource` trait; `crates/mlmf-hf-layout/src/shards.rs`. Known limitation tracked separately: `ModelConfig` cannot yet represent an absent field per the `Option<T>` standing policy — **#48**, open | fuel: `fuel-loaders/src/hf_config.rs`, `fuel-loaders/src/quantized/config_from_gguf.rs`; own `HfConfig` struct, own field derivation |
-| `tokenizer.json` | **HAS** — `crates/mlmf-meta/src/vocab.rs` | fuel: `fuel-loaders/src/quantized/tokenizer.rs` |
+| `config.json` (`ModelConfig`) | **HAS** — `crates/mlmf-core/src/meta.rs`, consumed via `MetadataSource` trait; `crates/mlmf-hf-layout/src/shards.rs`. **Superseded (0.11.9): the typed `ModelConfig` this row described no longer exists (the root crate was retired in 0.7.12, #157). `config.json` is now read by `mlmf_hf_layout::ConfigJson`, a `MetadataSource`; an absent key is an absent declaration (`None` from `get`), never a default, and the consumer looks keys up itself (#77 made the old struct `Option<T>` before it went).** Original text: `ModelConfig` could not represent an absent field — **#48** | fuel: `fuel-loaders/src/hf_config.rs`, `fuel-loaders/src/quantized/config_from_gguf.rs`; own `HfConfig` struct, own field derivation |
+| `tokenizer.json` | **Superseded (0.11.9): the parser is `crates/mlmf-hf-tokenizer/src/lib.rs`, scoped to `model.type` `"BPE"` (WordPiece and Unigram are not parsed); `crates/mlmf-meta/src/vocab.rs` only maps the vocabulary keys.** Original: **HAS** — `crates/mlmf-meta/src/vocab.rs` | fuel: `fuel-loaders/src/quantized/tokenizer.rs` |
 | `tokenizer_config.json` + `chat_template` | **HAS** — `crates/mlmf-meta/src/template.rs` (positive control: `git grep tokenizer_config` → hits in `crates/mlmf-meta/src/vocab.rs` and its test file; the query is not silently missing files) | fuel: chat-template handling exists in `fuel-loaders/src/quantized/tokenizer.rs` |
-| `generation_config.json` | **MISSING, confirmed** — `git -C mlmf grep -rn "generation_config" origin/main -- '*.rs'` → **0 hits**, same query for `tokenizer_config` → hits (positive control the query itself works) | not directly checked in fuel; not mlmf's job to have today |
-| `special_tokens_map.json` | **MISSING, confirmed** — same grep, **0 hits** | not directly checked |
+| `generation_config.json` | **Superseded (0.11.9): HAS — `crates/mlmf-hf-layout/src/generation_config.rs`.** Original measurement: **MISSING, confirmed** — `git -C mlmf grep -rn "generation_config" origin/main -- '*.rs'` → **0 hits**, same query for `tokenizer_config` → hits (positive control the query itself works) | not directly checked in fuel; not mlmf's job to have today |
+| `special_tokens_map.json` | **Superseded (0.11.9): HAS — `crates/mlmf-hf-layout/src/special_tokens_map.rs`.** Original measurement: **MISSING, confirmed** — same grep, **0 hits** | not directly checked |
 
 **§6-fence check on fuel's config reading**: `fuel-loaders/src/quantized/
 config_from_gguf.rs:210` reads `rope_theta` as `m.f32("rope.freq_base")?` —
@@ -319,7 +319,7 @@ mlmf_gguf::imatrix::read(...) -> Result<Imatrix>;
    detection), but they live in the crate scheduled for a rewrite. This
    needs the same crate-promotion treatment as saving before Fuel should
    depend on it.
-5. **`generation_config.json` and `special_tokens_map.json` readers** —
+5. **[Done, 0.11.9 note: both readers exist in `mlmf-hf-layout`.]** **`generation_config.json` and `special_tokens_map.json` readers** —
    confirmed missing (§4), needed if Fuel wants to retire its own
    equivalents (not directly checked in fuel this session — a follow-up
    grep on `fuel-loaders/src/hf_config.rs` and friends against these two
@@ -349,7 +349,7 @@ capability is promoted**.
    (mmap-backed tensor slicing) landing first — otherwise Lightbulb takes a
    real perf regression (its current zero-copy path would become a copying
    one). Deletes ~3400 lines of parallel implementation (§6) once unblocked.
-3. **mmap-backed zero-copy tensor slicing, new mlmf work (§7.2 item 2).**
+3. **[Done, 0.11.9 note: #115, `crates/mlmf-conformance/tests/mmap_zero_copy.rs`.]** **mmap-backed zero-copy tensor slicing, new mlmf work (§7.2 item 2).**
    Prerequisite for item 2 and for a real GAP-204 fix. Bounded scope: wire
    existing `mlmf-source-file`/`mlmf-core` primitives into `mlmf-gguf` and
    `mlmf-safetensors`'s tensor-access API; no new format knowledge needed.
@@ -358,7 +358,7 @@ capability is promoted**.
    half; the dominant BF16-upcast/eager-residency cost GAP-204 identified is
    a Fuel-side runtime/serving decision outside this migration's scope —
    flag it back to Fuel as still needing its own ruling.
-5. **Metadata-file readers (`config.json`, `tokenizer.json`,
+5. **[0.11.9 note: the #48 gate below is gone with the typed `ModelConfig`; the readers are `ConfigJson` / `HfLayout` (`mlmf-hf-layout`) and `mlmf-hf-tokenizer` (BPE only).]** **Metadata-file readers (`config.json`, `tokenizer.json`,
    `tokenizer_config.json`+template) → Fuel's `hf_config.rs`/`tokenizer.rs`**,
    gated on **#48** (`ModelConfig`'s `Option<T>` representation) resolving
    first — migrating Fuel onto a `ModelConfig` that still can't represent an
@@ -373,7 +373,7 @@ capability is promoted**.
    today. Lowest priority of the ordered items because Fuel's `arch.rs`
    already covers its actual current need (loader dispatch), and the finer
    per-tensor mapping mlmf offers isn't yet something Fuel has asked for.
-8. **`generation_config.json`/`special_tokens_map.json` readers** — new
+8. **[Done, 0.11.9 note: `crates/mlmf-hf-layout/src/generation_config.rs`, `special_tokens_map.rs`.]** **`generation_config.json`/`special_tokens_map.json` readers** — new
    mlmf work with no confirmed Fuel consumer yet (§7.2 item 5); lowest
    priority until a caller need is measured, consistent with how this repo
    already treats #52 (deferred with a trigger, not built speculatively).

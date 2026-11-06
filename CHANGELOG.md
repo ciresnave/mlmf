@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Docs: ROADMAP row D-08 closed; the SPEC paragraph on `mlmf-source-file` / `mlmf-hf-layout` marked superseded, original text kept.
 
+## [0.11.9] - 2026-11-05
+
+### Changed
+- Docs: ROADMAP row D-07 closed; five stale cells and four plan items of the fuel migration inventory marked superseded or done, original text kept; `ModelConfig` wording corrected (the typed struct is gone, `ConfigJson` is the reader), tokenizer parser named (`mlmf-hf-tokenizer`, BPE only).
+
 ## [0.11.8] - 2026-11-04
 
 ### Changed
