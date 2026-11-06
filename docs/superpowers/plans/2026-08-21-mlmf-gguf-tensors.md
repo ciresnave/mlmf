@@ -1523,7 +1523,7 @@ auditable; a promise is not.
 - **Any interpretation of tensor names.** No layer indices, no `blk.N` parsing, no architecture inference. A name is an opaque key.
 - **Streaming or ranged reads.** `mlmf-core`'s `RangedSource` exists for it; this crate takes `&[u8]`.
 - **Validating that a tensor's data is well-formed.** MLMF hands out a byte range. What the bytes mean is the consumer's.
-- **`mlmf-safetensors`.** Its `F8_E4M3`/`F8_E5M2` mapping must be pinned arm-by-arm when it is written — same width, same kind, mutually byte-incompatible. This is a forward-looking precaution about a crate that does not exist, not a deferral with a premise, so there is nothing to measure first; the thing to check is that the mapping's tests pin identity rather than width when it is written.
+- **`mlmf-safetensors`.** **(0.11.13: the crate now exists; its F8 name mapping is in `crates/mlmf-safetensors/src/dtype.rs`. Whether each arm is pinned by a test was not re-read.)** Its `F8_E4M3`/`F8_E5M2` mapping must be pinned arm-by-arm when it is written — same width, same kind, mutually byte-incompatible. This is a forward-looking precaution about a crate that does not exist, not a deferral with a premise, so there is nothing to measure first; the thing to check is that the mapping's tests pin identity rather than width when it is written.
 
 **On deferrals generally, from a Fuel lane that disconfirmed its own an hour
 after stating it:** *a deferral whose first step is a measurement will
