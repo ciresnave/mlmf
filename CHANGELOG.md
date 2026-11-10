@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.21] - 2026-11-10
+
+### Changed
+- `mlmf-source-hub`: a dropped download is resumed by the next call (ROADMAP S-64, Range resume). `HubSource::fetch` and `fetch_to` (and `fetch_to_with_progress`) used to restart at byte 0 over whatever `<name>.part` a drop left behind. A download now writes a sidecar `<name>.part.meta` naming the repo, revision and file, and the next download resumes the `.part` with `Range: bytes=<len>-` ONLY if the sidecar matches exactly: a `.part` from another revision or file, or with no sidecar, is discarded, because appending to it would give a corrupt file with the right name. It resumes only on a 206 whose `Content-Range` starts at that length; a 200 (a server that ignores `Range`), a failed ranged request, or a 206 that starts elsewhere falls back to one plain request for the whole file. The finished file must equal the size the server declared (`Content-Range` total when resuming, else `Content-Length`) or the download is an error and nothing is renamed into place. `Progress.downloaded` starts at the resumed offset. The sidecar is removed on success. No API change and no new dependency. Tests: `crates/mlmf-source-hub/tests/resume.rs` (loopback; two guards sabotaged and went red: trusting a `.part` whatever its sidecar says, and accepting a 206 at any start). Resuming does not verify content: a resumed file is as trustworthy as the `.part` was, and hash verification (S-64 slice 2) is the guard for that.
+
 ## [0.11.20] - 2026-11-10
 
 ### Added

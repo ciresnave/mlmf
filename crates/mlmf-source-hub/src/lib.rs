@@ -293,12 +293,18 @@ impl HubSource {
     ) -> Result<(), HubError> {
         let url = format!("{}/{}/resolve/{}/{}", self.endpoint, repo, sha, filename);
 
-        let mut req = ureq::get(&url);
-        if let Some(token) = &self.token {
-            req = req.header("Authorization", format!("Bearer {token}"));
-        }
-        let mut resp = req
-            .call()
+        // A `.part` is resumed only if its sidecar says it is THIS file at
+        // THIS revision: a caller-chosen `dest` can hold a `.part` from any
+        // other download, and appending to it would give a silently corrupt
+        // file with the right name.
+        let mut tmp_name = dest.as_os_str().to_owned();
+        tmp_name.push(".part");
+        let tmp = PathBuf::from(tmp_name);
+        let meta = sidecar_path(&tmp);
+        let identity = format!("{repo}\n{sha}\n{filename}\n");
+        let offset = resume_offset(&tmp, &meta, &identity);
+        let (mut resp, start) = self
+            .open_download(&url, offset)
             .map_err(|e| HubError::new(format!("fetching {repo}@{sha}/{filename}: {e}")))?;
 
         if let Some(parent) = dest.parent() {
@@ -309,21 +315,20 @@ impl HubSource {
         // success, so a reader can never observe a partially-written file
         // under the real cache key: a crash or a dropped connection mid-copy
         // leaves an orphaned `.part` file, never a short `dest`.
-        // Append, never `with_extension`: that would turn `model.gguf` and
-        // `model.bin` into the same `model.part`.
-        let mut tmp_name = dest.as_os_str().to_owned();
-        tmp_name.push(".part");
-        let tmp = PathBuf::from(tmp_name);
-        let mut file = fs::File::create(&tmp)
+        // The name APPENDS `.part`, never `with_extension`: that would turn
+        // `model.gguf` and `model.bin` into the same `model.part`.
+        let mut file = open_part(&tmp, &meta, &identity, start)
             .map_err(|e| HubError::new(format!("creating {}: {e}", tmp.display())))?;
-        let total = resp.body().content_length();
+        let total = declared_total(&resp, start);
         copy_with_progress(
             &mut resp.body_mut().as_reader(),
             &mut file,
-            total,
+            Copy { start, total },
             on_progress,
         )
         .map_err(|e| HubError::new(format!("writing {}: {e}", tmp.display())))?;
+        check_length(&file, total, &tmp)?;
+        drop(file);
         fs::rename(&tmp, dest).map_err(|e| {
             HubError::new(format!(
                 "renaming {} to {}: {e}",
@@ -331,7 +336,36 @@ impl HubSource {
                 dest.display()
             ))
         })?;
+        let _ = fs::remove_file(&meta);
         Ok(())
+    }
+
+    /// Open the download, resuming at `offset` when the server agrees.
+    ///
+    /// Returns the response and the byte the body starts at: `offset` only
+    /// for a 206 whose `Content-Range` starts exactly there, else 0 (a 200
+    /// from a server that ignores `Range`, or any failed or odd ranged
+    /// reply, falls back to one plain request for the whole file).
+    fn open_download(&self, url: &str, offset: u64) -> Result<(Response, u64), ureq::Error> {
+        if offset > 0 {
+            match self.get(url, Some(offset)) {
+                Ok(resp) if range_starts_at(&resp, offset) => return Ok((resp, offset)),
+                Ok(resp) if resp.status().as_u16() == 200 => return Ok((resp, 0)),
+                _ => {}
+            }
+        }
+        Ok((self.get(url, None)?, 0))
+    }
+
+    fn get(&self, url: &str, from: Option<u64>) -> Result<Response, ureq::Error> {
+        let mut req = ureq::get(url);
+        if let Some(from) = from {
+            req = req.header("Range", format!("bytes={from}-"));
+        }
+        if let Some(token) = &self.token {
+            req = req.header("Authorization", format!("Bearer {token}"));
+        }
+        req.call()
     }
 
     fn request(&self, url: &str) -> Result<String, ureq::Error> {
@@ -353,15 +387,89 @@ pub struct Progress {
     pub total: Option<u64>,
 }
 
+type Response = ureq::http::Response<ureq::Body>;
+
+/// Where a copy starts counting and the size it expects, for `Progress`.
+#[derive(Clone, Copy)]
+struct Copy {
+    /// Bytes already in the `.part` (0 unless resuming).
+    start: u64,
+    total: Option<u64>,
+}
+
+/// `<dest>.part` -> `<dest>.part.meta`.
+fn sidecar_path(part: &Path) -> PathBuf {
+    let mut name = part.as_os_str().to_owned();
+    name.push(".meta");
+    PathBuf::from(name)
+}
+
+/// The length of `tmp` if its sidecar equals `identity`, else 0.
+fn resume_offset(tmp: &Path, meta: &Path, identity: &str) -> u64 {
+    let same = fs::read_to_string(meta).is_ok_and(|m| m == identity);
+    if same {
+        fs::metadata(tmp).map_or(0, |m| m.len())
+    } else {
+        0
+    }
+}
+
+/// A 206 whose `Content-Range` starts at `offset`.
+fn range_starts_at(resp: &Response, offset: u64) -> bool {
+    resp.status().as_u16() == 206
+        && content_range(resp).is_some_and(|(first, _, _)| first == offset)
+}
+
+fn content_range(resp: &Response) -> Option<(u64, u64, u64)> {
+    let value = resp.headers().get("content-range")?.to_str().ok()?;
+    ranged::parse_content_range(Some(value))
+}
+
+/// The whole file's size as the server declared it: from `Content-Range`
+/// when resuming, else `Content-Length`. `None` if it declared neither.
+fn declared_total(resp: &Response, start: u64) -> Option<u64> {
+    if start > 0 {
+        content_range(resp).map(|(_, _, total)| total)
+    } else {
+        resp.body().content_length()
+    }
+}
+
+/// Open the `.part`: appended to when resuming (`start > 0`), else created
+/// empty with its sidecar written first, so a drop at any later point leaves
+/// a `.part` that names what it is.
+fn open_part(tmp: &Path, meta: &Path, identity: &str, start: u64) -> io::Result<fs::File> {
+    if start > 0 {
+        return fs::OpenOptions::new().append(true).open(tmp);
+    }
+    fs::write(meta, identity)?;
+    fs::File::create(tmp)
+}
+
+/// The finished `.part` must be exactly the declared size.
+fn check_length(file: &fs::File, total: Option<u64>, tmp: &Path) -> Result<(), HubError> {
+    let len = file
+        .metadata()
+        .map_err(|e| HubError::new(format!("reading {}: {e}", tmp.display())))?
+        .len();
+    match total {
+        Some(t) if t != len => Err(HubError::new(format!(
+            "{}: {len} bytes written but the server declared {t}",
+            tmp.display()
+        ))),
+        _ => Ok(()),
+    }
+}
+
 /// `io::copy` that reports after every chunk written.
 fn copy_with_progress(
     from: &mut impl io::Read,
     to: &mut impl io::Write,
-    total: Option<u64>,
+    Copy { start, total }: Copy,
     on_progress: &mut dyn FnMut(Progress),
 ) -> io::Result<u64> {
     let mut buf = vec![0_u8; 64 * 1024];
-    let mut downloaded: u64 = 0;
+    let mut downloaded: u64 = start;
     loop {
         let n = match from.read(&mut buf) {
             Ok(0) => return Ok(downloaded),
