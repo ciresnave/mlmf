@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.20] - 2026-11-10
+
+### Added
+- `mlmf-source-hub`: `HubSource::fetch_to_with_progress` and `Progress` (ROADMAP S-64, progress callback). `fetch_to` with a callback run after every chunk written, given the bytes written so far (`downloaded`, never decreasing) and the size the server declared (`total`, `None` for a reply with no `Content-Length`, never a guess). `fetch_to` is now this with a callback that does nothing; the download copy loop is a 64 KiB read/write loop in place of `io::copy`, and `fetch` is unchanged in behaviour. Tests in `crates/mlmf-source-hub/tests/fetch_to.rs`: the counts grow strictly to the full size with the declared total, and a dropped download reports only the bytes that arrived (the cumulative count was sabotaged to a per-chunk size and the growth test went red). Additive.
+
 ## [0.11.19] - 2026-11-10
 
 ### Added

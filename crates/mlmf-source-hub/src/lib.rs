@@ -221,7 +221,7 @@ impl HubSource {
         let sha = self.resolve(repo, revision)?;
         let cached = self.cache_path(repo, &sha, filename);
         if !cached.is_file() {
-            self.download(repo, &sha, filename, &cached)?;
+            self.download(repo, &sha, filename, &cached, &mut |_| {})?;
         }
         Ok(FetchedFile {
             path: cached,
@@ -252,8 +252,30 @@ impl HubSource {
         filename: &str,
         dest: &Path,
     ) -> Result<String, HubError> {
+        self.fetch_to_with_progress(repo, revision, filename, dest, &mut |_| {})
+    }
+
+    /// [`Self::fetch_to`], calling `on_progress` after every chunk written.
+    ///
+    /// Each [`Progress`] is the bytes written to the `.part` file so far and
+    /// the size the server declared (see [`Progress::total`]). The callback
+    /// runs on the calling thread between reads, so a slow callback slows the
+    /// download and a panic in it abandons it (leaving only the `.part`). It
+    /// is not called when the request or resolution fails before any byte.
+    ///
+    /// # Errors
+    ///
+    /// The same as [`Self::fetch_to`].
+    pub fn fetch_to_with_progress(
+        &self,
+        repo: &str,
+        revision: &Revision,
+        filename: &str,
+        dest: &Path,
+        on_progress: &mut dyn FnMut(Progress),
+    ) -> Result<String, HubError> {
         let sha = self.resolve(repo, revision)?;
-        self.download(repo, &sha, filename, dest)?;
+        self.download(repo, &sha, filename, dest, on_progress)?;
         Ok(sha)
     }
 
@@ -261,7 +283,14 @@ impl HubSource {
         self.cache_root.join(repo).join(sha).join(filename)
     }
 
-    fn download(&self, repo: &str, sha: &str, filename: &str, dest: &Path) -> Result<(), HubError> {
+    fn download(
+        &self,
+        repo: &str,
+        sha: &str,
+        filename: &str,
+        dest: &Path,
+        on_progress: &mut dyn FnMut(Progress),
+    ) -> Result<(), HubError> {
         let url = format!("{}/{}/resolve/{}/{}", self.endpoint, repo, sha, filename);
 
         let mut req = ureq::get(&url);
@@ -287,8 +316,14 @@ impl HubSource {
         let tmp = PathBuf::from(tmp_name);
         let mut file = fs::File::create(&tmp)
             .map_err(|e| HubError::new(format!("creating {}: {e}", tmp.display())))?;
-        io::copy(&mut resp.body_mut().as_reader(), &mut file)
-            .map_err(|e| HubError::new(format!("writing {}: {e}", tmp.display())))?;
+        let total = resp.body().content_length();
+        copy_with_progress(
+            &mut resp.body_mut().as_reader(),
+            &mut file,
+            total,
+            on_progress,
+        )
+        .map_err(|e| HubError::new(format!("writing {}: {e}", tmp.display())))?;
         fs::rename(&tmp, dest).map_err(|e| {
             HubError::new(format!(
                 "renaming {} to {}: {e}",
@@ -305,6 +340,38 @@ impl HubSource {
             req = req.header("Authorization", format!("Bearer {token}"));
         }
         req.call()?.body_mut().read_to_string()
+    }
+}
+
+/// How far a download has got, as reported to a progress callback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Progress {
+    /// Bytes written so far. Never decreases within one download.
+    pub downloaded: u64,
+    /// The size the server declared with `Content-Length`; `None` when it
+    /// declared none (a chunked reply). Never a guess.
+    pub total: Option<u64>,
+}
+
+/// `io::copy` that reports after every chunk written.
+fn copy_with_progress(
+    from: &mut impl io::Read,
+    to: &mut impl io::Write,
+    total: Option<u64>,
+    on_progress: &mut dyn FnMut(Progress),
+) -> io::Result<u64> {
+    let mut buf = vec![0_u8; 64 * 1024];
+    let mut downloaded: u64 = 0;
+    loop {
+        let n = match from.read(&mut buf) {
+            Ok(0) => return Ok(downloaded),
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        to.write_all(&buf[..n])?;
+        downloaded += n as u64;
+        on_progress(Progress { downloaded, total });
     }
 }
 
