@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.26] - 2026-11-10
+
+### Changed
+- CI runs `cargo test`, `cargo clippy` and `cargo doc` with `--workspace` (ROADMAP S-22, CireSnave 2026-11-10, via the PM: "S-22: Switch to whole workspace."). A whole-workspace clippy (`-D warnings`, all targets) and doc (`RUSTDOCFLAGS=-D warnings`) run was clean on `main` before the switch, which the retired root crate used to prevent. The 69 per-crate plain test, doc and clippy steps are gone; the steps that name one crate are the second-configuration ones (`--no-default-features`, a feature, a corpus).
+- The old `ci_coverage` test file is deleted, as its header said it would be. Its toolchain-pin, redirect-needs-`shell: bash` and no-default-features guards live on in `crates/mlmf-core/tests/ci_hygiene.rs`, with a new `the_workspace_steps_are_present_and_armed` that requires the three workspace steps and `RUSTDOCFLAGS: -D warnings` on the doc step (sabotaged: removing that variable turned it red). Tests only; no library change.
+
 ## [0.11.25] - 2026-11-10
 
 ### Changed
