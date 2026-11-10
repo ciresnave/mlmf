@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.28] - 2026-11-10
+
+### Added
+- Design note for `mlmf-hf-config` (ROADMAP S-14, CireSnave 2026-11-10, via the PM: "S-14: A.  Filling in verified defaults we can be sure are always correct is not outside what MLMF should do... Rebuild the parser."): `docs/superpowers/specs/2026-11-10-mlmf-hf-config-design.md`. It records that the gap plan's two defaults are not universal (read at transformers v4.57.0: an absent `num_key_value_heads` is the head count for llama and phi3 but 8, 16, 32 or 4 for mistral, mixtral, gemma, gemma2, qwen2 and qwen3; an absent `head_dim` is a fixed 128 or 256 for qwen3 and gemma), and proposes a per-`model_type` default table, each entry citing the config class, the transformers version and a test pinning the cited line, with absent staying absent otherwise. Documentation only.
+
+### Changed
+- ROADMAP S-31: the graph and operator export rows are closed as moved to ML-ConvertAnt (CireSnave 2026-11-10, via the PM: a "translation layer between Fuel's computation graph and ONNX's"); MLMF reads and writes ONNX and S-54 stays done. ROADMAP S-14 points at the design note.
+
 ## [0.11.27] - 2026-11-10
 
 ### Added
