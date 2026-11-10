@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.15] - 2026-11-10
+
+### Added
+- `mlmf-gguf`: `validate_shard_set`, `ShardFacts`, `ShardSetError` (ROADMAP S-63 slice 1). Pure: takes the file name, `SplitInfo` and tensor count the caller read from each shard and confirms they are exactly one complete `gguf-split` set, returning the shards in `split.no` order. Refuses an empty input, a differing prefix or `split.count`, a file name that disagrees with `split.no`, a duplicate or missing shard, and a declared `split.tensors.count` that is not the sum; an undeclared total is not checked or guessed. Additive.
+
 ## [0.11.14] - 2026-11-09
 
 ### Changed
