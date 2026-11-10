@@ -1,0 +1,106 @@
+name: Corpus tests (self-hosted)
+
+# Runs the tests that need the local model corpus (C:/Models) on the
+# maintainer's machine, because the corpus cannot be on a GitHub-hosted
+# runner: it is 1.13 GiB of GGUF files plus two large safetensors files that
+# are local-only by design (ROADMAP S-36, CireSnave 2026-11-10: "S-36: A").
+# Policy: CIRESNAVE-EXPECTATIONS 5.1h and the 2026-10-16 standing rule on
+# tests that cannot run on GitHub.
+#
+# SECURITY (public repo): this job runs on a self-hosted machine, so it must
+# never run code from a fork. Triggers are limited to push to main, a
+# schedule and manual dispatch, which only run code already on `main` or that
+# a maintainer chose to dispatch. There is deliberately NO `pull_request`
+# trigger. The job reads no secrets and the workflow token is read-only.
+#
+# INERT until the repository variable CORPUS_RUNNER_ENABLED is 'true' (set
+# only after the runner is registered with the label `mlmf-corpus`).
+#
+# A SKIP IS A FAILURE HERE. Every corpus test skips quietly when its corpus
+# is absent, which on a hosted runner is correct and on THIS runner means the
+# corpus went missing. Two things make that loud: MLMF_CORPUS_REQUIRED=1 turns
+# the tests' own skip into a failure, and the final step fails the run if any
+# captured test output still contains `SKIPPED` or `PARTIAL:`.
+#
+# UNVERIFIED (named, not "covered", per the policy): `mlmf-pickle`'s
+# `corpus_pth` (needs MLMF_PTH_FILE), `mlmf-gguf`'s `imatrix_raw` (needs
+# MLMF_IMATRIX_RAW_FILE) and `mlmf-source-hub`'s `live_hub` (needs the
+# network and the `live-hub` feature) are not run here.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: 1
+  MLMF_CORPUS_REQUIRED: "1"
+  MLMF_GGUF_CORPUS: C:/Models/gguf-corpus
+  MLMF_SAFETENSORS_CORPUS: C:/Models
+  MLMF_HF_CHECKPOINTS: C:/Models
+
+jobs:
+  corpus:
+    name: corpus tests
+    if: vars.CORPUS_RUNNER_ENABLED == 'true'
+    runs-on: [self-hosted, windows, mlmf-corpus]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@5059963b1731bf1580991b5f3b1eecfb5da406c0 # 1.98.0 (branch)
+
+      # Each step tees its output so the last step can count skips. `set -o
+      # pipefail` makes a failing `cargo test` fail the step through `tee`.
+      - name: cargo test -p mlmf-gguf (corpus tests)
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p corpus-logs
+          cargo test -p mlmf-gguf -- --nocapture 2>&1 | tee corpus-logs/gguf.log
+
+      - name: cargo test -p mlmf-safetensors (corpus tests)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p corpus-logs
+          cargo test -p mlmf-safetensors -- --nocapture 2>&1 | tee corpus-logs/safetensors.log
+
+      - name: cargo test -p mlmf-conformance (corpus tests)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p corpus-logs
+          cargo test -p mlmf-conformance -- --nocapture 2>&1 | tee corpus-logs/conformance.log
+
+      - name: cargo test -p mlmf-conformance --features fuel-differential (agreement guards)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p corpus-logs
+          cargo test -p mlmf-conformance --features fuel-differential --test fuel_differential --test fuel_differential_safetensors -- --nocapture 2>&1 | tee corpus-logs/fuel-differential.log
+
+      # The skip count. Fails when any step above reported a skip or a partial
+      # corpus, and prints the count either way so a green run says how many
+      # test binaries it read. Zero logs is a failure too: an empty set
+      # reports zero skips just as a clean one does.
+      - name: no skips, no partial corpora
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          logs=(corpus-logs/*.log)
+          echo "read ${#logs[@]} log(s): ${logs[*]}"
+          [ "${#logs[@]}" -ge 4 ] || { echo "expected 4 logs, found ${#logs[@]}"; exit 1; }
+          if grep -n -E "SKIPPED|PARTIAL:" "${logs[@]}"; then
+            echo "a corpus test skipped or ran on a partial corpus: on this runner that is a failure"
+            exit 1
+          fi
+          echo "0 skips and 0 partial corpora over ${#logs[@]} logs"
