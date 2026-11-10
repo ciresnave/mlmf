@@ -229,6 +229,34 @@ impl HubSource {
         })
     }
 
+    /// Fetch `filename` from `repo` at `revision` to exactly `dest`,
+    /// returning the commit SHA it came from (HUB-1).
+    ///
+    /// Unlike [`Self::fetch`] this neither reads nor writes the cache: the
+    /// caller chose the path, so the caller owns the file. It always
+    /// downloads. Missing parent directories of `dest` are created. The bytes
+    /// are written to `<dest>.part` and renamed into place, so `dest` is
+    /// either the complete file or what it was before (an existing `dest` is
+    /// replaced only by a complete download); a failed download leaves only
+    /// the `.part`.
+    ///
+    /// # Errors
+    ///
+    /// Resolution fails (see [`Self::resolve`]), the file does not exist at
+    /// that repo and revision, the download fails partway, or `dest` cannot
+    /// be written.
+    pub fn fetch_to(
+        &self,
+        repo: &str,
+        revision: &Revision,
+        filename: &str,
+        dest: &Path,
+    ) -> Result<String, HubError> {
+        let sha = self.resolve(repo, revision)?;
+        self.download(repo, &sha, filename, dest)?;
+        Ok(sha)
+    }
+
     fn cache_path(&self, repo: &str, sha: &str, filename: &str) -> PathBuf {
         self.cache_root.join(repo).join(sha).join(filename)
     }
