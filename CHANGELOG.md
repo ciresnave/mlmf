@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.17] - 2026-11-10
+
+### Added
+- `mlmf-gguf`: `ShardedGguf`, `ShardInput`, `ShardSlice`, `ShardedError` (ROADMAP S-63 slice 2). One `TensorContainer` over the N files of a `gguf-split` model, given in any order and checked with `validate_shard_set`. The shards are laid end to end in `split.no` order and each descriptor's range is shifted by the summed lengths of the shards before it, so a range from this container is a position in that concatenation, NOT a file offset: read through `tensor_bytes`, or turn a range into a shard and a shard-local range with `locate`. A tensor whose range runs past its own shard is an error for the whole set (its virtual range would otherwise land in the next shard's bytes); a name declared in two shards keeps the first and is reported; metadata is shard 1's and nothing is merged. Pure: it opens nothing. Additive.
+
 ## [0.11.16] - 2026-11-10
 
 ### Added
