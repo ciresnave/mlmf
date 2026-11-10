@@ -1,32 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Every workspace crate is gated by CI, or this test fails.
+//! Guards on the CI workflow that `--workspace` does not make redundant.
 //!
-//! `mlmf-gguf` existed for six tasks — a cursor, an error taxonomy, a
-//! header parser, a value walker, a lazy metadata index, 42 tests — with no
-//! CI step naming it. `cargo fmt --all` covered it and nothing else did.
-//! Every commit reported green, and green was true: the workflow ran what
-//! it listed, and it listed two crates out of three.
-//!
-//! That is the dangerous shape. A gate that fails to run announces itself
-//! the first time somebody looks for its output. A gate that runs
-//! *correctly over the wrong set* produces a real, passing, plausible
-//! result, and there is no cue anywhere that it is not the result you
-//! think you are reading. The only way to catch it is to make the set
-//! itself the thing under test.
-//!
-//! **`--workspace` is not the fix, and this is why, so nobody re-proposes
-//! it.** `cargo doc --workspace --no-deps` fails today with
-//! `error: unknown lint: rustdoc::missing_doc_code_examples` in the legacy
-//! root `mlmf` crate, which names a nightly-only lint and is scheduled for
-//! deletion rather than repair; `clippy --workspace` fails on the same
-//! crate for its own reasons. Switching would break CI for a crate that is
-//! being removed. When it goes, `--workspace` becomes the right answer and
-//! this file can go with it.
-//!
-//! So: the crate list is derived from the filesystem, not repeated here.
-//! Adding a crate to `crates/` and forgetting the workflow is a red test
-//! rather than a silent hole, and it fails on the crate that was added
-//! instead of waiting for someone to notice a missing job name.
+//! This file replaces `ci_coverage.rs` (ROADMAP S-22, CireSnave 2026-11-10:
+//! "S-22: Switch to whole workspace."). That file's job was to prove every
+//! crate under `crates/` was named by a per-crate test, doc and clippy
+//! step; a `--workspace` step covers every member by construction, so the
+//! per-crate steps and the test that enumerated them are gone. What stays
+//! here is what `--workspace` does not give: the workspace-wide steps are
+//! really present and armed, the no-default-features run (C6) of every
+//! crate, the pinned toolchain, and `shell: bash` on redirecting steps.
 
 use std::fs;
 
@@ -48,70 +30,6 @@ fn workflow_without_comments() -> String {
         .filter(|l| !l.trim_start().starts_with('#'))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-#[test]
-fn every_gated_crate_is_tested_documented_and_linted_by_ci() {
-    let commands = workflow_run_commands();
-    let mut missing = Vec::new();
-
-    for dir in common::gated_members() {
-        let name = dir
-            .file_name()
-            .expect("a crate directory has a name")
-            .to_string_lossy()
-            .to_string();
-        // Each is the invocation as written in the workflow, not a loose
-        // mention of the crate: `cargo doc -p x` without `--no-deps` builds
-        // dependency docs and would pass a check for `cargo doc -p x`
-        // while doing something else, and clippy without `--all-targets`
-        // never sees the test code, which is where this crate keeps most
-        // of its assertions.
-        //
-        // Matched against the `run:` COMMANDS rather than the whole file,
-        // and the test and doc steps by WHOLE-STRING equality rather than
-        // by substring. Both were forced, and both were measured:
-        //
-        //  * `cargo test -p mlmf-ggml` is a PREFIX of `cargo test -p
-        //    mlmf-ggml --no-default-features`, which the C6 gate below now
-        //    requires of every gated crate. Measured against the substring
-        //    form the moment those four steps landed: deleting the plain
-        //    `cargo test -p mlmf-ggml` step outright left this test GREEN,
-        //    satisfied by the flagged step beside it. The single deletion
-        //    this gate exists to catch had gone invisible, for all six
-        //    crates at once, as a side effect of enforcing C6 properly.
-        //  * every step writes its command TWICE — once after `- name:`
-        //    and once after `run:` — so a whole-file search is satisfied by
-        //    the name alone, and a step whose `run:` was rewritten to
-        //    anything at all still passed. `scripts/local-gates.sh`
-        //    executes the `run:` lines and never reads a name, so that
-        //    divergence had no reader anywhere in the repository.
-        //
-        // clippy stays a PREFIX match, because its run line carries
-        // `-- -D warnings` after the required text. Read against the
-        // commands rather than the file it is still tightened: the `- name:`
-        // line for a clippy step does not contain `--all-targets`, so it can
-        // no longer satisfy the requirement on its own.
-        let test = format!("cargo test -p {name}");
-        let doc = format!("cargo doc -p {name} --no-deps");
-        let clippy = format!("cargo clippy -p {name} --all-targets");
-        if !commands.contains(&test) {
-            missing.push(test);
-        }
-        if !commands.contains(&doc) {
-            missing.push(doc);
-        }
-        if !commands.iter().any(|c| c.starts_with(&clippy)) {
-            missing.push(clippy);
-        }
-    }
-
-    assert!(
-        missing.is_empty(),
-        "crates/ contains members that CI does not gate. Add these steps to \
-         .github/workflows/ci.yml:\n  {}",
-        missing.join("\n  ")
-    );
 }
 
 /// Every `run:` command in the workflow, in order, trimmed.
@@ -165,7 +83,7 @@ fn workflow_run_commands() -> Vec<String> {
 /// order to enforce a constraint more weakly.
 ///
 /// **This gate ENUMERATES rather than iterates**, which is the lesson
-/// `rustdoc_warnings_are_fatal_for_every_documented_crate` below had to
+/// the removed rustdoc-warnings gate had to
 /// learn after the fact: its loop walks the steps that are PRESENT, so zero
 /// present meant nothing to complain about. This loop walks the crates that
 /// must be covered, so a workflow with no `--no-default-features` step at
@@ -347,156 +265,6 @@ default = [\"b\"]
     );
 }
 
-/// A crate with a real second configuration must be LINTED and DOCUMENTED in
-/// it, not merely tested in it.
-///
-/// **C6 was enforced by halves and this is the other one.** The clause reads
-/// *"CI builds **and runs** the full parser suite with
-/// `--no-default-features`, proving the mmap-free path is functional rather
-/// than merely compilable"* — and the sibling gate above enforces the running.
-/// Measured when this gate was written: **twelve `cargo test` steps covered
-/// both configurations while all six `clippy` and all six `cargo doc` steps
-/// saw only the default.** So the `mmap = off` arm of `mlmf-source-file` was
-/// run and never linted, in the one path C6 names.
-///
-/// **A clause satisfied precisely defines a boundary that nothing guards on
-/// the other side.**
-///
-/// # Why this is conditional rather than "every crate"
-///
-/// Five of six crates have no second configuration — four declare no
-/// `[features]` table and `mlmf-core` declares `default = []`, so the flag is
-/// a no-op for them. **Requiring twelve steps would add ten that assert
-/// nothing**, and a gate that is mostly ceremony is one somebody eventually
-/// disables wholesale. Keyed on a non-empty `default` instead, it is two steps
-/// today and arms itself the moment another crate takes a real feature.
-#[test]
-fn a_crate_with_a_second_configuration_is_linted_and_documented_in_it() {
-    let commands = workflow_run_commands();
-    let mut missing = Vec::new();
-    let mut armed = Vec::new();
-
-    for dir in common::gated_members() {
-        let Some(default) = non_empty_default_features(&dir) else {
-            continue;
-        };
-        let name = dir
-            .file_name()
-            .expect("a crate directory has a name")
-            .to_string_lossy()
-            .to_string();
-        armed.push(format!("{name} (default = {default})"));
-
-        for required in [
-            format!("cargo clippy -p {name} --all-targets --no-default-features -- -D warnings"),
-            format!("cargo doc -p {name} --no-deps --no-default-features"),
-        ] {
-            if !commands.contains(&required) {
-                missing.push(required);
-            }
-        }
-    }
-
-    assert!(
-        missing.is_empty(),
-        "these crates declare a non-empty `default` feature list, so `--no-default-features` is a REAL second configuration — and it is tested there but not linted or documented there:
-  {}",
-        missing.join("
-  ")
-    );
-
-    // A gate that arms for nobody and a gate that cannot arm are the same
-    // output. `mlmf-source-file` declares `default = ["mmap"]` today, so an
-    // empty list means the manifest parse stopped working, not that the
-    // workspace stopped having features.
-    assert!(
-        !armed.is_empty(),
-        "no crate armed this gate. At least `mlmf-source-file` declares a non-empty `default`, so this means the manifest scan is broken."
-    );
-}
-
-#[test]
-fn rustdoc_warnings_are_fatal_for_every_documented_crate() {
-    // `cargo doc` exits 0 on a broken intra-doc link unless RUSTDOCFLAGS
-    // says otherwise, so a doc step without it is a step that cannot fail.
-    // `mlmf-gguf` shipped a public function linking to a private constant;
-    // its own `cargo doc` run reported success until this flag was set.
-    //
-    // Checked per step rather than by counting occurrences across the file:
-    // a total that matches can still pair two flags with one step and none
-    // with another, and the first version of this test did exactly that
-    // kind of loose arithmetic and got the wrong answer for a reason
-    // unrelated to the property it was asserting.
-    let workflow = workflow_without_comments();
-    let mut toothless = Vec::new();
-    let mut documented: Vec<String> = Vec::new();
-
-    // Steps are `- name: ...` blocks; splitting on that boundary gives one
-    // chunk per step, each carrying its own `env:` and `run:`.
-    for step in workflow.split("- name:").skip(1) {
-        let Some(run) = step
-            .lines()
-            .find(|l| l.trim_start().starts_with("run: cargo doc"))
-        else {
-            continue;
-        };
-        // Which crate this step documents, so coverage is checked per CRATE
-        // rather than by a total. A count of six can be six steps for three
-        // crates; a set cannot.
-        if let Some(rest) = run.split(" -p ").nth(1)
-            && let Some(name) = rest.split_whitespace().next()
-        {
-            documented.push(name.to_string());
-        }
-        if !step.contains("RUSTDOCFLAGS: -D warnings") {
-            toothless.push(run.trim().to_string());
-        }
-    }
-
-    // ENUMERATE, do not merely iterate. This loop walks the doc steps that
-    // are PRESENT, so with zero present it has nothing to complain about and
-    // passes — measured: deleting every `cargo doc` step from the workflow
-    // left an earlier version of this test green.
-    //
-    // The general shape, from KISS: a wrong VALUE is compared and fails; a
-    // wrong KEY is never compared at all. An instrument that validates its
-    // numbers but not its own dimension set fails open on the cheap
-    // direction — and deleting a row is cheaper than changing one.
-    //
-    // This was `assert_eq!(found, gated_members().len())` — a COUNT — until
-    // a crate legitimately needed a second doc step for its
-    // `--no-default-features` configuration. A count forbids that while
-    // permitting six steps spread over three crates. Set membership permits
-    // the first and forbids the second, so this is a strengthening rather
-    // than a relaxation.
-    let undocumented: Vec<String> = common::gated_members()
-        .iter()
-        .map(|d| {
-            d.file_name()
-                .expect("a crate directory has a name")
-                .to_string_lossy()
-                .to_string()
-        })
-        .filter(|name| !documented.contains(name))
-        .collect();
-
-    assert!(
-        undocumented.is_empty(),
-        "these gated crates have no `cargo doc` step at all, and a step that is absent cannot be toothless — so this check has nothing to say about them:
-  {}",
-        undocumented.join("
-  ")
-    );
-
-    assert!(
-        toothless.is_empty(),
-        "these `cargo doc` step(s) have no `RUSTDOCFLAGS: -D warnings`, so they cannot fail on a broken doc link:
-  {}",
-        toothless.join("
-  ")
-    );
-}
-
 #[test]
 fn toolchain_pin_matches_ci() {
     // The compiler version now lives in two files, which is one more than
@@ -626,5 +394,45 @@ fn every_redirecting_run_line_declares_bash() {
         "these `run:` lines redirect but do not declare `shell: bash`, so \
          they will fail on windows-latest under pwsh — where `>` is a path, \
          not a discard — for a reason unrelated to what they test: {violations:?}"
+    );
+}
+
+/// The three workspace-wide steps exist, and the doc step turns rustdoc
+/// warnings into failures.
+///
+/// `--workspace` is only coverage if the step is there and means what it
+/// says: a `cargo doc` without `RUSTDOCFLAGS: -D warnings` cannot fail on a
+/// broken intra-doc link, and a step that is commented out still contains
+/// the text this searches for, so the comment-stripped workflow is read.
+#[test]
+fn the_workspace_steps_are_present_and_armed() {
+    let commands = workflow_run_commands();
+    for want in [
+        "cargo test --workspace",
+        "cargo clippy --workspace --all-targets -- -D warnings",
+        "cargo doc --workspace --no-deps",
+    ] {
+        assert_eq!(
+            commands.iter().filter(|c| c.as_str() == want).count(),
+            1,
+            "the workflow must run `{want}` exactly once; commands seen: {commands:?}"
+        );
+    }
+
+    let workflow = workflow_without_comments();
+    let lines: Vec<&str> = workflow.lines().collect();
+    let at = lines
+        .iter()
+        .position(|l| l.trim() == "run: cargo doc --workspace --no-deps")
+        .expect("the doc step is present (asserted above)");
+    let start = lines[..=at]
+        .iter()
+        .rposition(|l| l.trim_start().starts_with("- name:"))
+        .unwrap_or(0);
+    assert!(
+        lines[start..=at]
+            .iter()
+            .any(|l| l.trim() == "RUSTDOCFLAGS: -D warnings"),
+        "the `cargo doc --workspace` step has no `RUSTDOCFLAGS: -D warnings`, so it cannot fail on a broken doc link"
     );
 }
