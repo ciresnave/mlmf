@@ -60,6 +60,7 @@
 
 pub mod list;
 pub mod ranged;
+mod verify;
 
 pub use list::{FileListing, RemoteFile, RemoteHash};
 pub use ranged::HubRangedFile;

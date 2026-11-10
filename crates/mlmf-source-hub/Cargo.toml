@@ -15,7 +15,7 @@
 # scoped to this crate's name and this one dependency -- not to the source
 # axis generally, so `mlmf-source-file` does not inherit it.
 [dependencies]
-    mlmf-core = { path = "../mlmf-core", version = "0.11.21" }
+    mlmf-core = { path = "../mlmf-core", version = "0.11.22" }
 
     # Minimal, synchronous HTTP client. NOT `hf-hub`: as of hf-hub 1.0.0 that
     # crate is a full Hub SDK (buckets, spaces, kernels, commits, uploads --
@@ -27,6 +27,12 @@
     # in this tree, all of which are synchronous top to bottom) and TLS via
     # its default `rustls` feature.
     ureq = "3.4"
+
+    # Hash verification of a fetched file (S-64 slice 2): the Hub reports a
+    # sha256 for LFS files and a git blob sha1 for the rest. RustCrypto, pure
+    # Rust, no git or path dependency (PM [TASK] 2026-11-10).
+    sha1 = "0.11"
+    sha2 = "0.11"
 
     # Manual `serde_json::Value` parsing of the Hub API's revision-resolve
     # response, matching the house style `mlmf-hf-layout::shards` and
