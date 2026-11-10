@@ -134,6 +134,7 @@ pub mod model_config;
 pub mod ranged;
 pub mod requirements;
 pub mod shard_set;
+pub mod sharded;
 pub mod split;
 pub mod tensors;
 pub mod tokenizer_data;
@@ -151,6 +152,7 @@ pub use ranged::{
     DEFAULT_HEADER_LIMIT, HeaderRegion, INITIAL_READ, RangedGgufTensors, read_header_region,
 };
 pub use shard_set::{ShardFacts, ShardSetError, validate_shard_set};
+pub use sharded::{ShardInput, ShardSlice, ShardedError, ShardedGguf};
 pub use split::{SplitError, SplitFileName, SplitInfo, parse_split_file_name, shard_file_names};
 pub use tensors::{GgufTensors, parse_tensors};
 pub use tokenizer_data::{GgufTokenizerData, TokenizerDataError, read_tokenizer_data};
