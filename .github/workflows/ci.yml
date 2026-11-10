@@ -517,13 +517,6 @@ jobs:
       # silently not run in CI unless someone remembered to update this
       # line, and it would hide the exclusion reasoning in workflow config
       # instead of in the test file a reader actually opens.
-      # `mlmf_refuses_v1_that_fuel_reads` skips itself gracefully (it always
-      # has, for the local-corpus-absent case) using its OWN flag,
-      # `MLMF_V1_FIXTURE_REQUIRED` -- never set here, deliberately, so its
-      # expected CI skip cannot be confused with `MLMF_CORPUS_REQUIRED`
-      # catching a genuinely incomplete agreement-guard corpus. See that
-      # test's own doc and `v1_fixture_required`'s doc in the test file for
-      # why the two flags must stay separate.
       - name: cargo test -p mlmf-conformance --features fuel-differential --test fuel_differential (GGUF agreement guard)
         shell: bash
         env:

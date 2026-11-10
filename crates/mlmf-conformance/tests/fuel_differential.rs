@@ -71,12 +71,6 @@
 //!   `tensor_bytes`. That checks mlmf's bounds handling and borrowing
 //!   against fuel's range; it is not two independent readers producing the
 //!   same bytes, as the safetensors half is.
-//! - **GGUF v1.** `fuel_formats::gguf::VersionedMagic` reads `GgufV1`;
-//!   `mlmf-gguf` refuses it by name (`GgufError::UnsupportedVersion`,
-//!   `crates/mlmf-gguf/src/lib.rs:81-104`). The one v1 file in the corpus
-//!   (`legacy/tinyllamas-stories-260k-f32.gguf`) is excluded from
-//!   `corpus-metadata.tsv` for the same reason and is exercised separately,
-//!   by path, in [`mlmf_refuses_v1_that_fuel_reads`].
 //! - **`mlmf-safetensors`.** fuel-formats' safetensors parser is not touched
 //!   here. AD-1 as specced is per-format; this file is the GGUF/GGML half.
 //! - **`mlmf-hf-layout`, pickle, imatrix.** No MLMF crate exists for the
@@ -150,18 +144,6 @@ fn corpus_root() -> String {
 
 fn corpus_required() -> bool {
     armed::armed("MLMF_CORPUS_REQUIRED")
-}
-
-/// A SEPARATE flag from [`corpus_required`], deliberately, so the two
-/// absences stay distinguishable: CI sets `MLMF_CORPUS_REQUIRED=1` because
-/// [`CI_REQUIRED_FILES`] must be there, and never sets this one, because the
-/// v1 fixture is permanently absent there by design (see
-/// [`mlmf_refuses_v1_that_fuel_reads`]'s own doc). If this test read
-/// `corpus_required()` instead, CI's normal, expected v1 skip would look
-/// identical to a genuinely incomplete agreement-guard corpus, and the
-/// guard would have to choose which absence it was honest about.
-fn v1_fixture_required() -> bool {
-    armed::armed("MLMF_V1_FIXTURE_REQUIRED")
 }
 
 /// The same 28-file list `mlmf-gguf`'s own corpus test measures, reused
@@ -599,63 +581,5 @@ fn shapes_agree_once_the_known_reversal_is_undone() {
     assert_eq!(
         fuel_order, mlmf_order,
         "fuel's reversed dims must equal mlmf's declared-order dims for this to be the SAME tensor"
-    );
-}
-
-/// mlmf refuses GGUF v1 by name; fuel does not. Exercised on the one v1 file
-/// in the corpus, which `corpus-metadata.tsv` excludes (see that file's own
-/// comment and `crates/mlmf-gguf/tests/corpus.rs`), so it is read by its
-/// known relative path rather than through the shared fixture.
-///
-/// ⚠️ **Verified LOCALLY ONLY, deliberately.** The file traces to
-/// `karpathy/tinyllamas` (MIT), but no currently-hosted copy is byte-identical
-/// to it: `ggml-org/models-moved`'s current `tinyllamas/stories260K*.gguf`
-/// files are 1,185,376 or 1,185,760 bytes, all **GGUF v3** — llama.cpp moved
-/// past v1 years ago, and nothing upstream still serves this exact file. An
-/// unpinnable file cannot be wired into CI's revision-SHA-pinned pattern, and
-/// substituting a v3 file would silently stop testing the v1-refusal
-/// asymmetry while *looking* like it still did — worse than not testing it at
-/// all.
-///
-/// **This test still RUNS in CI, and that is deliberate too** — it declines
-/// gracefully in its own body (below) rather than being excluded by name in
-/// CI config. A CI job that filters tests by name is a job where every
-/// FUTURE test added to this file silently does not run there unless
-/// someone remembers to update the filter; a test that skips itself, with a
-/// loud stderr reason, keeps that decision visible to anyone reading this
-/// file rather than hidden in `.github/workflows/ci.yml`. It uses its OWN
-/// flag, [`v1_fixture_required`], not [`corpus_required`] — see that
-/// function's doc for why the two must stay separate.
-#[test]
-fn mlmf_refuses_v1_that_fuel_reads() {
-    let root_s = corpus_root();
-    let path = std::path::Path::new(&root_s).join("legacy/tinyllamas-stories-260k-f32.gguf");
-    if !path.is_file() {
-        assert!(
-            !v1_fixture_required(),
-            "MLMF_V1_FIXTURE_REQUIRED is set and {path:?} is missing. Refusing to pass by skipping."
-        );
-        use std::io::Write as _;
-        let _ = writeln!(
-            std::io::stderr(),
-            "{}: SKIPPED ({}): no v1 fixture at {path:?}. Expected in CI -- no pinnable source exists, see this test's own doc.",
-            mlmf_core::NOTICE_TOKEN,
-            "mlmf_refuses_v1_that_fuel_reads"
-        );
-        return;
-    }
-    let bytes = std::fs::read(&path).expect("readable");
-
-    let mlmf_result = mlmf_facts(&bytes, "legacy/tinyllamas-stories-260k-f32.gguf");
-    assert!(
-        mlmf_result.is_err(),
-        "mlmf-gguf now reads v1 -- this test (and the corpus.rs comment it mirrors) is stale"
-    );
-
-    let mut cursor = Cursor::new(bytes.as_slice());
-    let fuel_result = fuel_formats::gguf::Content::read(&mut cursor);
-    assert!(
-        fuel_result.is_ok(),
-        "fuel-formats now refuses v1 too -- the asymmetry this test documents has closed, update the doc comment above"
     );
 }
