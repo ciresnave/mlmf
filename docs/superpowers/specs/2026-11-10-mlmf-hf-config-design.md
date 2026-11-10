@@ -37,6 +37,28 @@ A default is filled only if it is an entry in a table keyed on the declared `mod
 
 For a `model_type` not in the table, or a file with no `model_type`, an absent field stays absent (`Option<T>`, `CLAUDE.md` §2). Nothing is guessed from a neighbouring family. A derived default (`hidden / heads`) is admitted only for a family whose class defines it, and only when both inputs are declared; an undeclared input leaves it absent.
 
+### 3.4 The constancy check, run 2026-11-10
+
+The check in 3.3 was run over the `.0` tag of every transformers minor release from `v4.30.0` to `v4.57.0` (the constructor default and the `if num_key_value_heads is None` branch, read from each `configuration_<m>.py`). Result, with the releases in which the class existed:
+
+| `model_type` | field | default | releases | constant |
+|---|---|---|---|---|
+| llama | `num_key_value_heads` | absent means `num_attention_heads` | 4.31 to 4.57 | yes |
+| phi3 | `num_key_value_heads` | absent means `num_attention_heads` | 4.41 to 4.57 | yes |
+| mistral | `num_key_value_heads` | 8 | 4.34 to 4.57 | yes |
+| mixtral | `num_key_value_heads` | 8 | 4.36 to 4.57 | yes |
+| qwen2 | `num_key_value_heads` | 32 | 4.37 to 4.57 | yes |
+| qwen3 | `num_key_value_heads` | 32 | 4.51 to 4.57 | yes |
+| qwen3 | `head_dim` | 128 | 4.51 to 4.57 | yes |
+| gemma | `num_key_value_heads` | 16 | 4.38 to 4.57 | yes |
+| gemma | `head_dim` | 256 | 4.38 to 4.57 | yes |
+| gemma2 | `head_dim` | 256 | 4.42 to 4.57 | yes |
+| gemma2 | `num_key_value_heads` | **16 in 4.42 to 4.46, 4 in 4.47 to 4.57** | 4.42 to 4.57 | **no: not admitted** |
+
+So gemma2's `num_key_value_heads` fails the criterion: a `config.json` written by a release before 4.47 with the key omitted means 16, and one from 4.47 on means 4, so no single value is always correct. It stays absent. This is the criterion doing its job, and it is why the table is checked rather than assumed.
+
+Limits of this check, stated so it is not read as more: it read the `.0` tag of each minor release, not every patch release; it covers only the eight families above; and it reads the config class, not the model code that consumes the field. `head_dim` for llama, mistral and mixtral is not admitted: the class stores `None` (the derivation `hidden_size // num_attention_heads` lives in the docstring or in model code, and llama's `head_dim` argument only exists from 4.45). Those stay absent until a derived default is argued separately.
+
 ## 4. Shape
 
 A new format-axis crate, no I/O, bytes in:
@@ -59,7 +81,7 @@ impl HfConfig {
 ## 5. Open questions
 
 - **Dependencies.** Parsing on top of `mlmf-hf-layout`'s `ConfigJson` avoids a second JSON parser but adds a crate-to-crate edge that the dependency gates (`crates/mlmf-core/tests/deps.rs`, the per-crate allow-list) must be told about; reading with `serde_json` directly duplicates the parser. Recommendation: depend on `mlmf-hf-layout`, PM to confirm.
-- **Which families first.** Recommendation: the eight in section 2, each admitted only after the constancy check in 3.3, in that order of use by Fuel.
+- **Which families first.** The ten entries marked constant in 3.4 (llama, phi3, mistral, mixtral, qwen2, qwen3, gemma, gemma2 head_dim). Everything else, and gemma2 `num_key_value_heads`, stays absent.
 - **Wrong or missing `model_type`.** A file whose declared `model_type` names a family that does not use these fields leaves them absent; nothing is inferred from tensor names (that is architecture detection, a different crate's job).
 
 ## 6. Sources
