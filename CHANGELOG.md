@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.24] - 2026-11-10
+
+### Removed
+- GGUF v1 code and the big-endian transcoder question, closed by CireSnave's rulings of 2026-11-10 relayed by the PM (ROADMAP S-06: "Delete any GGUF version 1 file code."; S-07: "If not [any big-endian GGUF downloadable], stop work on big-endian GGUF until someone supplies one."). Deleted the `v1_deferral` test of mlmf-gguf (the bookmark test that asserted v1 was refused), the "GGUF v1 is refused, and that is a decision" section of `crates/mlmf-gguf/src/lib.rs` (replaced by a short note that any version other than 2 and 3 is refused by name), and the `mlmf_refuses_v1_that_fuel_reads` test with its `MLMF_V1_FIXTURE_REQUIRED` flag in `crates/mlmf-conformance/tests/fuel_differential.rs` and its CI comment. The generic `GgufError::UnsupportedVersion` refusal and the named `ByteSwapped` refusal stay; no behaviour changes. The v1 corpus FILE `legacy/tinyllamas-stories-260k-f32.gguf` stays on disk (PM, 2026-11-10: the ruling was about code, not data, and the file is shared and has no upstream copy); no code added here refers to it, and the corpus tests still tolerate it being refused.
+
 ## [0.11.23] - 2026-11-10
 
 ### Removed
