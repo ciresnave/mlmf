@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.19] - 2026-11-10
+
+### Added
+- `mlmf-source-hub`: `HubSource::fetch_to` (ROADMAP S-64, fetch-to-path). Downloads one file at a revision to exactly the path the caller names and returns the commit SHA it came from. It neither reads nor writes the cache, and always downloads; missing parent directories are created. The bytes go to `<dest>.part` and are renamed into place, so `dest` is the complete file or what it was before: a dropped download leaves an existing `dest` untouched, and a complete one replaces it. Test: `crates/mlmf-source-hub/tests/fetch_to.rs` (the dropped-download guard was sabotaged by writing straight to `dest`, and went red). Additive.
+
 ## [0.11.18] - 2026-11-10
 
 ### Fixed
