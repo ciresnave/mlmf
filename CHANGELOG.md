@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.22] - 2026-11-10
+
+### Added
+- `mlmf-source-hub`: `RemoteHash::verify(&self, path)` (ROADMAP S-64 slice 2, hash verification). Checks a file on disk against the hash the Hub reported: `Sha256` is the sha256 of the bytes, `GitBlobSha1` is the git blob id, sha1 of `"blob <size>\0"` plus the bytes with `<size>` read from the file. The file is streamed, hex case is ignored, and a missing file or a mismatch is a `HubError` naming the kind and both values, never a match. It is a separate call, not folded into `fetch`: a caller that listed the repo holds the hash and chooses to verify. New direct dependencies `sha1` and `sha2` (RustCrypto, crates.io, latest 0.11), approved by the PM `[TASK]` of 2026-11-10; `crates/mlmf-source-hub/tests/direct-deps.allow` lists them. Tests in `crates/mlmf-source-hub/tests/verify.rs` use values from `git hash-object` and `sha256sum`; dropping the size header from the blob hash was sabotaged (applied, verified by count) and two tests went red. Additive.
+
 ## [0.11.21] - 2026-11-10
 
 ### Changed

@@ -2,4 +2,6 @@
 # sorted, matching crates/mlmf-core/tests/deps.rs::allow_list.
 mlmf-core
 serde_json
+sha1
+sha2
 ureq
