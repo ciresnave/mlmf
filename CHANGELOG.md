@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.27] - 2026-11-10
+
+### Added
+- `.github/workflows/corpus-tests.yml`: the corpus tests run on the self-hosted runner (ROADMAP S-36, CireSnave 2026-11-10, via the PM: "S-36: A"). Triggers are push to `main`, a daily schedule and manual dispatch, never `pull_request`; the job reads no secrets and the token is read-only. It sets `MLMF_CORPUS_REQUIRED=1` so a missing corpus fails the tests that would have skipped, and its last step fails the run if any captured test output contains `SKIPPED` or `PARTIAL:` (and if fewer than four logs were captured, so an empty set cannot read as zero skips). It is inert until the repository variable `CORPUS_RUNNER_ENABLED` is `true` and a runner labelled `mlmf-corpus` is registered. Not covered, and named as such in the workflow: `mlmf-pickle`'s `corpus_pth`, `mlmf-gguf`'s `imatrix_raw` and `mlmf-source-hub`'s `live_hub`. No library change.
+
 ## [0.11.26] - 2026-11-10
 
 ### Changed
