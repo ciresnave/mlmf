@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.14] - 2026-11-09
+
+### Changed
+- Docs: ROADMAP rows S-63 (merged sharded-GGUF reader, lightbulb B5 second half) and S-64 (`mlmf-source-hub` listing with hashes, fetch-to-path, progress, resume; lightbulb F1) added. No code change; both rows are open and not started.
+
 ## [0.11.13] - 2026-11-06
 
 ### Changed
