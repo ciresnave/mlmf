@@ -55,13 +55,8 @@ fn start(mode: Mode) -> Server {
     Server { endpoint, ranges }
 }
 
-fn serve(
-    stream: std::net::TcpStream,
-    mode: Mode,
-    seen: &Mutex<Vec<Option<String>>>,
-    count: &AtomicUsize,
-    all: &[u8],
-) {
+/// The request target and its `Range` header, if any.
+fn read_request(stream: &std::net::TcpStream) -> (String, Option<String>) {
     let mut reader = BufReader::new(stream.try_clone().expect("clone"));
     let mut request_line = String::new();
     let _ = reader.read_line(&mut request_line);
@@ -75,50 +70,68 @@ fn serve(
             range = Some(v.trim().to_string());
         }
     }
+    let target = request_line.split_whitespace().nth(1).unwrap_or("");
+    (target.to_string(), range)
+}
+
+/// The `N` of a `bytes=N-` header.
+fn range_start(range: Option<&str>) -> Option<usize> {
+    range?
+        .strip_prefix("bytes=")?
+        .strip_suffix('-')?
+        .parse()
+        .ok()
+}
+
+fn partial(first: usize, length: usize) -> String {
+    format!(
+        "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {first}-{}/{LEN}\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n",
+        LEN - 1
+    )
+}
+
+/// The reply head and the body bytes that follow it.
+fn answer<'a>(mode: Mode, range: Option<&str>, all: &'a [u8]) -> (String, &'a [u8]) {
+    if mode == Mode::WrongStart && range.is_some() {
+        return (partial(0, LEN), all);
+    }
+    let start = if mode == Mode::Ignore {
+        None
+    } else {
+        range_start(range)
+    };
+    match start {
+        Some(s) => (partial(s, LEN - s), &all[s..]),
+        None => (
+            format!("HTTP/1.1 200 OK\r\nContent-Length: {LEN}\r\nConnection: close\r\n\r\n"),
+            all,
+        ),
+    }
+}
+
+fn serve(
+    stream: std::net::TcpStream,
+    mode: Mode,
+    seen: &Mutex<Vec<Option<String>>>,
+    count: &AtomicUsize,
+    all: &[u8],
+) {
+    let (target, range) = read_request(&stream);
     let mut out = stream;
-    if request_line.split_whitespace().nth(1) != Some(WANT) {
+    if target != WANT {
         let _ = out
             .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         return;
     }
     seen.lock().expect("lock").push(range.clone());
     let nth = count.fetch_add(1, Ordering::SeqCst);
-    if mode == Mode::WrongStart && range.is_some() {
-        let head = format!(
-            "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-{}/{LEN}\r\nContent-Length: {LEN}\r\nConnection: close\r\n\r\n",
-            LEN - 1
-        );
-        let _ = out.write_all(head.as_bytes());
-        let _ = out.write_all(all);
-        return;
-    }
-    let start = match (&range, mode) {
-        (Some(r), Mode::Honour | Mode::DropFirst) => r
-            .strip_prefix("bytes=")
-            .and_then(|s| s.strip_suffix('-'))
-            .and_then(|s| s.parse::<usize>().ok()),
-        _ => None,
-    };
-    let (head, tail) = match start {
-        Some(s) => (
-            format!(
-                "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {s}-{}/{LEN}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                LEN - 1,
-                LEN - s
-            ),
-            &all[s..],
-        ),
-        None => (
-            format!("HTTP/1.1 200 OK\r\nContent-Length: {LEN}\r\nConnection: close\r\n\r\n"),
-            all,
-        ),
-    };
-    let _ = out.write_all(head.as_bytes());
+    let (head, tail) = answer(mode, range.as_deref(), all);
     let cut = if mode == Mode::DropFirst && nth == 0 {
         50_000
     } else {
         tail.len()
     };
+    let _ = out.write_all(head.as_bytes());
     let _ = out.write_all(&tail[..cut]);
 }
 
