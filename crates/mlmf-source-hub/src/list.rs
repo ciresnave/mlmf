@@ -153,9 +153,11 @@ fn next_link(header: &str) -> Option<&str> {
 }
 
 fn is_hex(s: &str, len: usize) -> bool {
+    // Lowercase hex only, written without byte-char literals (Codacy
+    // miscounts those as function length).
     s.len() == len
         && s.bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
 /// One `file` entry.
