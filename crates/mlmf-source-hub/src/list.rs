@@ -160,6 +160,33 @@ fn is_hex(s: &str, len: usize) -> bool {
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
+/// The hash of one file entry: `lfs.oid` (sha256) when the file is stored
+/// through LFS, otherwise the git blob sha1 in `oid`.
+fn parse_hash(entry: &Value, size: u64) -> Result<RemoteHash, &'static str> {
+    match entry.get("lfs") {
+        Some(lfs) => lfs_hash(lfs, size),
+        None => {
+            let oid = entry.get("oid").and_then(Value::as_str).unwrap_or("");
+            if is_hex(oid, 40) {
+                Ok(RemoteHash::GitBlobSha1(oid.to_string()))
+            } else {
+                Err("`oid` is not 40 hex digits")
+            }
+        }
+    }
+}
+
+fn lfs_hash(lfs: &Value, size: u64) -> Result<RemoteHash, &'static str> {
+    let oid = lfs.get("oid").and_then(Value::as_str).unwrap_or("");
+    if !is_hex(oid, 64) {
+        return Err("`lfs.oid` is not 64 hex digits");
+    }
+    if lfs.get("size").and_then(Value::as_u64) != Some(size) {
+        return Err("`lfs.size` disagrees with `size`");
+    }
+    Ok(RemoteHash::Sha256(oid.to_string()))
+}
+
 /// One `file` entry.
 fn parse_file(index: usize, entry: &Value) -> Result<RemoteFile, HubError> {
     let bad = |why: &str| HubError::new(format!("entry {index}: {why}"));
@@ -171,25 +198,7 @@ fn parse_file(index: usize, entry: &Value) -> Result<RemoteFile, HubError> {
         .get("size")
         .and_then(Value::as_u64)
         .ok_or_else(|| bad(&format!("{path}: no `size` integer")))?;
-    let hash = match entry.get("lfs") {
-        Some(lfs) => {
-            let oid = lfs.get("oid").and_then(Value::as_str).unwrap_or("");
-            if !is_hex(oid, 64) {
-                return Err(bad(&format!("{path}: `lfs.oid` is not 64 hex digits")));
-            }
-            if lfs.get("size").and_then(Value::as_u64) != Some(size) {
-                return Err(bad(&format!("{path}: `lfs.size` disagrees with `size`")));
-            }
-            RemoteHash::Sha256(oid.to_string())
-        }
-        None => {
-            let oid = entry.get("oid").and_then(Value::as_str).unwrap_or("");
-            if !is_hex(oid, 40) {
-                return Err(bad(&format!("{path}: `oid` is not 40 hex digits")));
-            }
-            RemoteHash::GitBlobSha1(oid.to_string())
-        }
-    };
+    let hash = parse_hash(entry, size).map_err(|why| bad(&format!("{path}: {why}")))?;
     Ok(RemoteFile {
         path: path.to_string(),
         size,
