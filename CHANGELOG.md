@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.25] - 2026-11-10
+
+### Changed
+- SPEC section 4.3 records that `MetaValue` means the same thing in every format and that nothing coerces (ROADMAP S-40, CireSnave 2026-11-10, via the PM: "S-40: Same meaning in every format, no coercion."). Documentation only: `crates/mlmf-core/src/meta.rs` already pins the non-coercing behaviour in its tests (`as_u64` widens within a kind and answers `None` across kinds).
+
 ## [0.11.24] - 2026-11-10
 
 ### Removed
