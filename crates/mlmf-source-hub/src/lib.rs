@@ -252,7 +252,11 @@ impl HubSource {
         // success, so a reader can never observe a partially-written file
         // under the real cache key: a crash or a dropped connection mid-copy
         // leaves an orphaned `.part` file, never a short `dest`.
-        let tmp = dest.with_extension("part");
+        // Append, never `with_extension`: that would turn `model.gguf` and
+        // `model.bin` into the same `model.part`.
+        let mut tmp_name = dest.as_os_str().to_owned();
+        tmp_name.push(".part");
+        let tmp = PathBuf::from(tmp_name);
         let mut file = fs::File::create(&tmp)
             .map_err(|e| HubError::new(format!("creating {}: {e}", tmp.display())))?;
         io::copy(&mut resp.body_mut().as_reader(), &mut file)

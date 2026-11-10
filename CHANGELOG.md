@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.18] - 2026-11-10
+
+### Fixed
+- `mlmf-source-hub`: `HubSource::fetch` named the temp file of an in-progress download with `with_extension("part")`, which REPLACES the extension, so `model.gguf` and `model.bin` in one directory both used `model.part` (a dropped fetch of one left a file the other would reuse, and two concurrent fetches wrote the same file). The temp file is now the full name plus `.part` (`model.gguf.part`). A dropped download still leaves only the `.part`, never a short file at the real name. Test: `crates/mlmf-source-hub/tests/part_name.rs` (red before the fix, on the missing `model.gguf.part`).
+
 ## [0.11.17] - 2026-11-10
 
 ### Added
