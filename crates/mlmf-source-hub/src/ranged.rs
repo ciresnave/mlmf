@@ -126,7 +126,7 @@ impl Reply {
 }
 
 /// `bytes first-last/total` as three numbers.
-fn parse_content_range(value: Option<&str>) -> Option<(u64, u64, u64)> {
+pub(crate) fn parse_content_range(value: Option<&str>) -> Option<(u64, u64, u64)> {
     let spec = value?.trim().strip_prefix("bytes ")?;
     let (span, total) = spec.split_once('/')?;
     let (first, last) = span.split_once('-')?;
