@@ -1,0 +1,8 @@
+# C3: the std submodules mlmf-hf-config may name. DELIBERATELY EMPTY.
+#
+# This crate reads a `MetadataSource` and returns owned values and a static
+# table. It needs nothing `std::`-rooted. The purity gate scans `src/` only,
+# so the pinning test that reads files lives under tests/.
+#
+# The file exists rather than being absent because `purity.rs::allowed_std`
+# panics when a gated member does not declare a list.

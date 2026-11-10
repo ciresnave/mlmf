@@ -1,0 +1,6 @@
+# Excerpt of transformers v4.57.0 src/transformers/models/qwen3/configuration_qwen3.py
+# (https://github.com/huggingface/transformers/blob/v4.57.0/src/transformers/models/qwen3/configuration_qwen3.py)
+# Copyright The HuggingFace Team, Apache License 2.0. Verbatim lines, prefixed with their line number and a tab.
+25	class Qwen3Config(PretrainedConfig):
+162	        num_key_value_heads=32,
+163	        head_dim=128,
