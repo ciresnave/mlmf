@@ -45,7 +45,8 @@ fn dropped_fetch(cache: &Path, filename: &str) {
 
 #[test]
 fn a_dropped_download_leaves_the_full_name_plus_part() {
-    let cache = std::env::temp_dir().join(format!("mlmf-part-name-{}", std::process::id()));
+    let cache = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("mlmf-part-name-{}", std::process::id()));
     dropped_fetch(&cache, "model.gguf");
     dropped_fetch(&cache, "model.bin");
     let dir = cache.join("org/model").join(SHA);
