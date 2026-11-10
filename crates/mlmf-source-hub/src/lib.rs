@@ -58,8 +58,10 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod list;
 pub mod ranged;
 
+pub use list::{FileListing, RemoteFile, RemoteHash};
 pub use ranged::HubRangedFile;
 
 use std::fmt;

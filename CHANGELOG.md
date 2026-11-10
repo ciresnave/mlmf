@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.16] - 2026-11-10
+
+### Added
+- `mlmf-source-hub`: `HubSource::list_files`, `FileListing`, `RemoteFile`, `RemoteHash` (ROADMAP S-64 slice 1). Lists a repo's files at a revision with size and hash, following `Link: rel="next"` pages. The Hub's sha256 exists only for LFS files; every other file has a git blob sha1, so `RemoteHash` is `Sha256` or `GitBlobSha1`. Refuses an unknown entry type, a malformed entry, and a next-page link that leaves the configured endpoint (the token is never sent elsewhere). Additive; no new dependency. Verifying a downloaded file against its hash is a later slice.
+
 ## [0.11.15] - 2026-11-10
 
 ### Added
