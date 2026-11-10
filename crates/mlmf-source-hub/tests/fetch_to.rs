@@ -9,7 +9,7 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::thread;
 
-use mlmf_source_hub::{HubSource, Revision};
+use mlmf_source_hub::{HubSource, Progress, Revision};
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 const WANT: &str = "/org/model/resolve/0123456789abcdef0123456789abcdef01234567/w.bin";
@@ -108,4 +108,40 @@ fn a_missing_file_is_an_error_and_creates_nothing_at_dest() {
     let result = hub.fetch_to("org/model", &pinned(), "nope.bin", &dest);
     assert!(result.is_err(), "a 404 must be an error");
     assert!(!dest.exists(), "nothing may appear at dest");
+}
+
+fn big() -> &'static [u8] {
+    Box::leak(vec![7_u8; 200_000].into_boxed_slice())
+}
+
+#[test]
+fn progress_grows_to_the_full_size_and_reports_the_declared_total() {
+    let root = scratch("progress");
+    let dest = root.join("w.bin");
+    let hub = HubSource::new(root.join("cache")).with_endpoint(endpoint(big(), 200_000));
+    let mut seen: Vec<Progress> = Vec::new();
+    hub.fetch_to_with_progress("org/model", &pinned(), "w.bin", &dest, &mut |p| {
+        seen.push(p)
+    })
+    .expect("fetch_to_with_progress");
+    assert!(seen.len() > 1, "200000 bytes arrive in more than one chunk");
+    assert!(seen.windows(2).all(|w| w[0].downloaded < w[1].downloaded));
+    assert_eq!(seen.last().map(|p| p.downloaded), Some(200_000));
+    assert!(seen.iter().all(|p| p.total == Some(200_000)));
+    assert_eq!(fs::read(&dest).expect("dest").len(), 200_000);
+}
+
+#[test]
+fn a_dropped_download_reports_only_what_arrived() {
+    let root = scratch("progress-dropped");
+    let dest = root.join("w.bin");
+    let hub = HubSource::new(root.join("cache")).with_endpoint(endpoint(b"abc", 10));
+    let mut seen: Vec<Progress> = Vec::new();
+    let result = hub.fetch_to_with_progress("org/model", &pinned(), "w.bin", &dest, &mut |p| {
+        seen.push(p)
+    });
+    assert!(result.is_err(), "a short body must be an error");
+    assert_eq!(seen.last().map(|p| p.downloaded), Some(3));
+    assert!(seen.iter().all(|p| p.total == Some(10)));
+    assert!(!dest.exists(), "a short file must never be at dest");
 }
