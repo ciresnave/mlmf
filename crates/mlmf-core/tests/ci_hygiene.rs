@@ -144,15 +144,6 @@ fn every_gated_crate_is_run_with_default_features_off() {
     );
 }
 
-/// The `default` feature list a crate declares, if it declares a non-empty one.
-///
-/// Hand-parsed, like every other manifest reader in these gates: a TOML
-/// dependency in `mlmf-core` to read `mlmf-core`'s own dependency gates would
-/// be circular against the set C2 pins.
-fn non_empty_default_features(dir: &std::path::Path) -> Option<String> {
-    default_features_in(&fs::read_to_string(dir.join("Cargo.toml")).ok()?)
-}
-
 /// Split out so it can be driven by fixtures, and because the first version
 /// had a defect that only an enumeration of its paths revealed.
 ///
