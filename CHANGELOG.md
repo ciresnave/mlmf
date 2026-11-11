@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.23] - 2026-11-10
+
+### Removed
+- `MLMF_TEAM_BRIEFING.md` (ROADMAP S-46, CireSnave 2026-11-10, via the PM: "S-46: Delete it."). Its own header warned it was stale and its body called v0.1.0 production-ready. No code changed.
+
 ## [0.11.22] - 2026-11-10
 
 ### Added
