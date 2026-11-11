@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.31] - 2026-11-11
+
+### Added
+- Design note for reading and writing LoRA adapter files (ROADMAP S-65, CireSnave 2026-11-11, via the PM: "Have MLMF add reading and writing of LoRA adapters to its roadmap."): `docs/superpowers/specs/2026-11-11-lora-adapter-files-design.md`. It covers the PEFT form (`adapter_config.json` plus `adapter_model.safetensors`) and the GGUF adapter form (`general.type = "adapter"`), both read from public PEFT and llama.cpp sources; every declared field is an `Option` and a PEFT class default is never filled in; adapters stay separate from base weights (no merge, which is conversion); and the acceptance test is a measured round trip. The tensor-name prefix, shapes and GGUF dimension order are named as unmeasured and left to step 1. Documentation only; no code.
+
 ## [0.11.29] - 2026-11-10
 
 ### Added
