@@ -205,10 +205,10 @@ fn every_gated_crate_is_reachable_from_a_bare_cargo_test() {
     // tested by CI and silently skipped locally — and the local run still
     // prints ok.
     //
-    // That is the shape `ci_coverage.rs` exists for, one list over. A gate
+    // That is the shape the old `ci_coverage.rs` existed for, one list over. A gate
     // running correctly over the WRONG SET produces a real, passing,
     // plausible result with no cue anywhere that it is not the result you
-    // think you are reading. `ci_coverage.rs` closed that for the workflow
+    // think you are reading. `--workspace` in CI closes that for the workflow
     // and left this list untested, which is how `crates/mlmf-conformance`
     // could have been added to one and not the other.
     //

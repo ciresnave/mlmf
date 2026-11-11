@@ -30,7 +30,7 @@ jobs:
       # Pinned, not `@stable`. `stable` is an alias that resolves to a
       # different compiler on a different day, so a green run named no
       # compiler at all. Must match rust-toolchain.toml — enforced by
-      # `toolchain_pin_matches_ci` in crates/mlmf-core/tests/ci_coverage.rs,
+      # `toolchain_pin_matches_ci` in crates/mlmf-core/tests/ci_hygiene.rs,
       # because two places holding one version is exactly how they drift.
       - uses: dtolnay/rust-toolchain@5059963b1731bf1580991b5f3b1eecfb5da406c0 # 1.98.0 (branch)
         with:
@@ -81,13 +81,32 @@ jobs:
       - name: cargo fmt --all --check
         run: cargo fmt --all -- --check
 
+      # S-22 (CireSnave 2026-11-10: "Switch to whole workspace."): every member
+      # of the workspace is tested, linted and documented by construction, so
+      # a crate added under crates/ cannot be missed. The per-crate plain test,
+      # doc and clippy steps this replaced are gone; the steps below that name
+      # one crate are the ones that run it in a SECOND configuration
+      # (--no-default-features, a feature, a corpus). The ci_hygiene.rs test
+      # `the_workspace_steps_are_present_and_armed` pins these three.
+      - name: cargo test --workspace
+        run: cargo test --workspace
+
+      - name: cargo clippy --workspace
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # #![warn(missing_docs)] is only meaningful if a warning fails a build.
+      - name: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --no-deps
+
       # C6: build AND run the suite with default features off, so the
       # mmap-free path is proven functional rather than merely compilable.
       #
       # EVERY gated crate carries one of these steps, and that is enforced
       # rather than remembered:
       # `every_gated_crate_is_run_with_default_features_off` in
-      # crates/mlmf-core/tests/ci_coverage.rs derives the crate list from
+      # crates/mlmf-core/tests/ci_hygiene.rs derives the crate list from
       # crates/ and requires the exact command. Until that gate existed the
       # flag appeared on this step alone, and later on mlmf-source-file's --
       # and one or two steps carrying a flag is indistinguishable, read down
@@ -108,9 +127,6 @@ jobs:
         run: cargo test -p mlmf-core --no-default-features
 
       # C1/C2/C3/C5/C7 all live here as ordinary Rust tests.
-      - name: cargo test -p mlmf-core
-        run: cargo test -p mlmf-core
-
       # The same C1/C2 assertion through the script that owns --bless, so the
       # two normalisations cannot silently drift apart.
       - name: scripts/check-deps.sh
@@ -118,298 +134,103 @@ jobs:
         run: bash scripts/check-deps.sh
 
       # #![warn(missing_docs)] is only meaningful if a warning fails a build.
-      - name: cargo doc -p mlmf-core --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-core --no-deps
-
-      - name: cargo clippy -p mlmf-core
-        run: cargo clippy -p mlmf-core --all-targets -- -D warnings
-
       # mlmf-exl2 detects EXL2 quantization and refuses with a named,
       # typed error -- it is NOT a geometry crate (see the design spec
       # §1.3/§3.3 for why real verification ruled that out). Format axis,
-      # no mlmf-core dependency at all, `default = []`, so the plain four
-      # steps.
-      - name: cargo test -p mlmf-exl2
-        run: cargo test -p mlmf-exl2
-
+      # no mlmf-core dependency at all, `default = []`, so only the
+      # --no-default-features test step is per-crate.
       - name: cargo test -p mlmf-exl2 --no-default-features
         run: cargo test -p mlmf-exl2 --no-default-features
-
-      - name: cargo doc -p mlmf-exl2 --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-exl2 --no-deps
-
-      - name: cargo clippy -p mlmf-exl2
-        run: cargo clippy -p mlmf-exl2 --all-targets -- -D warnings
-
-      - name: cargo test -p mlmf-ggml
-        run: cargo test -p mlmf-ggml
 
       - name: cargo test -p mlmf-ggml --no-default-features
         run: cargo test -p mlmf-ggml --no-default-features
 
-      - name: cargo doc -p mlmf-ggml --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-ggml --no-deps
-
-      - name: cargo clippy -p mlmf-ggml
-        run: cargo clippy -p mlmf-ggml --all-targets -- -D warnings
-
-      - name: cargo test -p mlmf-gguf
-        run: cargo test -p mlmf-gguf
-
       - name: cargo test -p mlmf-gguf --no-default-features
         run: cargo test -p mlmf-gguf --no-default-features
-
-      - name: cargo doc -p mlmf-gguf --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-gguf --no-deps
-
-      - name: cargo clippy -p mlmf-gguf
-        run: cargo clippy -p mlmf-gguf --all-targets -- -D warnings
 
       # mlmf-gptq locates GPTQ-packed linear layers in an already-open
       # TensorContainer and parses quantize_config.json / config.json's
       # embedded quantization_config. Format axis: no I/O, `default = []`
-      # same as mlmf-core, so the plain four steps.
-      - name: cargo test -p mlmf-gptq
-        run: cargo test -p mlmf-gptq
-
+      # same as mlmf-core, so only the --no-default-features test step is per-crate (the rest is --workspace).
       - name: cargo test -p mlmf-gptq --no-default-features
         run: cargo test -p mlmf-gptq --no-default-features
-
-      - name: cargo doc -p mlmf-gptq --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-gptq --no-deps
-
-      - name: cargo clippy -p mlmf-gptq
-        run: cargo clippy -p mlmf-gptq --all-targets -- -D warnings
 
       # mlmf-awq locates AWQ-packed linear layers in an already-open
       # TensorContainer and parses quant_config.json / config.json's
       # embedded quantization_config. Format axis: no I/O, `default = []`
-      # same as mlmf-core, so the plain four steps.
-      - name: cargo test -p mlmf-awq
-        run: cargo test -p mlmf-awq
-
+      # same as mlmf-core, so only the --no-default-features test step is per-crate (the rest is --workspace).
       - name: cargo test -p mlmf-awq --no-default-features
         run: cargo test -p mlmf-awq --no-default-features
 
-      - name: cargo doc -p mlmf-awq --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-awq --no-deps
-
-      - name: cargo clippy -p mlmf-awq
-        run: cargo clippy -p mlmf-awq --all-targets -- -D warnings
-
       # mlmf-mlx locates MLX-packed linear layers (U32 weight, scales,
       # biases) in an already-open TensorContainer and parses config.json's
-      # `quantization` section. Format axis: no I/O, same four steps.
-      - name: cargo test -p mlmf-mlx
-        run: cargo test -p mlmf-mlx
-
+      # `quantization` section. Format axis: no I/O, so only the --no-default-features test step is per-crate.
       - name: cargo test -p mlmf-mlx --no-default-features
         run: cargo test -p mlmf-mlx --no-default-features
 
-      - name: cargo doc -p mlmf-mlx --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-mlx --no-deps
-
-      - name: cargo clippy -p mlmf-mlx
-        run: cargo clippy -p mlmf-mlx --all-targets -- -D warnings
-
       # mlmf-gguf-arch names a GGUF file's architecture family from a
       # MetadataSource and tensor descriptors. Format axis: no I/O, `default = []`
-      # same as mlmf-core, so the plain four steps.
-      - name: cargo test -p mlmf-gguf-arch
-        run: cargo test -p mlmf-gguf-arch
-
+      # same as mlmf-core, so only the --no-default-features test step is per-crate (the rest is --workspace).
       - name: cargo test -p mlmf-gguf-arch --no-default-features
         run: cargo test -p mlmf-gguf-arch --no-default-features
 
-      - name: cargo doc -p mlmf-gguf-arch --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-gguf-arch --no-deps
-
-      - name: cargo clippy -p mlmf-gguf-arch
-        run: cargo clippy -p mlmf-gguf-arch --all-targets -- -D warnings
-
       # mlmf-tensor-names translates tensor names between HuggingFace and GGUF spellings from
       # a declared table. Format axis: pure functions over strings, no
-      # dependencies, `default = []`, so the plain four steps.
-      - name: cargo test -p mlmf-tensor-names
-        run: cargo test -p mlmf-tensor-names
-
+      # dependencies, `default = []`, so only the --no-default-features test step is per-crate (the rest is --workspace).
       - name: cargo test -p mlmf-tensor-names --no-default-features
         run: cargo test -p mlmf-tensor-names --no-default-features
 
-      - name: cargo doc -p mlmf-tensor-names --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-tensor-names --no-deps
-
-      - name: cargo clippy -p mlmf-tensor-names
-        run: cargo clippy -p mlmf-tensor-names --all-targets -- -D warnings
-
       # mlmf-oracle holds the tensor-name mapping file and the checked Oracle
-      # seam. Format axis: no I/O, no features, so the plain four steps.
-      - name: cargo test -p mlmf-oracle
-        run: cargo test -p mlmf-oracle
-
+      # seam. Format axis: no I/O, no features, so only the --no-default-features test step is per-crate (the rest is --workspace).
       - name: cargo test -p mlmf-oracle --no-default-features
         run: cargo test -p mlmf-oracle --no-default-features
-
-      - name: cargo doc -p mlmf-oracle --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-oracle --no-deps
-
-      - name: cargo clippy -p mlmf-oracle
-        run: cargo clippy -p mlmf-oracle --all-targets -- -D warnings
 
       # mlmf-test-support is never published: a [dev-dependencies] edge that
       # shares the REQUIRE-gate predicate between crates' integration tests
       # without a `#[path]` include that leaves the including package.
-      - name: cargo test -p mlmf-test-support
-        run: cargo test -p mlmf-test-support
-
       - name: cargo test -p mlmf-test-support --no-default-features
         run: cargo test -p mlmf-test-support --no-default-features
 
-      - name: cargo doc -p mlmf-test-support --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-test-support --no-deps
-
-      - name: cargo clippy -p mlmf-test-support
-        run: cargo clippy -p mlmf-test-support --all-targets -- -D warnings
-
       # mlmf-pickle reads a torch.save checkpoint's zip directory and tensor
       # index with a bounded pickle reader that executes nothing. Format axis:
-      # no I/O, `default = []`, so the plain four steps. The real-checkpoint
+      # no I/O, `default = []`, so only the --no-default-features test step is per-crate (the rest is --workspace). The real-checkpoint
       # test skips here (no MLMF_PTH_FILE) and says so.
-      - name: cargo test -p mlmf-pickle
-        run: cargo test -p mlmf-pickle
-
       - name: cargo test -p mlmf-pickle --no-default-features
         run: cargo test -p mlmf-pickle --no-default-features
 
-      - name: cargo doc -p mlmf-pickle --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-pickle --no-deps
-
-      - name: cargo clippy -p mlmf-pickle
-        run: cargo clippy -p mlmf-pickle --all-targets -- -D warnings
-
       # mlmf-bnb locates bitsandbytes 4-bit layers in an already-open
       # TensorContainer and reads their raw pieces and quant_state JSON.
-      # Format axis: no I/O, `default = []`, so the plain four steps.
-      - name: cargo test -p mlmf-bnb
-        run: cargo test -p mlmf-bnb
-
+      # Format axis: no I/O, `default = []`, so only the --no-default-features test step is per-crate (the rest is --workspace).
       - name: cargo test -p mlmf-bnb --no-default-features
         run: cargo test -p mlmf-bnb --no-default-features
 
-      - name: cargo doc -p mlmf-bnb --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-bnb --no-deps
-
-      - name: cargo clippy -p mlmf-bnb
-        run: cargo clippy -p mlmf-bnb --all-targets -- -D warnings
-
       # mlmf-onnx writes ONNX ModelProto files from caller-supplied tensors,
       # metadata and opaque node bytes. Format axis: no I/O, `default = []`,
-      # so the plain four steps.
-      - name: cargo test -p mlmf-onnx
-        run: cargo test -p mlmf-onnx
-
+      # so only the --no-default-features test step is per-crate (the rest is --workspace).
       - name: cargo test -p mlmf-onnx --no-default-features
         run: cargo test -p mlmf-onnx --no-default-features
 
-      - name: cargo doc -p mlmf-onnx --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-onnx --no-deps
-
-      - name: cargo clippy -p mlmf-onnx
-        run: cargo clippy -p mlmf-onnx --all-targets -- -D warnings
-
       # mlmf-stablehlo reads and writes the MLIR bytecode container of
       # StableHLO portable artifacts (section contents opaque). Format axis:
-      # no I/O, `default = []`, so the plain four steps.
-      - name: cargo test -p mlmf-stablehlo
-        run: cargo test -p mlmf-stablehlo
-
+      # no I/O, `default = []`, so only the --no-default-features test step is per-crate (the rest is --workspace).
       - name: cargo test -p mlmf-stablehlo --no-default-features
         run: cargo test -p mlmf-stablehlo --no-default-features
 
-      - name: cargo doc -p mlmf-stablehlo --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-stablehlo --no-deps
-
-      - name: cargo clippy -p mlmf-stablehlo
-        run: cargo clippy -p mlmf-stablehlo --all-targets -- -D warnings
-
       # mlmf-pt2 reads and writes torch.export .pt2 archives (zip layout,
       # weights/constants configs, raw tensor bytes; the graph is opaque).
-      # Format axis: no I/O, `default = []`, so the plain four steps.
-      - name: cargo test -p mlmf-pt2
-        run: cargo test -p mlmf-pt2
-
+      # Format axis: no I/O, `default = []`, so only the --no-default-features test step is per-crate (the rest is --workspace).
       - name: cargo test -p mlmf-pt2 --no-default-features
         run: cargo test -p mlmf-pt2 --no-default-features
 
-      - name: cargo doc -p mlmf-pt2 --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-pt2 --no-deps
-
-      - name: cargo clippy -p mlmf-pt2
-        run: cargo clippy -p mlmf-pt2 --all-targets -- -D warnings
-
-      - name: cargo test -p mlmf-safetensors
-        run: cargo test -p mlmf-safetensors
-
       - name: cargo test -p mlmf-safetensors --no-default-features
         run: cargo test -p mlmf-safetensors --no-default-features
-
-      - name: cargo doc -p mlmf-safetensors --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-safetensors --no-deps
-
-      - name: cargo clippy -p mlmf-safetensors
-        run: cargo clippy -p mlmf-safetensors --all-targets -- -D warnings
 
       # mlmf-conformance is never published and is gated exactly like the
       # crates that are. It is the only member linking more than one backend
       # into one binary, which is what a cross-backend seam test needs and
       # what neither backend may have.
-      - name: cargo test -p mlmf-conformance
-        run: cargo test -p mlmf-conformance
-
       - name: cargo test -p mlmf-conformance --no-default-features
         run: cargo test -p mlmf-conformance --no-default-features
-
-      - name: cargo doc -p mlmf-conformance --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-conformance --no-deps
-
-      - name: cargo clippy -p mlmf-conformance
-        run: cargo clippy -p mlmf-conformance --all-targets -- -D warnings
 
       # AD-1-for-safetensors, actually running in CI. Downloads the SEVEN
       # SMALL files of mlmf-conformance/tests/fuel_differential_safetensors.rs's
@@ -529,26 +350,15 @@ jobs:
       # MetadataSource, so it has no I/O and names no format crate (C4).
       #
       # FOUR steps, not six, and that is a consequence rather than an
-      # omission. `a_crate_with_a_second_configuration_is_linted_and_documented_in_it`
+      # omission. The second-configuration rule (a non-empty default feature list)
       # arms only on a NON-EMPTY default feature list; mlmf-meta declares no
       # `[features]` at all, so there is no second configuration and the
       # --no-default-features clippy and doc steps would lint the same build
       # twice. The `cargo test --no-default-features` step below is still
       # required: C6 pins that the suite RUNS in that configuration, whether
       # or not the configuration differs.
-      - name: cargo test -p mlmf-meta
-        run: cargo test -p mlmf-meta
-
       - name: cargo test -p mlmf-meta --no-default-features
         run: cargo test -p mlmf-meta --no-default-features
-
-      - name: cargo doc -p mlmf-meta --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-meta --no-deps
-
-      - name: cargo clippy -p mlmf-meta
-        run: cargo clippy -p mlmf-meta --all-targets -- -D warnings
 
       # mlmf-hf-layout parses a HuggingFace checkpoint's shard index and
       # reports where each tensor lives (spec line 90). Format axis: bytes
@@ -556,49 +366,24 @@ jobs:
       # caller reads the file and hands over the bytes.
       #
       # FOUR steps, not six, for the same reason as mlmf-meta and
-      # mlmf-conformance: `a_crate_with_a_second_configuration_is_linted_and
-      # _documented_in_it` arms only on a NON-EMPTY default feature list, and
+      # mlmf-conformance: the second-configuration rule
+      # applies only to a NON-EMPTY default feature list, and
       # this crate declares no `[features]` at all. The C6 test step below is
       # still required -- it pins that the suite RUNS in that configuration,
       # whether or not the configuration differs.
-      - name: cargo test -p mlmf-hf-layout
-        run: cargo test -p mlmf-hf-layout
-
       - name: cargo test -p mlmf-hf-layout --no-default-features
         run: cargo test -p mlmf-hf-layout --no-default-features
 
-      - name: cargo doc -p mlmf-hf-layout --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-hf-layout --no-deps
-
-      - name: cargo clippy -p mlmf-hf-layout
-        run: cargo clippy -p mlmf-hf-layout --all-targets -- -D warnings
-
       # mlmf-hf-tokenizer reads tokenizer.json's declared vocab+merges for
       # the BPE model type. Format axis: no I/O, `default = []` same as
-      # mlmf-core, so the plain four steps.
-      - name: cargo test -p mlmf-hf-tokenizer
-        run: cargo test -p mlmf-hf-tokenizer
-
+      # mlmf-core, so only the --no-default-features test step is per-crate (the rest is --workspace).
       - name: cargo test -p mlmf-hf-tokenizer --no-default-features
         run: cargo test -p mlmf-hf-tokenizer --no-default-features
-
-      - name: cargo doc -p mlmf-hf-tokenizer --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-hf-tokenizer --no-deps
-
-      - name: cargo clippy -p mlmf-hf-tokenizer
-        run: cargo clippy -p mlmf-hf-tokenizer --all-targets -- -D warnings
 
       # mlmf-source-file is the first crate on the SOURCE axis (spec §3.1):
       # I/O only, no format knowledge. It is gated exactly like the format
       # crates -- the axis scopes C3's prohibition on naming `memmap2`, and
       # nothing else.
-      - name: cargo test -p mlmf-source-file
-        run: cargo test -p mlmf-source-file
-
       # C6: "CI builds AND RUNS the full parser suite with
       # --no-default-features, proving the mmap-free path is functional
       # rather than merely compilable."
@@ -614,14 +399,6 @@ jobs:
       - name: cargo test -p mlmf-source-file --no-default-features
         run: cargo test -p mlmf-source-file --no-default-features
 
-      - name: cargo doc -p mlmf-source-file --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-source-file --no-deps
-
-      - name: cargo clippy -p mlmf-source-file
-        run: cargo clippy -p mlmf-source-file --all-targets -- -D warnings
-
       # The OTHER half of C6, and the half that was missing.
       #
       # C6 reads "builds AND RUNS the full parser suite with
@@ -636,9 +413,9 @@ jobs:
       # `default`. mlmf-core declares `default = []` and the other four have
       # no [features] table, so the flag is a no-op for five of six and
       # twelve steps would be ten that assert nothing.
-      # `ci_coverage.rs::a_crate_with_a_second_configuration_is_linted_and_documented_in_it`
-      # is keyed on that condition and arms itself for the next crate that
-      # takes a real feature.
+      # The second-configuration rule
+      # applies to that condition: the next crate that
+      # takes a real feature needs the same pair.
       - name: cargo clippy -p mlmf-source-file --no-default-features
         run: cargo clippy -p mlmf-source-file --all-targets --no-default-features -- -D warnings
 
@@ -649,11 +426,11 @@ jobs:
 
       # mlmf-source-hub: the second crate on the SOURCE axis, and the only
       # crate in the workspace with a TLS edge (spec §3.2, §9 §6 HUB-1/
-      # HUB-2). `default = []`, same as mlmf-core, so this gets the plain
-      # four steps -- not mlmf-source-file's extra pair, which exist only
+      # HUB-2). `default = []`, same as mlmf-core, so only the
+      # --no-default-features test step is per-crate, not mlmf-source-file's extra pair, which exist only
       # because THAT crate's `default` is non-empty.
       #
-      # `tests/live_hub.rs` is NOT run by the plain step below:
+      # `tests/live_hub.rs` is NOT run by `cargo test --workspace`:
       # `required-features = ["live-hub"]` in this crate's Cargo.toml keeps
       # it from even being BUILT without that flag, so CI (and any
       # contributor without Hub access) gets a clean, network-free pass.
@@ -661,19 +438,8 @@ jobs:
       # this crate was proposed for merge; it is not wired into CI because
       # this repo has no other job that assumes network egress, matching
       # how `mlmf-conformance --features fuel-differential` is handled.
-      - name: cargo test -p mlmf-source-hub
-        run: cargo test -p mlmf-source-hub
-
       - name: cargo test -p mlmf-source-hub --no-default-features
         run: cargo test -p mlmf-source-hub --no-default-features
-
-      - name: cargo doc -p mlmf-source-hub --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc -p mlmf-source-hub --no-deps
-
-      - name: cargo clippy -p mlmf-source-hub
-        run: cargo clippy -p mlmf-source-hub --all-targets -- -D warnings
 
       # Defense in depth for the SAME defect `cargo metadata --locked` above
       # exists to catch: ~80 cargo invocations follow that step in this job,

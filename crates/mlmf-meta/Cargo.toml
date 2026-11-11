@@ -15,12 +15,12 @@
 # during this plan's audit, which is why the absence is written down.
 #
 # An empty feature set also keeps
-# `ci_coverage::a_crate_with_a_second_configuration_is_linted_and_documented_in_it`
-# disarmed, which is honest: there is no second configuration to lint, and
-# arming it would buy two CI steps that check the same build twice.
+# the second-configuration rule (clippy and doc steps for a non-empty
+# default feature list) disarmed, which is honest: there is no second
+# configuration to lint, and arming it would buy two CI steps that check the same build twice.
 
 [dependencies]
     # `version` alongside `path`, matching all eight existing workspace path
     # edges. A path-only dependency cannot be published, and this crate is
     # not `publish = false`.
-    mlmf-core = { path = "../mlmf-core", version = "0.11.25" }
+    mlmf-core = { path = "../mlmf-core", version = "0.11.26" }
