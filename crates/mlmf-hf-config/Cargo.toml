@@ -1,0 +1,16 @@
+[package]
+    description          = "config.json defaults that are always correct, filled per declared model_type and cited to the transformers source. Structure to structure; no I/O."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-hf-config"
+    repository.workspace = true
+    version.workspace    = true
+
+# NO [features] SECTION, deliberately, matching mlmf-meta (see its manifest
+# for the measured reason). An empty feature set keeps the
+# second-configuration rule (clippy and doc steps for a non-empty default
+# feature list) disarmed, which is honest: there is no second configuration.
+
+[dependencies]
+    # `version` alongside `path`, as on every workspace path edge.
+    mlmf-core = { path = "../mlmf-core", version = "0.11.29" }

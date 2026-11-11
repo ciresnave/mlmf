@@ -360,6 +360,13 @@ jobs:
       - name: cargo test -p mlmf-meta --no-default-features
         run: cargo test -p mlmf-meta --no-default-features
 
+      # mlmf-hf-config reads a MetadataSource and fills the config.json
+      # defaults that are always correct (ROADMAP S-14). Format axis, mlmf-core
+      # only, no [features], so only the --no-default-features test step is
+      # per-crate; the rest is --workspace.
+      - name: cargo test -p mlmf-hf-config --no-default-features
+        run: cargo test -p mlmf-hf-config --no-default-features
+
       # mlmf-hf-layout parses a HuggingFace checkpoint's shard index and
       # reports where each tensor lives (spec line 90). Format axis: bytes
       # in, structure out, and it "never enumerates a directory" -- the

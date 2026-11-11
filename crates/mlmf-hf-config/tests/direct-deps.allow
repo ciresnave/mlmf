@@ -1,0 +1,8 @@
+# C2 allow-list for mlmf-hf-config. One entry per direct dependency, sorted.
+#
+# mlmf-core alone, deliberately (C4): this crate reads a `MetadataSource`, so it
+# works over `mlmf-hf-layout`s `ConfigJson` or any other source WITHOUT naming
+# the layout crate. A format-axis crate depending on another format crate is
+# what C4 exists to prevent. (The PM suggested depending on mlmf-hf-layout;
+# this achieves the same reuse of ConfigJson without the edge.)
+mlmf-core

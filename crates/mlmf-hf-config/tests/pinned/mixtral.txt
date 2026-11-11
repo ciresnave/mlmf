@@ -1,0 +1,5 @@
+# Excerpt of transformers v4.57.0 src/transformers/models/mixtral/configuration_mixtral.py
+# (https://github.com/huggingface/transformers/blob/v4.57.0/src/transformers/models/mixtral/configuration_mixtral.py)
+# Copyright The HuggingFace Team, Apache License 2.0. Verbatim lines, prefixed with their line number and a tab.
+24	class MixtralConfig(PretrainedConfig):
+135	        num_key_value_heads=8,

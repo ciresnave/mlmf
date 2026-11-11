@@ -16,6 +16,7 @@ default-members = [
     "crates/mlmf-gguf-arch",
     "crates/mlmf-gguf",
     "crates/mlmf-gptq",
+    "crates/mlmf-hf-config",
     "crates/mlmf-hf-layout",
     "crates/mlmf-hf-tokenizer",
     "crates/mlmf-meta",
@@ -36,4 +37,4 @@ default-members = [
 edition    = "2024"
 license    = "MIT OR Apache-2.0"
 repository = "https://github.com/CireSnave/mlmf"
-version    = "0.11.28"
+version    = "0.11.29"

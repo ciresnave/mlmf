@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.29] - 2026-11-10
+
+### Added
+- New crate `mlmf-hf-config` (ROADMAP S-14, CireSnave 2026-11-10, via the PM: "S-14: A.  Filling in verified defaults we can be sure are always correct is not outside what MLMF should do... Rebuild the parser."; design in `docs/superpowers/specs/2026-11-10-mlmf-hf-config-design.md`). `num_key_value_heads(&dyn MetadataSource)` and `head_dim(&dyn MetadataSource)` return the declared value, or, when the field is absent from a complete source and the declared `model_type` is in `TABLE`, a cited class default, each as a `Resolved { value, source }` whose `Source` says `Declared` or `ClassDefault { class, transformers }`. `TABLE` holds ten entries (llama and phi3 `num_key_value_heads` = the declared `num_attention_heads`; mistral and mixtral 8; qwen2 32; qwen3 32 and `head_dim` 128; gemma 16 and 256; gemma2 `head_dim` 256), each constant across every transformers minor release from the one that introduced the class to v4.57.0. gemma2 `num_key_value_heads` is NOT in it: 16 in 4.42 to 4.46, then 4. A declared-but-unusable value (a string, a null), an unlisted or missing `model_type`, a head-count default whose `num_attention_heads` is not declared, and an incomplete source all stay `None`; nothing coerces. It reads any `MetadataSource` and depends on `mlmf-core` alone, so `mlmf-hf-layout`'s `ConfigJson` works with it without a crate-to-crate edge (C4); the PM's suggestion was to depend on `mlmf-hf-layout`, which this avoids. Tests: `crates/mlmf-hf-config/tests/defaults.rs` (behaviour) and `crates/mlmf-hf-config/tests/pinned_sources.rs`, which holds every table entry to a verbatim excerpt of the transformers source line it cites (`crates/mlmf-hf-config/tests/pinned/`, Apache-2.0, attributed in each file). Additive.
+
 ## [0.11.28] - 2026-11-10
 
 ### Added

@@ -1,0 +1,7 @@
+# Excerpt of transformers v4.57.0 src/transformers/models/llama/configuration_llama.py
+# (https://github.com/huggingface/transformers/blob/v4.57.0/src/transformers/models/llama/configuration_llama.py)
+# Copyright The HuggingFace Team, Apache License 2.0. Verbatim lines, prefixed with their line number and a tab.
+26	class LlamaConfig(PretrainedConfig):
+168	        num_key_value_heads=None,
+195	        if num_key_value_heads is None:
+196	            num_key_value_heads = num_attention_heads

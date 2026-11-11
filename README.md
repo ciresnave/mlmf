@@ -34,6 +34,7 @@ supported ones; `mlmf` itself on crates.io stops at 0.2.0.
 | `mlmf-mlx` | Locate packed MLX layers and parse the `quantization` config | format |
 | `mlmf-bnb` | Locate bitsandbytes 4-bit layers and read their raw pieces and `quant_state` | format |
 | `mlmf-exl2` | Detect and refuse EXL2 | format |
+| `mlmf-hf-config` | `config.json` defaults that are always correct, per `model_type`, cited to the transformers source | format |
 | `mlmf-hf-layout` | HuggingFace shard index: where each tensor lives | format |
 | `mlmf-hf-tokenizer` | Read `tokenizer.json` vocabulary and merges | format |
 | `mlmf-meta` | Canonical metadata key vocabulary and declared-value extraction | format |
