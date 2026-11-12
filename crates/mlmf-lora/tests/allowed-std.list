@@ -1,0 +1,5 @@
+# C3: the std submodules mlmf-lora may name. DELIBERATELY EMPTY.
+#
+# This crate reads a `MetadataSource` and a list of `TensorDescriptor`s and
+# returns owned values. It needs nothing `std::`-rooted. The file exists
+# because `purity.rs::allowed_std` panics when a gated member declares none.

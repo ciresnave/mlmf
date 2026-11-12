@@ -1,0 +1,12 @@
+[package]
+    description          = "LoRA adapter files, as declared: PEFT adapter_config.json fields and lora_A/lora_B tensor pairing. Every field Option; no merge, no scale. No I/O."
+    edition.workspace    = true
+    license.workspace    = true
+    name                 = "mlmf-lora"
+    repository.workspace = true
+    version.workspace    = true
+
+# NO [features] SECTION, deliberately, matching mlmf-hf-config.
+
+[dependencies]
+    mlmf-core = { path = "../mlmf-core", version = "0.11.34" }

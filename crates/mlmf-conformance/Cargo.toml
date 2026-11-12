@@ -82,6 +82,9 @@
     # crate may not depend on another format crate, C4).
     mlmf-hf-config   = { path = "../mlmf-hf-config", version = "0.11.34" }
     mlmf-hf-layout   = { path = "../mlmf-hf-layout", version = "0.11.34" }
+    # For tests/lora_adapter.rs: mlmf-lora reads any MetadataSource, and this is the
+    # one binary where it meets mlmf-hf-layout's ConfigJson (C4).
+    mlmf-lora        = { path = "../mlmf-lora", version = "0.11.34" }
     mlmf-meta        = { path = "../mlmf-meta", version = "0.11.34" }
     mlmf-safetensors = { path = "../mlmf-safetensors", version = "0.11.34" }
     # For tests/mmap_zero_copy.rs: the real mmap primitive (ByteSource::as_bytes

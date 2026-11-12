@@ -19,6 +19,7 @@ default-members = [
     "crates/mlmf-hf-config",
     "crates/mlmf-hf-layout",
     "crates/mlmf-hf-tokenizer",
+    "crates/mlmf-lora",
     "crates/mlmf-meta",
     "crates/mlmf-mlx",
     "crates/mlmf-onnx",
