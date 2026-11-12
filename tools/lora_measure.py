@@ -39,7 +39,8 @@ def read_value(f, t):
 
 def gguf(path):
     with open(path, "rb") as f:
-        assert f.read(4) == b"GGUF"
+        if f.read(4) != b"GGUF":
+            raise ValueError(f"{path}: not a GGUF file")
         version, n_tensors, n_kv = struct.unpack("<IQQ", f.read(20))
         kv = {}
         for _ in range(n_kv):
