@@ -143,6 +143,9 @@ pub struct ConfigJson {
     /// Dotted-path key -> why it could not be represented (an [`Unrecognized`]
     /// naming the undecodable shape), sorted by key.
     unreadable: Vec<(String, Unrecognized)>,
+    /// The parsed document exactly as read, so [`ConfigJson::to_json`] can
+    /// write back every key, including the ones `entries` cannot hold.
+    raw: serde_json::Value,
 }
 
 impl ConfigJson {
@@ -176,10 +179,30 @@ impl ConfigJson {
         entries.sort_by(|a, b| a.0.cmp(&b.0));
         unreadable.sort_by(|a, b| a.0.cmp(&b.0));
 
+        let raw = serde_json::Value::Object(root.clone());
         Ok(Self {
             entries,
             unreadable,
+            raw,
         })
+    }
+
+    /// Write the document back as it was read: every key, nested objects
+    /// kept nested, and the values [`MetaValue`] cannot hold (`null`, `{}`,
+    /// an array with an object or a null in it, an integer too large for
+    /// `u64`) written as they were declared.
+    ///
+    /// Same form, nothing interpreted: no key is added, renamed or
+    /// completed, so `parse(to_json())` equals the original and a key the
+    /// file did not declare stays undeclared. Keys are written in sorted
+    /// order, two-space indented, ending in a newline; the original key
+    /// order and whitespace are not kept.
+    #[must_use]
+    pub fn to_json(&self) -> Vec<u8> {
+        let mut out =
+            serde_json::to_vec_pretty(&self.raw).expect("a parsed JSON document always serialises");
+        out.push(b'\n');
+        out
     }
 }
 
