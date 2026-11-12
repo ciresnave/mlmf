@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.30] - 2026-11-11
+
+### Changed
+- `.github/workflows/ci.yml`: the coderipper `portfolio.yml` caller is repinned to `33cc3b7e4ab9305b5244092842fc7f6f6b686983` (`# 0.43.49`), the commit whose reusable workflow installs coderipper 0.43.49 (PM `[TASK]` 2026-11-12 after coderipper#307, replacing the 0.43.41 pin of coderipper#303). The scan stays advisory and non-blocking. No library change.
+
 ## [0.11.29] - 2026-11-10
 
 ### Added
