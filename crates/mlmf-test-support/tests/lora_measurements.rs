@@ -5,11 +5,11 @@
 //! The table was produced by `tools/lora_measure.py`, an independent reader that
 //! shares no code with any mlmf crate. These tests read only the table, so they
 //! pin what was MEASURED; they do not exercise a reader (none exists yet).
-//! The set is three files, so every claim below is "in these files", not "in all
-//! adapters": two PEFT (rank 16 and 32, one with an `lm_head` target) and one
-//! llama.cpp-converted GGUF (rank 32, llama). No `rank_pattern`, `use_rslora`,
-//! string `target_modules` or embedding adapter is in the set; step 2 must fetch
-//! those before it fixes a type for them.
+//! The set is eight weight files, so every claim below is "in these files", not
+//! "in all adapters": seven PEFT and one llama.cpp-converted GGUF (rank 32, llama).
+//! Step 2 added two `use_rslora` adapters, two embedding adapters and a Gemma2
+//! one. A non-empty `rank_pattern` and a string `target_modules` were searched for
+//! on the Hub and NOT found, so nothing here says what those look like.
 
 const TABLE: &str = include_str!("../data/lora-measurements.tsv");
 
@@ -18,6 +18,14 @@ const LLAMA: &str =
     "ggml-org--lora-tests/LlamaForCausalLM/hidden_size=64/lora/adapter_model.safetensors";
 const GGUF: &str =
     "makaveli10--tinyllama-fc-lora-gguf/tinyllama-function-call-lora-adapter-250424-f16.gguf";
+
+const RSLORA_STR: &str = "Luongdzung--hoa-1b4-sft-mat-rslora/adapter_model.safetensors";
+const RSLORA_BOOL: &str = "Luongdzung--rsLora_500_last_question_wikiqa/adapter_model.safetensors";
+const EMBED_ONLY: &str = "Phainon--Llama3.2-1b-embed_tokens-openorca/adapter_model.safetensors";
+const EMBED_MIXED: &str =
+    "hungnguyen190204--VieNeu-TTS-0.3B-LoRA-add-embed_tokens/adapter_model.safetensors";
+const GEMMA: &str =
+    "ggml-org--lora-tests/Gemma2ForCausalLM/hidden_size=64/lora/adapter_model.safetensors";
 
 struct Tensor {
     name: String,
@@ -173,12 +181,120 @@ fn gguf_adapter_declares_alpha_and_no_rank() {
 }
 
 #[test]
-fn the_table_covers_exactly_the_three_files() {
+fn the_table_covers_exactly_the_weight_files_and_configs() {
     let mut files: Vec<&str> = TABLE
         .lines()
         .filter(|l| !l.starts_with('#') && !l.starts_with("file\t") && !l.is_empty())
         .filter_map(|l| l.split('\t').next())
         .collect();
+    files.sort_unstable();
     files.dedup();
-    assert_eq!(files, [OPT, LLAMA, GGUF]);
+    let weights: Vec<&str> = files
+        .iter()
+        .copied()
+        .filter(|f| f.ends_with(".safetensors") || f.ends_with(".gguf"))
+        .collect();
+    assert_eq!(weights.len(), 8, "{weights:?}");
+    for w in [
+        OPT,
+        LLAMA,
+        GGUF,
+        RSLORA_STR,
+        RSLORA_BOOL,
+        EMBED_ONLY,
+        EMBED_MIXED,
+        GEMMA,
+    ] {
+        assert!(weights.contains(&w), "missing {w}");
+    }
+    // Step 2 added a config row set beside each of its five new weight files.
+    assert_eq!(
+        files
+            .iter()
+            .filter(|f| f.ends_with("adapter_config.json"))
+            .count(),
+        5
+    );
+}
+
+fn kv_value(file: &str, key: &str) -> Option<String> {
+    rows(file, "kv")
+        .into_iter()
+        .find(|c| c[2] == key)
+        .map(|c| c[3].clone())
+}
+
+fn cfg(weights: &str) -> String {
+    weights.replace("adapter_model.safetensors", "adapter_config.json")
+}
+
+/// `use_rslora` is a string in one real file and a boolean in another: a reader
+/// that expects only a boolean would reject a file PEFT itself produced.
+#[test]
+fn use_rslora_is_a_string_in_one_file_and_a_bool_in_another() {
+    assert_eq!(
+        kv_value(&cfg(RSLORA_STR), "use_rslora").as_deref(),
+        Some("'True'")
+    );
+    assert_eq!(
+        kv_value(&cfg(RSLORA_BOOL), "use_rslora").as_deref(),
+        Some("True")
+    );
+    assert_eq!(
+        kv_value(&cfg(EMBED_ONLY), "use_rslora").as_deref(),
+        Some("False")
+    );
+}
+
+/// Embedding adapters name their halves `lora_embedding_A/B` (no `.weight`),
+/// store `A = [r, vocab]`, `B = [dim, r]`, and carry the full base embedding.
+#[test]
+fn embedding_adapters_use_lora_embedding_names_and_carry_the_base_layer() {
+    for (file, vocab, dim, r) in [
+        (EMBED_ONLY, 128_256, 2048, 64),
+        (EMBED_MIXED, 217_652, 512, 16),
+    ] {
+        let t = tensors(file);
+        let get = |n: &str| {
+            t.iter()
+                .find(|x| x.name.ends_with(n))
+                .unwrap_or_else(|| panic!("{n}"))
+        };
+        assert_eq!(get("embed_tokens.lora_embedding_A").shape, [r, vocab]);
+        assert_eq!(get("embed_tokens.lora_embedding_B").shape, [dim, r]);
+        assert_eq!(get("embed_tokens.base_layer.weight").shape, [vocab, dim]);
+        assert!(
+            t.iter()
+                .all(|x| !x.name.ends_with("lora_embedding_A.weight"))
+        );
+    }
+    // Dtypes are not uniform: BF16 base layer beside F32 halves in one file.
+    let mixed = tensors(EMBED_MIXED);
+    let dt = |n: &str| {
+        mixed
+            .iter()
+            .find(|x| x.name.ends_with(n))
+            .map(|x| x.dtype.clone())
+    };
+    assert_eq!(
+        dt("embed_tokens.base_layer.weight").as_deref(),
+        Some("BF16")
+    );
+    assert_eq!(dt("embed_tokens.lora_embedding_A").as_deref(), Some("F32"));
+}
+
+/// The searched-for features are absent from every config in the set.
+#[test]
+fn no_measured_config_has_a_rank_pattern_or_a_string_target_modules() {
+    for w in [RSLORA_STR, RSLORA_BOOL, EMBED_ONLY, EMBED_MIXED, GEMMA] {
+        assert_eq!(
+            kv_value(&cfg(w), "rank_pattern").as_deref(),
+            Some("{}"),
+            "{w}"
+        );
+        assert!(
+            kv_value(&cfg(w), "target_modules").is_some_and(|v| v.starts_with('[')),
+            "{w}"
+        );
+    }
 }

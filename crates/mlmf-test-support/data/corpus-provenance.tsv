@@ -25,3 +25,7 @@ quants	hf:bartowski/SmolLM2-135M-Instruct-GGUF	-	2026-08-15	mtime
 lora-peft-opt350m	hf:peft-internal-testing/opt-350m-lora	3249904babd8dec56eb3a8a80454c8240f6e40d0	2026-11-11	manifest
 lora-peft-llama64	hf:ggml-org/lora-tests (LlamaForCausalLM/hidden_size=64/lora)	c26d5fb85b4070a9e9c4e65d132c783b98086890	2026-11-11	manifest
 lora-gguf-tinyllama	hf:makaveli10/tinyllama-function-call-lora-adapter-250424-F16-GGUF	4eb86bc5c5f0ff7fb3181e1fafa58dca8b814378	2026-11-11	manifest
+lora-peft-rslora-str	hf:Luongdzung/hoa-1b4-sft-mat-rslora	432712b0976f4e67e2dfa496a3087ff343b57f63	2026-11-12	manifest
+lora-peft-rslora-bool	hf:Luongdzung/rsLora_500_last_question_wikiqa	414ae7224d29a0b39ff1bae2200e62b6bbccc3a1	2026-11-12	manifest
+lora-peft-embed-only	hf:Phainon/Llama3.2-1b-embed_tokens-openorca	9c4438b7562ca924aef866d9f0f9b0f1cba35da8	2026-11-12	manifest
+lora-peft-embed-mixed	hf:hungnguyen190204/VieNeu-TTS-0.3B-LoRA-add-embed_tokens	ef913ea0a1456370b36ef3b6b7dac46d27f66f39	2026-11-12	manifest

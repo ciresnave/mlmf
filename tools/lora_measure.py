@@ -4,7 +4,8 @@
 Shares no code with any mlmf crate, so an error shared between a parser and its
 expectations cannot hide. Reads PEFT `adapter_model.safetensors` headers and GGUF
 adapter files and prints one TSV row per tensor, then the GGUF `general.*` /
-`adapter.*` keys. Usage: python -I tools/lora_measure.py <file>...
+`adapter.*` keys. A PEFT `adapter_config.json` prints every key with Python repr,
+so a string 'True' is distinguishable from a boolean True. Usage: python -I tools/lora_measure.py <file>...
 """
 import json
 import struct
@@ -69,6 +70,13 @@ def main(argv):
             for k, v in kv.items():
                 if k.startswith(("general.", "adapter.")):
                     print(f"kv\t{k}\t{v!r}")
+        elif path.endswith(".json"):
+            with open(path, encoding="utf-8") as f:
+                cfg = json.load(f)
+            print("# adapter_config.json")
+            for k in sorted(cfg):
+                print(f"kv\t{k}\t{cfg[k]!r}")
+            continue
         else:
             rows = safetensors_rows(path)
             print(f"# safetensors, {len(rows)} tensors")
