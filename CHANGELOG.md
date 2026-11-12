@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Design note for reading and writing LoRA adapter files (ROADMAP S-65, CireSnave 2026-11-11, via the PM: "Have MLMF add reading and writing of LoRA adapters to its roadmap."): `docs/superpowers/specs/2026-11-11-lora-adapter-files-design.md`. It covers the PEFT form (`adapter_config.json` plus `adapter_model.safetensors`) and the GGUF adapter form (`general.type = "adapter"`), both read from public PEFT and llama.cpp sources; every declared field is an `Option` and a PEFT class default is never filled in; adapters stay separate from base weights (no merge, which is conversion); and the acceptance test is a measured round trip. The tensor-name prefix, shapes and GGUF dimension order are named as unmeasured and left to step 1. Documentation only; no code.
 
+## [0.11.30] - 2026-11-11
+
+### Changed
+- `.github/workflows/ci.yml`: the coderipper `portfolio.yml` caller is repinned to `33cc3b7e4ab9305b5244092842fc7f6f6b686983` (`# 0.43.49`), the commit whose reusable workflow installs coderipper 0.43.49 (PM `[TASK]` 2026-11-12 after coderipper#307, replacing the 0.43.41 pin of coderipper#303). The scan stays advisory and non-blocking. No library change.
+
 ## [0.11.29] - 2026-11-10
 
 ### Added
