@@ -22,3 +22,6 @@ dir	source	revision	fetched_utc	basis
 llamacpp-vocab	github:ggml-org/llama.cpp (models/)	9d57ce456c94d241dde672b2db9cf18879766568	2026-08-15	manifest
 legacy	hf:klosax/tinyllamas-stories-gguf	-	2026-08-15	mtime
 quants	hf:bartowski/SmolLM2-135M-Instruct-GGUF	-	2026-08-15	mtime
+lora-peft-opt350m	hf:peft-internal-testing/opt-350m-lora	3249904babd8dec56eb3a8a80454c8240f6e40d0	2026-11-11	manifest
+lora-peft-llama64	hf:ggml-org/lora-tests (LlamaForCausalLM/hidden_size=64/lora)	c26d5fb85b4070a9e9c4e65d132c783b98086890	2026-11-11	manifest
+lora-gguf-tinyllama	hf:makaveli10/tinyllama-function-call-lora-adapter-250424-F16-GGUF	4eb86bc5c5f0ff7fb3181e1fafa58dca8b814378	2026-11-11	manifest
