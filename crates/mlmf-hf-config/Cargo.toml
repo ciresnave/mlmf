@@ -13,4 +13,4 @@
 
 [dependencies]
     # `version` alongside `path`, as on every workspace path edge.
-    mlmf-core = { path = "../mlmf-core", version = "0.11.31" }
+    mlmf-core = { path = "../mlmf-core", version = "0.11.32" }
