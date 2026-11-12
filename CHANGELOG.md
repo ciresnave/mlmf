@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Version and CHANGELOG edits move out of pull requests (CireSnave 2026-11-12, relayed by the PM: every PR stops editing version lines, so stacked and parallel PRs stop conflicting). A PR now adds one `changelog.d/<topic>.md` fragment and edits no `Cargo.toml` version, `Cargo.lock` or `CHANGELOG.md`; the PM stamps the allocated number at merge with `tools/stamp-version.py`. New: `tools/stamp-version.py`, `tools/check-fragment.py`, `.github/workflows/changelog-fragment.yml` (fails a PR with no fragment, two fragments, or both a fragment and a version edit) and `changelog.d/README.md`. This PR bumps its own version once, as the PM allowed.
 - `tools/stamp-version.py` and `tools/check-fragment.py` are the PM's kit scripts, unchanged (third copy; byte-compared with the kit after the line endings are normalised). The kit writes this repo's dated heading (`## [x.y.z] - date`) itself. The kit's first copy had left `Cargo.lock` unstamped for a workspace where every crate inherits `version.workspace = true` (this repo); the kit has since been fixed upstream and this copy is the fixed one. Measured by stamping 99.99.99 onto the branch with the fixed script: `Cargo.lock` (24 entries) and the manifests change, `cargo metadata --locked` succeeds, and no `0.11.32` remains in any `Cargo.toml` or `Cargo.lock`.
 
+## [0.11.30] - 2026-11-11
+
+### Changed
+- `.github/workflows/ci.yml`: the coderipper `portfolio.yml` caller is repinned to `33cc3b7e4ab9305b5244092842fc7f6f6b686983` (`# 0.43.49`), the commit whose reusable workflow installs coderipper 0.43.49 (PM `[TASK]` 2026-11-12 after coderipper#307, replacing the 0.43.41 pin of coderipper#303). The scan stays advisory and non-blocking. No library change.
+
 ## [0.11.29] - 2026-11-10
 
 ### Added
