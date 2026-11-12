@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.11.30] - 2026-11-11
 
 ### Changed
-- `.github/workflows/ci.yml`: the coderipper `portfolio.yml` caller is repinned to `4bcf55e4cd5c171a88f021c0c4e563e47ef4bb7d` (`# 0.43.41`), the commit whose reusable workflow installs coderipper 0.43.41 (PM `[TASK]` 2026-11-11 after coderipper#303). The scan stays advisory and non-blocking. No library change.
+- `.github/workflows/ci.yml`: the coderipper `portfolio.yml` caller is repinned to `33cc3b7e4ab9305b5244092842fc7f6f6b686983` (`# 0.43.49`), the commit whose reusable workflow installs coderipper 0.43.49 (PM `[TASK]` 2026-11-12 after coderipper#307, replacing the 0.43.41 pin of coderipper#303). The scan stays advisory and non-blocking. No library change.
 
 ## [0.11.29] - 2026-11-10
 
