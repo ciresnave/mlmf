@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Version and CHANGELOG edits move out of pull requests (CireSnave 2026-11-12, relayed by the PM: every PR stops editing version lines, so stacked and parallel PRs stop conflicting). A PR now adds one `changelog.d/<topic>.md` fragment and edits no `Cargo.toml` version, `Cargo.lock` or `CHANGELOG.md`; the PM stamps the allocated number at merge with `tools/stamp-version.py`. New: `tools/stamp-version.py`, `tools/check-fragment.py`, `.github/workflows/changelog-fragment.yml` (fails a PR with no fragment, two fragments, or both a fragment and a version edit) and `changelog.d/README.md`. This PR bumps its own version once, as the PM allowed.
 - `tools/stamp-version.py` and `tools/check-fragment.py` are the PM's kit scripts, unchanged (third copy; byte-compared with the kit after the line endings are normalised). The kit writes this repo's dated heading (`## [x.y.z] - date`) itself. The kit's first copy had left `Cargo.lock` unstamped for a workspace where every crate inherits `version.workspace = true` (this repo); the kit has since been fixed upstream and this copy is the fixed one. Measured by stamping 99.99.99 onto the branch with the fixed script: `Cargo.lock` (24 entries) and the manifests change, `cargo metadata --locked` succeeds, and no `0.11.32` remains in any `Cargo.toml` or `Cargo.lock`.
 
+## [0.11.31] - 2026-11-11
+
+### Added
+- Design note for reading and writing LoRA adapter files (ROADMAP S-65, CireSnave 2026-11-11, via the PM: "Have MLMF add reading and writing of LoRA adapters to its roadmap."): `docs/superpowers/specs/2026-11-11-lora-adapter-files-design.md`. It covers the PEFT form (`adapter_config.json` plus `adapter_model.safetensors`) and the GGUF adapter form (`general.type = "adapter"`), both read from public PEFT and llama.cpp sources; every declared field is an `Option` and a PEFT class default is never filled in; adapters stay separate from base weights (no merge, which is conversion); and the acceptance test is a measured round trip. The tensor-name prefix, shapes and GGUF dimension order are named as unmeasured and left to step 1. Documentation only; no code.
+
 ## [0.11.30] - 2026-11-11
 
 ### Changed
