@@ -150,3 +150,52 @@ fn a_non_empty_rank_pattern_is_read_per_module() {
         vec![("layers.0.v".to_owned(), 2), ("q_proj".to_owned(), 4)]
     );
 }
+
+const GGUF_FILE: &str = "tinyllama-function-call-lora-adapter-250424-f16.gguf";
+
+#[test]
+fn the_measured_gguf_adapter_pairs_completely_with_rank_32_everywhere() {
+    let ts = tensors_of(GGUF_FILE);
+    assert_eq!(ts.len(), 308, "population read from the TSV");
+    let p = mlmf_lora::pair_gguf_tensors(&ts);
+    assert_eq!(p.pairs.len(), 154);
+    assert!(p.orphans.is_empty() && p.others.is_empty());
+    for pair in &p.pairs {
+        assert_eq!(mlmf_lora::gguf_rank(pair), Some(32), "{}", pair.module);
+    }
+    // The PEFT pairing must not claim any of them.
+    assert_eq!(pair_tensors(&ts).others.len(), 308);
+}
+
+#[test]
+fn the_measured_gguf_metadata_reads_as_declared() {
+    use mlmf_core::MetaValue;
+    use std::collections::BTreeMap;
+    struct M(BTreeMap<&'static str, MetaValue>);
+    impl mlmf_core::MetadataSource for M {
+        fn get(&self, k: &str) -> Option<&MetaValue> {
+            self.0.get(k)
+        }
+        fn keys(&self) -> Vec<&str> {
+            self.0.keys().copied().collect()
+        }
+        fn index_complete(&self) -> bool {
+            true
+        }
+    }
+    // The values the TSV records for this file (general.type, adapter.type, alpha, arch).
+    let s = |v: &str| MetaValue::String(v.into());
+    let m = M(BTreeMap::from([
+        ("general.architecture", s("llama")),
+        ("general.type", s("adapter")),
+        ("adapter.type", s("lora")),
+        ("adapter.lora.alpha", MetaValue::F32(16.0)),
+    ]));
+    let info = mlmf_lora::GgufAdapterInfo::from_source(&m);
+    assert!(info.is_adapter());
+    assert_eq!(info.lora_alpha, Some(16.0));
+    assert!(
+        TSV.contains("adapter.lora.alpha\t16.0"),
+        "the TSV still says 16.0"
+    );
+}

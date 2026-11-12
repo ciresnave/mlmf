@@ -225,15 +225,20 @@ pub enum Half {
     B,
 }
 
-/// The module path in front of a PEFT LoRA suffix, and which half it was.
-fn classify(name: &str) -> Option<(&str, Half)> {
-    const SUFFIXES: [(&str, Half); 4] = [
-        (".lora_A.weight", Half::A),
-        (".lora_B.weight", Half::B),
-        (".lora_embedding_A", Half::A),
-        (".lora_embedding_B", Half::B),
-    ];
-    SUFFIXES
+/// PEFT tensor-name suffixes (measured: `.lora_A.weight`, `.lora_embedding_A`).
+const PEFT_SUFFIXES: [(&str, Half); 4] = [
+    (".lora_A.weight", Half::A),
+    (".lora_B.weight", Half::B),
+    (".lora_embedding_A", Half::A),
+    (".lora_embedding_B", Half::B),
+];
+
+/// GGUF adapter tensor-name suffixes (measured: `blk.0.attn_q.weight.lora_a`).
+const GGUF_SUFFIXES: [(&str, Half); 2] = [(".lora_a", Half::A), (".lora_b", Half::B)];
+
+/// The module path in front of a LoRA suffix, and which half it was.
+fn classify<'a>(name: &'a str, table: &[(&str, Half)]) -> Option<(&'a str, Half)> {
+    table
         .iter()
         .find_map(|(s, h)| name.strip_suffix(s).map(|m| (m, *h)))
 }
@@ -276,11 +281,25 @@ pub struct Pairing {
 /// pair member and reports the repeat as an orphan.
 #[must_use]
 pub fn pair_tensors(tensors: &[TensorDescriptor]) -> Pairing {
+    pair_by(tensors, &PEFT_SUFFIXES)
+}
+
+/// Pair `<base>.lora_a` with `<base>.lora_b` tensors of a GGUF adapter.
+///
+/// Same contract as [`pair_tensors`]: every input lands in exactly one of
+/// `pairs`, `orphans` or `others`. `module` is the base tensor name
+/// (`blk.0.attn_q.weight`), verbatim.
+#[must_use]
+pub fn pair_gguf_tensors(tensors: &[TensorDescriptor]) -> Pairing {
+    pair_by(tensors, &GGUF_SUFFIXES)
+}
+
+fn pair_by(tensors: &[TensorDescriptor], table: &[(&str, Half)]) -> Pairing {
     let mut out = Pairing::default();
     let mut a_side: Vec<(String, TensorDescriptor)> = Vec::new();
     let mut b_side: Vec<(String, TensorDescriptor)> = Vec::new();
     for t in tensors {
-        match classify(&t.name) {
+        match classify(&t.name, table) {
             None => out.others.push(t.clone()),
             Some((m, Half::A)) => a_side.push((m.to_owned(), t.clone())),
             Some((m, Half::B)) => b_side.push((m.to_owned(), t.clone())),
@@ -306,4 +325,64 @@ pub fn pair_tensors(tensors: &[TensorDescriptor]) -> Pairing {
     out.orphans
         .sort_by(|x, y| x.tensor.name.cmp(&y.tensor.name));
     out
+}
+
+/// The rank of a GGUF adapter pair, read from its shapes.
+///
+/// A GGUF adapter has no rank key; the rank is a tensor dimension. In ggml
+/// order (measured, `lora-measurements.tsv`) `lora_a` is `[in, r]` and
+/// `lora_b` is `[r, out]`, so the rank is `a.dims[1]`, and it is reported
+/// only when `b.dims[0]` says the same. Anything else (the halves disagreeing,
+/// or not two dimensions each, as the converter's transposed embedding may
+/// show) is `None`: a shape fact that does not agree is not guessed at.
+#[must_use]
+pub fn gguf_rank(pair: &Pair) -> Option<usize> {
+    match (pair.a.shape.dims(), pair.b.shape.dims()) {
+        ([_, ra], [rb, _]) if ra == rb => Some(*ra),
+        _ => None,
+    }
+}
+
+/// What a GGUF adapter's metadata declares.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
+pub struct GgufAdapterInfo {
+    /// `general.type` (`adapter` for an adapter file, `model` for a model).
+    pub general_type: Option<String>,
+    /// `general.architecture`, the base architecture the adapter targets.
+    pub architecture: Option<String>,
+    /// `adapter.type` (the converter writes `lora`).
+    pub adapter_type: Option<String>,
+    /// `adapter.lora.alpha`, as declared.
+    pub lora_alpha: Option<f64>,
+    /// Keys present but not readable as the type expected here. Sorted.
+    pub unreadable: Vec<String>,
+}
+
+impl GgufAdapterInfo {
+    /// Read the declared `general.*` and `adapter.*` fields from any [`MetadataSource`].
+    ///
+    /// Total, and every field `Option`: an absent `adapter.lora.alpha` is
+    /// `None`, never a default. Whether the file IS an adapter is
+    /// [`Self::is_adapter`], read from `general.type` and nothing else.
+    #[must_use]
+    pub fn from_source(src: &dyn MetadataSource) -> Self {
+        let mut bad = Vec::new();
+        let mut info = Self {
+            general_type: typed(src, "general.type", string, &mut bad),
+            architecture: typed(src, "general.architecture", string, &mut bad),
+            adapter_type: typed(src, "adapter.type", string, &mut bad),
+            lora_alpha: typed(src, "adapter.lora.alpha", number, &mut bad),
+            unreadable: Vec::new(),
+        };
+        bad.sort();
+        info.unreadable = bad;
+        info
+    }
+
+    /// Whether `general.type` declares `adapter`.
+    #[must_use]
+    pub fn is_adapter(&self) -> bool {
+        self.general_type.as_deref() == Some("adapter")
+    }
 }

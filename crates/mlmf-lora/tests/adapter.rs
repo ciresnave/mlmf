@@ -216,3 +216,73 @@ fn a_repeated_half_for_one_module_is_an_orphan() {
     assert_eq!(p.orphans.len(), 1);
     assert_eq!(p.orphans[0].tensor.name, "m.lora_embedding_A");
 }
+
+#[test]
+fn gguf_pairs_use_the_lora_a_b_suffixes_and_keep_the_base_name() {
+    let ts = vec![
+        t("blk.0.attn_q.weight.lora_b", &[32, 2048]),
+        t("blk.0.attn_q.weight.lora_a", &[2048, 32]),
+        t("token_embd.weight", &[2048, 100]),
+        t("blk.1.attn_q.weight.lora_a", &[2048, 32]),
+    ];
+    let p = mlmf_lora::pair_gguf_tensors(&ts);
+    assert_eq!(p.pairs.len(), 1);
+    assert_eq!(p.pairs[0].module, "blk.0.attn_q.weight");
+    assert_eq!(p.orphans.len(), 1);
+    assert_eq!(p.orphans[0].tensor.name, "blk.1.attn_q.weight.lora_a");
+    assert_eq!(p.others.len(), 1);
+    // A PEFT-named tensor is not a GGUF half, and the reverse.
+    assert!(
+        mlmf_lora::pair_gguf_tensors(&[t("m.lora_A.weight", &[2, 8])])
+            .pairs
+            .is_empty()
+    );
+    assert_eq!(pair_tensors(&[t("m.lora_a", &[8, 2])]).others.len(), 1);
+}
+
+#[test]
+fn gguf_rank_comes_from_the_shapes_and_only_when_they_agree() {
+    let agree =
+        mlmf_lora::pair_gguf_tensors(&[t("x.lora_a", &[2048, 32]), t("x.lora_b", &[32, 5632])]);
+    assert_eq!(mlmf_lora::gguf_rank(&agree.pairs[0]), Some(32));
+    // Two cases whose answers differ, so a constant cannot pass.
+    let other = mlmf_lora::pair_gguf_tensors(&[t("y.lora_a", &[64, 8]), t("y.lora_b", &[8, 64])]);
+    assert_eq!(mlmf_lora::gguf_rank(&other.pairs[0]), Some(8));
+    let disagree =
+        mlmf_lora::pair_gguf_tensors(&[t("z.lora_a", &[64, 8]), t("z.lora_b", &[16, 64])]);
+    assert_eq!(mlmf_lora::gguf_rank(&disagree.pairs[0]), None);
+    let flat = mlmf_lora::pair_gguf_tensors(&[t("w.lora_a", &[64]), t("w.lora_b", &[8, 64])]);
+    assert_eq!(mlmf_lora::gguf_rank(&flat.pairs[0]), None);
+}
+
+#[test]
+fn gguf_info_reads_declared_keys_and_never_defaults_alpha() {
+    let full = mlmf_lora::GgufAdapterInfo::from_source(&Fake::new(
+        &[
+            ("general.type", s("adapter")),
+            ("general.architecture", s("llama")),
+            ("adapter.type", s("lora")),
+            ("adapter.lora.alpha", MetaValue::F32(16.0)),
+        ],
+        &[],
+    ));
+    assert!(full.is_adapter());
+    assert_eq!(full.architecture.as_deref(), Some("llama"));
+    assert_eq!(full.adapter_type.as_deref(), Some("lora"));
+    assert_eq!(full.lora_alpha, Some(16.0));
+    let model =
+        mlmf_lora::GgufAdapterInfo::from_source(&Fake::new(&[("general.type", s("model"))], &[]));
+    assert!(!model.is_adapter());
+    assert_eq!(model.lora_alpha, None, "no alpha key, no alpha");
+    let none = mlmf_lora::GgufAdapterInfo::from_source(&Fake::new(&[], &[]));
+    assert!(
+        !none.is_adapter(),
+        "an absent general.type is not an adapter"
+    );
+    let bad = mlmf_lora::GgufAdapterInfo::from_source(&Fake::new(
+        &[("adapter.lora.alpha", s("16"))],
+        &[],
+    ));
+    assert_eq!(bad.lora_alpha, None);
+    assert_eq!(bad.unreadable, vec!["adapter.lora.alpha"]);
+}

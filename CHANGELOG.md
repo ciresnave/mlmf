@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.36] - 2026-11-12
+
+### Added
+
+- `crates/mlmf-lora/src/lib.rs`: `pair_gguf_tensors` pairs `<base>.lora_a` / `<base>.lora_b` (same `pairs` / `orphans` / `others` contract as `pair_tensors`, `module` = the base tensor name); `gguf_rank` reads the rank from the shapes (ggml order, `lora_a` `[in, r]`, `lora_b` `[r, out]`) and returns `None` unless the two halves agree, since a GGUF adapter has no rank key and a disagreement is not guessed at; `GgufAdapterInfo::from_source` reads `general.type`, `general.architecture`, `adapter.type` and `adapter.lora.alpha` from any `MetadataSource`, every field `Option` (an absent alpha is `None`, an absent `general.type` is not an adapter).
+- Verified: unit tests in `crates/mlmf-lora/tests/adapter.rs`, and `crates/mlmf-conformance/tests/lora_adapter.rs` over the 308 measured tensors of the real `makaveli10` GGUF adapter (154 pairs, no orphans, rank 32 on every pair). Four sabotages (rank from the wrong dimension, rank ignoring agreement, swapped suffixes, `is_adapter` always true) each turned a test red. Limit: the metadata test builds its source from the values `lora-measurements.tsv` records rather than reading the GGUF file, and the one real GGUF adapter has no embedding adapter, so the converter's transposed embedding case is covered only by the `None` rule, not by a measurement.
+
 ## [0.11.35] - 2026-11-12
 
 ### Added
