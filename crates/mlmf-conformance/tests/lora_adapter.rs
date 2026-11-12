@@ -11,7 +11,7 @@ use mlmf_core::{DType, Encoding, Shape, TensorDescriptor};
 use mlmf_hf_layout::config::ConfigJson;
 use mlmf_lora::{AdapterConfig, Flag, ModuleSelector, pair_tensors};
 
-const TSV: &str = include_str!("../../mlmf-test-support/data/lora-measurements.tsv");
+const TSV: &str = mlmf_test_support::LORA_MEASUREMENTS_TSV;
 
 fn tensors_of(file_suffix: &str) -> Vec<TensorDescriptor> {
     TSV.lines()
@@ -35,54 +35,55 @@ fn tensors_of(file_suffix: &str) -> Vec<TensorDescriptor> {
         .collect()
 }
 
+/// (file, tensors, pairs, others), from the measurement rows.
+const CASES: [(&str, usize, usize, usize); 7] = [
+    (
+        "peft-internal-testing--opt-350m-lora/adapter_model.safetensors",
+        96,
+        48,
+        0,
+    ),
+    (
+        "Luongdzung--hoa-1b4-sft-mat-rslora/adapter_model.safetensors",
+        192,
+        96,
+        0,
+    ),
+    (
+        "Luongdzung--rsLora_500_last_question_wikiqa/adapter_model.safetensors",
+        192,
+        96,
+        0,
+    ),
+    (
+        "ggml-org--lora-tests/Gemma2ForCausalLM/hidden_size=64/lora/adapter_model.safetensors",
+        312,
+        156,
+        0,
+    ),
+    (
+        "ggml-org--lora-tests/LlamaForCausalLM/hidden_size=64/lora/adapter_model.safetensors",
+        387,
+        193,
+        1,
+    ),
+    (
+        "hungnguyen190204--VieNeu-TTS-0.3B-LoRA-add-embed_tokens/adapter_model.safetensors",
+        241,
+        120,
+        1,
+    ),
+    (
+        "Phainon--Llama3.2-1b-embed_tokens-openorca/adapter_model.safetensors",
+        3,
+        1,
+        1,
+    ),
+];
+
 #[test]
 fn real_adapters_pair_completely_and_keep_the_non_lora_tensors() {
-    // (file, tensors, pairs, others), from the measurement rows.
-    let cases: [(&str, usize, usize, usize); 7] = [
-        (
-            "peft-internal-testing--opt-350m-lora/adapter_model.safetensors",
-            96,
-            48,
-            0,
-        ),
-        (
-            "Luongdzung--hoa-1b4-sft-mat-rslora/adapter_model.safetensors",
-            192,
-            96,
-            0,
-        ),
-        (
-            "Luongdzung--rsLora_500_last_question_wikiqa/adapter_model.safetensors",
-            192,
-            96,
-            0,
-        ),
-        (
-            "ggml-org--lora-tests/Gemma2ForCausalLM/hidden_size=64/lora/adapter_model.safetensors",
-            312,
-            156,
-            0,
-        ),
-        (
-            "ggml-org--lora-tests/LlamaForCausalLM/hidden_size=64/lora/adapter_model.safetensors",
-            387,
-            193,
-            1,
-        ),
-        (
-            "hungnguyen190204--VieNeu-TTS-0.3B-LoRA-add-embed_tokens/adapter_model.safetensors",
-            241,
-            120,
-            1,
-        ),
-        (
-            "Phainon--Llama3.2-1b-embed_tokens-openorca/adapter_model.safetensors",
-            3,
-            1,
-            1,
-        ),
-    ];
-    for (file, total, pairs, others) in cases {
+    for (file, total, pairs, others) in CASES {
         let ts = tensors_of(file);
         assert_eq!(ts.len(), total, "{file}: population read from the TSV");
         let p = pair_tensors(&ts);

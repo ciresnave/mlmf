@@ -107,3 +107,6 @@ pub const GGUF_CORPUS_METADATA_TSV: &str = include_str!("../data/corpus-metadata
 
 /// The safetensors corpus table (`data/corpus-safetensors.tsv`), shared the same way.
 pub const SAFETENSORS_CORPUS_TSV: &str = include_str!("../data/corpus-safetensors.tsv");
+
+/// The LoRA adapter measurements (`data/lora-measurements.tsv`, ROADMAP S-65), shared the same way.
+pub const LORA_MEASUREMENTS_TSV: &str = include_str!("../data/lora-measurements.tsv");
