@@ -1,0 +1,6 @@
+# C2 allow-list for mlmf-lora. One entry per direct dependency, sorted.
+#
+# mlmf-core alone (C4): the adapter config is read through `MetadataSource`
+# (mlmf-hf-layout's `ConfigJson` is one, a GGUF header another) and the tensor
+# list arrives as `TensorDescriptor`s, so no format crate is named.
+mlmf-core

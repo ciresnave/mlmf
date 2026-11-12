@@ -367,6 +367,12 @@ jobs:
       - name: cargo test -p mlmf-hf-config --no-default-features
         run: cargo test -p mlmf-hf-config --no-default-features
 
+      # mlmf-lora reads a PEFT adapter_config.json (through any MetadataSource) and
+      # pairs lora_A/lora_B tensors (ROADMAP S-65). Format axis, mlmf-core only, no
+      # [features], so only the --no-default-features step is per-crate.
+      - name: cargo test -p mlmf-lora --no-default-features
+        run: cargo test -p mlmf-lora --no-default-features
+
       # mlmf-hf-layout parses a HuggingFace checkpoint's shard index and
       # reports where each tensor lives (spec line 90). Format axis: bytes
       # in, structure out, and it "never enumerates a directory" -- the
