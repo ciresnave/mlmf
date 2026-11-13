@@ -39,6 +39,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: never
   RUST_BACKTRACE: 1
+  # The machine-level RUSTC_WRAPPER names sccache under another account's profile,
+  # which this runner account cannot execute (run 43457440425: "could not execute
+  # process ...sccache ... os error 2"). Empty means no wrapper.
+  RUSTC_WRAPPER: ""
   MLMF_CORPUS_REQUIRED: "1"
   MLMF_GGUF_CORPUS: C:/Models/gguf-corpus
   MLMF_SAFETENSORS_CORPUS: C:/Models
