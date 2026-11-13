@@ -55,6 +55,14 @@ jobs:
       # No dtolnay/rust-toolchain: it is a composite action that calls bash and may
       # install into the shared RUSTUP_HOME. This runner has Rust from the machine
       # install (C:\rust\.cargo\bin on PATH), so cargo is called directly.
+      - name: toolchain probe (PATH, cargo, rustc)
+        shell: bash
+        run: |
+          echo "PATH=$PATH"
+          echo "RUSTUP_HOME=$RUSTUP_HOME CARGO_HOME=$CARGO_HOME"
+          command -v cargo rustc
+          cargo --version
+          rustc --version
 
       # Each step tees its output so the last step can count skips. `set -o
       # pipefail` makes a failing `cargo test` fail the step through `tee`.
