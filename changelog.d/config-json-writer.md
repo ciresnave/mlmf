@@ -1,6 +1,0 @@
-kind: `ConfigJson::to_json` writes a config back as read (S-65 step 4, PEFT config)
----
-### Added
-
-- `mlmf_hf_layout::config::ConfigJson::to_json`: CireSnave's ruling 421, option A (via the PM): the writer carries every key as read, so read, write, read of an adapter config is faithful. `ConfigJson` keeps the parsed document and writes it back: nested objects stay nested, and `null`, `{}`, an array with an object or a null in it, and an integer too large for `u64` are written as declared (the shapes `MetaValue` cannot hold and `parse` reports as unreadable). Nothing is added, renamed or completed, so an undeclared key stays undeclared. Keys come out sorted and two-space indented; the original key order and whitespace are not kept. No `serde_json` type is in the public signature.
-- Tests: `crates/mlmf-hf-layout/tests/config_write.rs` (every unrepresentable shape, number spellings, undeclared stays undeclared, sabotage red) and `crates/mlmf-conformance/tests/lora_config_roundtrip.rs` over the real PEFT `adapter_config.json` files in the LoRA corpus, comparing against a `serde_json` read of the original bytes that does not use `ConfigJson`. `reachability.rs` now expects sixteen public fns.
