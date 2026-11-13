@@ -153,9 +153,10 @@ fn every_public_fn_is_named_by_an_integration_test() {
     // matcher visible; a floor is not.
     assert_eq!(
         declared.len(),
-        15,
-        "expected the fifteen public fns this crate declares (eight in shards.rs, \
+        16,
+        "expected the sixteen public fns this crate declares (eight in shards.rs, \
          plus GenerationConfig::parse, SpecialTokensMap::parse, ConfigJson::parse, \
+         ConfigJson::to_json, \
          TokenizerConfig::parse, parse_chat_template_jinja, \
          parse_chat_template_json and HfLayout::from_files), found \
          {declared:?} -- a matcher that silently drops some is \
