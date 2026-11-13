@@ -113,6 +113,16 @@ jobs:
           logs=(corpus-logs/*.log)
           echo "read ${#logs[@]} log(s): ${logs[*]}"
           [ "${#logs[@]}" -ge 4 ] || { echo "expected 4 logs, found ${#logs[@]}"; exit 1; }
+          # A log with no test result line ran no tests, and a cargo error means a
+          # build failed: neither may read as "0 skips" (run 43457440425: four
+          # failed builds, a green step).
+          for l in "${logs[@]}"; do
+            grep -q -E "^test result: " "$l" || { echo "$l: no 'test result:' line, no test ran"; exit 1; }
+          done
+          if grep -n -E "^error(\[E[0-9]+\])?: |could not (compile|execute)" "${logs[@]}"; then
+            echo "a cargo build failed: that is not a clean run"
+            exit 1
+          fi
           if grep -n -E "SKIPPED|PARTIAL:" "${logs[@]}"; then
             echo "a corpus test skipped or ran on a partial corpus: on this runner that is a failure"
             exit 1
