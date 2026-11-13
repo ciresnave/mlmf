@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.38] - 2026-11-13
+
+### Added
+
+- `crates/mlmf-conformance/tests/lora_gguf_roundtrip.rs`: CireSnave's ruling 421 (same form, tensors already encoded, no `scale` accessor) needs no adapter-specific GGUF writer, because an adapter is a GGUF file and `mlmf_gguf::encode_gguf` already carries every key and tensor. This measures it on the one real GGUF adapter in the LoRA corpus: read, write back as read, read again, and every metadata key and value, every tensor's type, dims and payload bytes, `GgufAdapterInfo` and the A/B pairing are equal; no key is added and `adapter.lora.alpha` stays the declared 16.0. Each comparison is sabotaged (flipped byte, added key, changed alpha, dropped tensor, changed dim) and goes red with the mutation asserted applied. Limit: one adapter file, F16 tensors only. Announces `SKIPPED` without the corpus and fails under `MLMF_CORPUS_REQUIRED`.
+
+## [0.11.37] - 2026-11-12
+
+### Added
+
+- `crates/mlmf-conformance/tests/lora_readback.rs`: the comparison a LoRA adapter writer must later satisfy (S-65 step 4, not started), stated on the read side first. `compare` holds tensors as name, dtype, shape and payload bytes and compares them as sets; here `mlmf-safetensors` is read against the upstream `safetensors` crate over a synthetic adapter (always runs) and over the real adapter files in the LoRA corpus (7 of 7 files, 1423 tensors, equal to the S-65 step 1 measurement; announces `SKIPPED` or `PARTIAL` and fails under `MLMF_CORPUS_REQUIRED`). Each comparison is sabotaged (flipped byte, dropped tensor, reshape, same-width dtype swap, rename), each goes red with the mutation asserted applied, and a reordered copy stays equal.
+
 ## [0.11.36] - 2026-11-12
 
 ### Added
