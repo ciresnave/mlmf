@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.40] - 2026-11-13
+
+### Changed
+
+- `ROADMAP.md`: S-14 records that `crates/mlmf-hf-config` landed (#231); S-65 records CireSnave's rulings on board 421 and what steps 4 and 5 consist of, with their limits (one GGUF adapter, F16 only; the PEFT tensor comparison is between two readers, not yet a write and re-read of an adapter file). Docs only.
+
+## [0.11.39] - 2026-11-13
+
+### Added
+
+- `mlmf_hf_layout::config::ConfigJson::to_json`: CireSnave's ruling 421, option A (via the PM): the writer carries every key as read, so read, write, read of an adapter config is faithful. `ConfigJson` keeps the parsed document and writes it back: nested objects stay nested, and `null`, `{}`, an array with an object or a null in it, and an integer too large for `u64` are written as declared (the shapes `MetaValue` cannot hold and `parse` reports as unreadable). Nothing is added, renamed or completed, so an undeclared key stays undeclared. Keys come out sorted and two-space indented; the original key order and whitespace are not kept. No `serde_json` type is in the public signature.
+- Tests: `crates/mlmf-hf-layout/tests/config_write.rs` (every unrepresentable shape, number spellings, undeclared stays undeclared, sabotage red) and `crates/mlmf-conformance/tests/lora_config_roundtrip.rs` over the real PEFT `adapter_config.json` files in the LoRA corpus, comparing against a `serde_json` read of the original bytes that does not use `ConfigJson`. `reachability.rs` now expects sixteen public fns.
+
+## [0.11.38] - 2026-11-13
+
+### Added
+
+- `crates/mlmf-conformance/tests/lora_gguf_roundtrip.rs`: CireSnave's ruling 421 (same form, tensors already encoded, no `scale` accessor) needs no adapter-specific GGUF writer, because an adapter is a GGUF file and `mlmf_gguf::encode_gguf` already carries every key and tensor. This measures it on the one real GGUF adapter in the LoRA corpus: read, write back as read, read again, and every metadata key and value, every tensor's type, dims and payload bytes, `GgufAdapterInfo` and the A/B pairing are equal; no key is added and `adapter.lora.alpha` stays the declared 16.0. Each comparison is sabotaged (flipped byte, added key, changed alpha, dropped tensor, changed dim) and goes red with the mutation asserted applied. Limit: one adapter file, F16 tensors only. Announces `SKIPPED` without the corpus and fails under `MLMF_CORPUS_REQUIRED`.
+
+## [0.11.37] - 2026-11-12
+
+### Added
+
+- `crates/mlmf-conformance/tests/lora_readback.rs`: the comparison a LoRA adapter writer must later satisfy (S-65 step 4, not started), stated on the read side first. `compare` holds tensors as name, dtype, shape and payload bytes and compares them as sets; here `mlmf-safetensors` is read against the upstream `safetensors` crate over a synthetic adapter (always runs) and over the real adapter files in the LoRA corpus (7 of 7 files, 1423 tensors, equal to the S-65 step 1 measurement; announces `SKIPPED` or `PARTIAL` and fails under `MLMF_CORPUS_REQUIRED`). Each comparison is sabotaged (flipped byte, dropped tensor, reshape, same-width dtype swap, rename), each goes red with the mutation asserted applied, and a reordered copy stays equal.
+
 ## [0.11.36] - 2026-11-12
 
 ### Added
