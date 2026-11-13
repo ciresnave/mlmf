@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.40] - 2026-11-13
+
+### Changed
+
+- `ROADMAP.md`: S-14 records that `crates/mlmf-hf-config` landed (#231); S-65 records CireSnave's rulings on board 421 and what steps 4 and 5 consist of, with their limits (one GGUF adapter, F16 only; the PEFT tensor comparison is between two readers, not yet a write and re-read of an adapter file). Docs only.
+
 ## [0.11.39] - 2026-11-13
 
 ### Added
