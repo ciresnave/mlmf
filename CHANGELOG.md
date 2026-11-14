@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.42] - 2026-11-14
+
+### Changed
+
+- Tests only, no behaviour change: `synthetic_image` (`lora_readback`), `compare` (`lora_gguf_roundtrip`) and `real_adapter_configs_are_written_back_as_read` (`lora_config_roundtrip`) are split into small helpers, the three functions Codacy flagged on #239, #240 and #241. Same assertions and error messages; the three test files give the same results as before (9, 6 and 1 tests pass; 7 of 7 adapter files with 1423 tensors, 7 of 7 configs with 175 top-level keys).
+
 ## [0.11.41] - 2026-11-13
 
 ### Changed

@@ -41,75 +41,103 @@ fn files(root: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// The corpus root, or `None` after announcing the skip (a failure when required).
+fn corpus_or_skip(name: &str) -> Option<PathBuf> {
+    let root = std::env::var("MLMF_LORA_CORPUS").unwrap_or_else(|_| "C:/Models/lora-corpus".into());
+    let root = PathBuf::from(root);
+    if root.is_dir() {
+        return Some(root);
+    }
+    assert!(
+        !armed::armed("MLMF_CORPUS_REQUIRED"),
+        "{name}: MLMF_CORPUS_REQUIRED is set and no LoRA corpus"
+    );
+    let _ = writeln!(
+        std::io::stderr(),
+        "{NOTICE_TOKEN}: SKIPPED {name} -- no LoRA corpus (set MLMF_LORA_CORPUS)"
+    );
+    None
+}
+
+/// Write one config back and check it against the original; returns its
+/// top-level key count.
+fn check_one(f: &Path) -> usize {
+    let original = std::fs::read(f).expect("read");
+    let cfg = ConfigJson::parse(&original).expect("parses");
+    let out = cfg.to_json();
+    let want: serde_json::Value = serde_json::from_slice(&original).expect("json");
+    let got: serde_json::Value = serde_json::from_slice(&out).expect("json");
+    assert_eq!(got, want, "{}: same document", f.display());
+    let again = ConfigJson::parse(&out).expect("re-parses");
+    assert_eq!(again, cfg, "{}: same source", f.display());
+    assert_eq!(
+        AdapterConfig::from_source(&again),
+        AdapterConfig::from_source(&cfg),
+        "{}: same declared fields",
+        f.display()
+    );
+    let top = want.as_object().expect("object");
+    assert_eq!(
+        got.as_object().expect("object").len(),
+        top.len(),
+        "no key added"
+    );
+    assert_dropped_key_is_caught(f, &want, &got);
+    top.len()
+}
+
+/// Sabotage on the same data: a dropped key must not compare equal.
+fn assert_dropped_key_is_caught(f: &Path, want: &serde_json::Value, got: &serde_json::Value) {
+    let first = want
+        .as_object()
+        .expect("object")
+        .keys()
+        .next()
+        .expect("a key")
+        .clone();
+    let mut dropped = got.clone();
+    assert!(
+        dropped
+            .as_object_mut()
+            .expect("object")
+            .remove(&first)
+            .is_some()
+    );
+    assert_ne!(
+        dropped,
+        *want,
+        "{}: dropping {first} is caught",
+        f.display()
+    );
+}
+
+fn announce_population(name: &str, found: usize, keys: usize) {
+    let _ = writeln!(
+        std::io::stderr(),
+        "{NOTICE_TOKEN}: {} {name}: {found} of {EXPECTED_FILES} configs, {keys} top-level keys",
+        if found == EXPECTED_FILES {
+            "FULL"
+        } else {
+            "PARTIAL"
+        }
+    );
+    assert!(
+        found == EXPECTED_FILES || !armed::armed("MLMF_CORPUS_REQUIRED"),
+        "MLMF_CORPUS_REQUIRED: {found} of {EXPECTED_FILES} configs present"
+    );
+}
+
 #[test]
 fn real_adapter_configs_are_written_back_as_read() {
     let name = "real_adapter_configs_are_written_back_as_read";
-    let root = std::env::var("MLMF_LORA_CORPUS").unwrap_or_else(|_| "C:/Models/lora-corpus".into());
-    let root = PathBuf::from(root);
-    if !root.is_dir() {
-        assert!(
-            !armed::armed("MLMF_CORPUS_REQUIRED"),
-            "{name}: MLMF_CORPUS_REQUIRED is set and no LoRA corpus"
-        );
-        let _ = writeln!(
-            std::io::stderr(),
-            "{NOTICE_TOKEN}: SKIPPED {name} -- no LoRA corpus (set MLMF_LORA_CORPUS)"
-        );
+    let Some(root) = corpus_or_skip(name) else {
         return;
-    }
+    };
     let found = files(&root);
     assert!(
         !found.is_empty(),
         "population: no adapter_config.json under the corpus"
     );
-    let mut keys = 0usize;
-    for f in &found {
-        let original = std::fs::read(f).expect("read");
-        let cfg = ConfigJson::parse(&original).expect("parses");
-        let out = cfg.to_json();
-        let want: serde_json::Value = serde_json::from_slice(&original).expect("json");
-        let got: serde_json::Value = serde_json::from_slice(&out).expect("json");
-        assert_eq!(got, want, "{}: same document", f.display());
-        let again = ConfigJson::parse(&out).expect("re-parses");
-        assert_eq!(again, cfg, "{}: same source", f.display());
-        assert_eq!(
-            AdapterConfig::from_source(&again),
-            AdapterConfig::from_source(&cfg),
-            "{}: same declared fields",
-            f.display()
-        );
-        let top = want.as_object().expect("object");
-        keys += top.len();
-        assert_eq!(
-            got.as_object().expect("object").len(),
-            top.len(),
-            "no key added"
-        );
-        // Sabotage on the same data: a dropped key must not compare equal.
-        let mut dropped = got.clone();
-        let first = top.keys().next().expect("a key").clone();
-        assert!(
-            dropped
-                .as_object_mut()
-                .expect("object")
-                .remove(&first)
-                .is_some()
-        );
-        assert_ne!(dropped, want, "{}: dropping {first} is caught", f.display());
-    }
-    let _ = writeln!(
-        std::io::stderr(),
-        "{NOTICE_TOKEN}: {} {name}: {} of {EXPECTED_FILES} configs, {keys} top-level keys",
-        if found.len() == EXPECTED_FILES {
-            "FULL"
-        } else {
-            "PARTIAL"
-        },
-        found.len()
-    );
-    assert!(
-        found.len() == EXPECTED_FILES || !armed::armed("MLMF_CORPUS_REQUIRED"),
-        "MLMF_CORPUS_REQUIRED: {} of {EXPECTED_FILES} configs present",
-        found.len()
-    );
+    let keys: usize = found.iter().map(|f| check_one(f)).sum();
+    announce_population(name, found.len(), keys);
 }
