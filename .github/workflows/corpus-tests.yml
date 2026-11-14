@@ -39,6 +39,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: never
   RUST_BACKTRACE: 1
+  # The machine-level RUSTC_WRAPPER names sccache under another account's profile,
+  # which this runner account cannot execute (run 43457440425: "could not execute
+  # process ...sccache ... os error 2"). Empty means no wrapper.
+  RUSTC_WRAPPER: ""
   MLMF_CORPUS_REQUIRED: "1"
   MLMF_GGUF_CORPUS: C:/Models/gguf-corpus
   MLMF_SAFETENSORS_CORPUS: C:/Models
@@ -52,7 +56,17 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@5059963b1731bf1580991b5f3b1eecfb5da406c0 # 1.98.0 (branch)
+      # No dtolnay/rust-toolchain: it is a composite action that calls bash and may
+      # install into the shared RUSTUP_HOME. This runner has Rust from the machine
+      # install (C:\rust\.cargo\bin on PATH), so cargo is called directly.
+      - name: toolchain probe (PATH, cargo, rustc)
+        shell: bash
+        run: |
+          echo "PATH=$PATH"
+          echo "RUSTUP_HOME=$RUSTUP_HOME CARGO_HOME=$CARGO_HOME"
+          command -v cargo rustc
+          cargo --version
+          rustc --version
 
       # Each step tees its output so the last step can count skips. `set -o
       # pipefail` makes a failing `cargo test` fail the step through `tee`.
@@ -99,6 +113,16 @@ jobs:
           logs=(corpus-logs/*.log)
           echo "read ${#logs[@]} log(s): ${logs[*]}"
           [ "${#logs[@]}" -ge 4 ] || { echo "expected 4 logs, found ${#logs[@]}"; exit 1; }
+          # A log with no test result line ran no tests, and a cargo error means a
+          # build failed: neither may read as "0 skips" (run 43457440425: four
+          # failed builds, a green step).
+          for l in "${logs[@]}"; do
+            grep -q -E "^test result: " "$l" || { echo "$l: no 'test result:' line, no test ran"; exit 1; }
+          done
+          if grep -n -E "^error(\[E[0-9]+\])?: |could not (compile|execute)" "${logs[@]}"; then
+            echo "a cargo build failed: that is not a clean run"
+            exit 1
+          fi
           if grep -n -E "SKIPPED|PARTIAL:" "${logs[@]}"; then
             echo "a corpus test skipped or ran on a partial corpus: on this runner that is a failure"
             exit 1
