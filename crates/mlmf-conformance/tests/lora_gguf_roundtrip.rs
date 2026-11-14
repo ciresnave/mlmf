@@ -103,29 +103,33 @@ fn write_back(bytes: &[u8]) -> Vec<u8> {
 
 /// `Err` names the first difference.
 fn compare(a: &Held, b: &Held) -> Result<(), String> {
-    if a.meta.len() != b.meta.len() {
-        return Err(format!(
-            "metadata key count {} vs {}",
-            a.meta.len(),
-            b.meta.len()
-        ));
+    compare_meta(&a.meta, &b.meta)?;
+    compare_tensors(&a.tensors, &b.tensors)
+}
+
+type Meta = BTreeMap<String, MetaValue>;
+type Tensors = BTreeMap<String, (String, Vec<usize>, Vec<u8>)>;
+
+fn compare_meta(a: &Meta, b: &Meta) -> Result<(), String> {
+    if a.len() != b.len() {
+        return Err(format!("metadata key count {} vs {}", a.len(), b.len()));
     }
-    for (k, v) in &a.meta {
-        match b.meta.get(k) {
+    for (k, v) in a {
+        match b.get(k) {
             None => return Err(format!("metadata key {k} missing")),
             Some(w) if w != v => return Err(format!("metadata {k}: {v:?} vs {w:?}")),
             Some(_) => {}
         }
     }
-    if a.tensors.len() != b.tensors.len() {
-        return Err(format!(
-            "tensor count {} vs {}",
-            a.tensors.len(),
-            b.tensors.len()
-        ));
+    Ok(())
+}
+
+fn compare_tensors(a: &Tensors, b: &Tensors) -> Result<(), String> {
+    if a.len() != b.len() {
+        return Err(format!("tensor count {} vs {}", a.len(), b.len()));
     }
-    for (n, (ty, dims, data)) in &a.tensors {
-        let Some((ty2, dims2, data2)) = b.tensors.get(n) else {
+    for (n, (ty, dims, data)) in a {
+        let Some((ty2, dims2, data2)) = b.get(n) else {
             return Err(format!("tensor {n} missing"));
         };
         if ty != ty2 {

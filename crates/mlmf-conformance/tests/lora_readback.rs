@@ -105,8 +105,10 @@ fn compare(a: &[Held], b: &[Held]) -> Result<(), String> {
 /// A PEFT-shaped adapter: three modules of A/B pairs at different ranks and
 /// widths, one non-LoRA tensor, distinct bytes per tensor so a swap cannot
 /// compare equal. Built by the upstream crate.
-fn synthetic_image() -> Vec<u8> {
-    let specs: [(&str, Dtype, [usize; 2]); 7] = [
+type Spec = (&'static str, Dtype, [usize; 2]);
+
+fn synthetic_specs() -> [Spec; 7] {
+    [
         (
             "base_model.model.layers.0.q_proj.lora_A.weight",
             Dtype::F32,
@@ -142,7 +144,11 @@ fn synthetic_image() -> Vec<u8> {
             Dtype::F32,
             [3, 5],
         ),
-    ];
+    ]
+}
+
+fn synthetic_image() -> Vec<u8> {
+    let specs = synthetic_specs();
     let owned: Vec<(String, Dtype, Vec<usize>, Vec<u8>)> = specs
         .iter()
         .enumerate()
