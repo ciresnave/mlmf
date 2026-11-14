@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.43] - 2026-11-14
+
+### Changed
+
+- `ROADMAP.md`: S-66 records that the three Codacy-flagged test functions were split (#244). Docs only.
+
 ## [0.11.42] - 2026-11-14
 
 ### Changed
