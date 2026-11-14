@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.41] - 2026-11-13
+
+### Changed
+
+- `.github/workflows/corpus-tests.yml`: dropped `dtolnay/rust-toolchain` (a composite action that calls bash and may install into the shared `RUSTUP_HOME`); the self-hosted corpus runner gets Rust from the machine install, so `cargo` is called directly. CI-only; the workflow is inert until `CORPUS_RUNNER_ENABLED` is set and was not run here.
+- Same workflow: `RUSTC_WRAPPER` is cleared (the machine value names another account's sccache), a toolchain probe step prints PATH and versions, and the final "no skips" step now fails on a log with no `test result:` line or with a cargo build error (a green step over four failed builds proved nothing, run 43457440425). Checked locally against five synthetic log sets (good passes; compile error, no result line, error code, skip all fail).
+
 ## [0.11.40] - 2026-11-13
 
 ### Changed
