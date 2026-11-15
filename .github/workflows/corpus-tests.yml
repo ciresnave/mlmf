@@ -23,9 +23,9 @@ name: Corpus tests (self-hosted)
 # captured test output still contains `SKIPPED` or `PARTIAL:`.
 #
 # UNVERIFIED (named, not "covered", per the policy): `mlmf-pickle`'s
-# `corpus_pth` (needs MLMF_PTH_FILE), `mlmf-gguf`'s `imatrix_raw` (needs
-# MLMF_IMATRIX_RAW_FILE) and `mlmf-source-hub`'s `live_hub` (needs the
-# network and the `live-hub` feature) are not run here.
+# `corpus_pth` (needs MLMF_PTH_FILE) and `mlmf-source-hub`'s `live_hub` (needs
+# the network and the `live-hub` feature) are not run here. `mlmf-gguf`'s
+# `imatrix_raw` IS run: MLMF_IMATRIX_RAW_FILE below points at the staged file.
 on:
   push:
     branches: [main]
@@ -47,6 +47,7 @@ env:
   MLMF_GGUF_CORPUS: C:/Models/gguf-corpus
   MLMF_SAFETENSORS_CORPUS: C:/Models
   MLMF_HF_CHECKPOINTS: C:/Models
+  MLMF_IMATRIX_RAW_FILE: C:/Models/imatrix/Llama-3.2-1B-Instruct.imatrix
 
 jobs:
   corpus:
