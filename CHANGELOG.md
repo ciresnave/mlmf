@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.45] - 2026-11-16
+
+### Changed
+
+- `.github/workflows/ci.yml` calls the shared portfolio workflow at coderipper `c72a6e03479d914de8ea8a73609ba73e93a0de92` (0.47.5, was `33cc3b7e` 0.43.49).
+- Rule-id migration: `tools/migrate-rule-ids.py` (from coderipper `c72a6e0`) reports nothing to migrate in this repo; no `.coderipper.toml` names a renamed check.
+
 ## [0.11.44] - 2026-11-15
 
 ### Changed
