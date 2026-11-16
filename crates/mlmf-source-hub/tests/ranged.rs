@@ -207,3 +207,16 @@ fn the_token_is_sent_on_range_requests() {
     assert_eq!(seen.len(), 2);
     assert!(seen.iter().all(|s| s.authorized), "{seen:?}");
 }
+
+#[test]
+fn debug_output_never_contains_the_bearer_token() {
+    let server = RangeServer::start(blob(16), Mode::Honest, SHA);
+    let file = HubSource::new("/unused-cache-dir")
+        .with_endpoint(server.endpoint())
+        .with_token("hf_SECRET_TOKEN_VALUE")
+        .open_ranged(REPO, &Revision::Pinned(SHA.into()), FILE)
+        .expect("opens");
+    let shown = format!("{file:?}");
+    assert!(!shown.contains("hf_SECRET_TOKEN_VALUE"), "{shown}");
+    assert!(shown.contains("<redacted>"), "{shown}");
+}
