@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.46] - 2026-11-16
+
+### Fixed
+
+- `mlmf_source_hub::HubRangedFile` derived `Debug`, which printed its `token` (a Hugging Face bearer token) in any `{:?}` or log line. `Debug` is now written by hand and shows `Some("<redacted>")` or `None`. Found by CodeRipper 0.47.5 SEC-012 on mlmf#247. Test `debug_output_never_contains_the_bearer_token` in `crates/mlmf-source-hub/tests/ranged.rs`.
+
 ## [0.11.45] - 2026-11-16
 
 ### Changed
