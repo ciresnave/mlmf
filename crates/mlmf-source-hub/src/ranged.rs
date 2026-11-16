@@ -29,12 +29,24 @@ use mlmf_core::{Error, ErrorKind, RangedSource};
 use crate::{HubError, HubSource, Revision};
 
 /// A file on the Hub, readable by byte range.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HubRangedFile {
     url: String,
     token: Option<String>,
     len: u64,
     resolved_revision: String,
+}
+
+// Written by hand, not derived: a derived `Debug` would print the bearer token.
+impl std::fmt::Debug for HubRangedFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HubRangedFile")
+            .field("url", &self.url)
+            .field("token", &self.token.as_ref().map(|_| "<redacted>"))
+            .field("len", &self.len)
+            .field("resolved_revision", &self.resolved_revision)
+            .finish()
+    }
 }
 
 impl HubRangedFile {
