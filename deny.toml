@@ -1,0 +1,34 @@
+# cargo-deny configuration (template: fishstringer deny.toml). An ignore needs a reason and a 30-day expiry.
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+    # webpki-roots 1.0.11 (via ureq 3.5.0 <- mlmf-source-hub): a permissive data licence for the Mozilla CA bundle.
+    "CDLA-Permissive-2.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# A path dev-dependency on a workspace member (`mlmf-test-support`) is not a cross-repo path dependency: the
+# 2026-10-07 rule forbids `../other-repo` paths, not workspace members.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
