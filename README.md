@@ -32,7 +32,7 @@ the supported ones; `mlmf` itself on crates.io stops at 0.2.0.
 | `mlmf-onnx` | Read and write ONNX `ModelProto` files (nodes are opaque bytes) | format |
 | `mlmf-pt2` | Read and write PyTorch `torch.export` `.pt2` archives; nothing executed | format |
 | `mlmf-stablehlo` | Read and write the MLIR bytecode container of StableHLO artifacts; sections stay opaque | format |
-| `mlmf-lora` | Read LoRA adapter files as declared: PEFT `adapter_config.json` and the `lora_A` / `lora_B` pairing, GGUF adapters; write a PEFT config as read | format |
+| `mlmf-lora` | Read LoRA adapter files as declared: PEFT `adapter_config.json` and the `lora_A` / `lora_B` pairing, GGUF adapters; reading only (a config is written back by `ConfigJson::to_json` in `mlmf-hf-layout`) | format |
 | `mlmf-awq`, `mlmf-gptq` | Locate packed AWQ / GPTQ layers and parse their quantization configs | format |
 | `mlmf-mlx` | Locate packed MLX layers and parse the `quantization` config | format |
 | `mlmf-bnb` | Locate bitsandbytes 4-bit layers and read their raw pieces and `quant_state` | format |
