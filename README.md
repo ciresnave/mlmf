@@ -14,9 +14,11 @@ single `mlmf` package (a loader built on a tensor library) is retired.
 
 ## Crates
 
-All crates share one version number and are released together (the number in
-the workspace `Cargo.toml`). The `mlmf-*` crates published at that version are
-the supported ones; `mlmf` itself on crates.io stops at 0.2.0.
+All crates share one version number (the number in the workspace `Cargo.toml`),
+but a version on `main` is not necessarily published: crates.io is the record of
+what is. `mlmf` itself on crates.io stops at 0.2.0. Measured 2026-11-19 at
+`origin/main` f42150b: the newest published version of every `mlmf-*` crate is
+0.11.29 (`main` is 0.11.48), and `mlmf-lora` is not on crates.io at all.
 
 | Crate | What it does | Axis |
 |---|---|---|

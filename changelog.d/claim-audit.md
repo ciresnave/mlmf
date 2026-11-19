@@ -3,6 +3,7 @@ kind: claim-to-command audit of README, ROADMAP and CHANGELOG headline claims
 ### Changed
 - Audit ordered by pm-kernels 2026-11-19, run at `origin/main` f42150b: one command per headline claim. Wrong or stale claims were replaced, not caveated.
 - `ROADMAP.md` `licence` row: "every tracked file carries SPDX" was false (7 of 212 lacked it: `crates/mlmf-gguf/src/metadata/tests.rs`, `crates/mlmf-gguf/src/sharded/tests.rs`, `crates/mlmf-gguf/src/tensors/tests.rs`, `crates/mlmf-gguf/src/tensors/tests/container.rs`, `crates/mlmf-gguf/src/tensors/tests/records.rs`, `crates/mlmf-gguf/src/value/tests.rs`, `crates/mlmf-test-support/tests/corpus_currency.rs`). The header is added; the row records the re-measurement.
+- `README.md`: "the `mlmf-*` crates published at that version are the supported ones" replaced by what crates.io shows (newest published 0.11.29, `main` 0.11.48, `mlmf-lora` absent).
 - `ROADMAP.md` S-57: "open, when a consumer asks" replaced by CireSnave's 2026-11-19 ruling (unblocked, ranked by consumer demand).
 
 ### Verified (command, result, control)
