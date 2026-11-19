@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.48] - 2026-11-19
+
+### Changed
+- `README.md`: the crate table now lists `mlmf-pt2`, `mlmf-stablehlo` and `mlmf-lora` (present under `crates/`, absent from the table), `mlmf-onnx` is described as reading and writing (ROADMAP S-58), and the stale "0.7.12 at the time of writing" is replaced by a pointer to the workspace `Cargo.toml`.
+- Verified at `origin/main` 4a2242c: every `crates/*` directory now appears in the README (`for d in crates/*; do n=${d##*/}; grep -q "`$n`" README.md || echo "$n"; done` finds 0 missing; it found 3 before) and every table crate exists.
+
 ## [0.11.47] - 2026-11-17
 
 ### Added

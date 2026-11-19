@@ -14,9 +14,9 @@ single `mlmf` package (a loader built on a tensor library) is retired.
 
 ## Crates
 
-All crates share one version number and are released together (0.7.12 at the
-time of writing). The `mlmf-*` crates published at that version are the
-supported ones; `mlmf` itself on crates.io stops at 0.2.0.
+All crates share one version number and are released together (the number in
+the workspace `Cargo.toml`). The `mlmf-*` crates published at that version are
+the supported ones; `mlmf` itself on crates.io stops at 0.2.0.
 
 | Crate | What it does | Axis |
 |---|---|---|
@@ -29,7 +29,10 @@ supported ones; `mlmf` itself on crates.io stops at 0.2.0.
 | `mlmf-oracle` | A checked `Oracle` seam for proposing tensor-name pairs offline, writing them as entries of the mapping file (the file type lives in `mlmf-tensor-names`); never on a load path, names compared byte-exactly | format |
 | `mlmf-test-support` | Never published. The REQUIRE-gate arming predicate shared by the workspace's integration tests, as a dev-dependency | format |
 | `mlmf-pickle` | Read PyTorch `.pth`/`.bin` checkpoints: zip directory and tensor index, nothing executed | format |
-| `mlmf-onnx` | Write ONNX `ModelProto` files (nodes supplied as opaque bytes) | format |
+| `mlmf-onnx` | Read and write ONNX `ModelProto` files (nodes are opaque bytes) | format |
+| `mlmf-pt2` | Read and write PyTorch `torch.export` `.pt2` archives; nothing executed | format |
+| `mlmf-stablehlo` | Read and write the MLIR bytecode container of StableHLO artifacts; sections stay opaque | format |
+| `mlmf-lora` | Read LoRA adapter files as declared: PEFT `adapter_config.json` and the `lora_A` / `lora_B` pairing, GGUF adapters; reading only (a config is written back by `ConfigJson::to_json` in `mlmf-hf-layout`) | format |
 | `mlmf-awq`, `mlmf-gptq` | Locate packed AWQ / GPTQ layers and parse their quantization configs | format |
 | `mlmf-mlx` | Locate packed MLX layers and parse the `quantization` config | format |
 | `mlmf-bnb` | Locate bitsandbytes 4-bit layers and read their raw pieces and `quant_state` | format |
