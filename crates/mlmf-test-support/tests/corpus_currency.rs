@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! U-2 (SPEC section 7): corpus CURRENCY, a check that fails on its own.
 //!
 //! `corpus-metadata.tsv` is replayed by U-1 and proves the parser AGREES with
