@@ -33,9 +33,11 @@
 #![warn(missing_docs)]
 
 pub mod bytecode;
+pub mod offsets;
 pub mod varint;
 
 pub use bytecode::{
     BytecodeError, BytecodeFile, MAGIC, Section, SectionToWrite, encode_bytecode, parse_bytecode,
     section_name,
 };
+pub use offsets::{AttrTypeEntry, EntryKind, OffsetError, parse_attr_type_offsets};
