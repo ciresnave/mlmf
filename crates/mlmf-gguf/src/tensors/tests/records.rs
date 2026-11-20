@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use super::super::*;
 // `Encoding` and `DType` are named only here: `resolve` produces an
 // encoding without ever spelling the type, so importing them at module

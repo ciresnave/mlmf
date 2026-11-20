@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
 use crate::encode::{GgufTensorToWrite, GgufVersion, encode_gguf};
 use crate::shard_set::ShardSetError;
