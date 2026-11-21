@@ -17,12 +17,15 @@
 //! [`parse_attr_type_offsets`] places each attribute and type in the
 //! attribute-and-type section. [`read_vhlo_dense_constants`] decodes the VHLO
 //! `TensorV1Attr` entries (what JAX writes weights as) into shape, element
-//! type and the byte range of the data, as declared. Nothing else inside a
-//! section is decoded: no operations, no regions, no builtin
-//! `DenseElementsAttr`, no `dense_resource` blobs (the resource section).
+//! type and the byte range of the data, as declared.
+//! [`read_builtin_dense_constants`] does the same for the builtin dialect's own
+//! constants: inline `DenseTypedElementsAttr` and `dense_resource` blobs from
+//! the resource section (what MLIR itself writes). Nothing else inside a
+//! section is decoded: no operations, no regions.
 //!
-//! Measured on one producer, `StableHLO_v1.18.0` via JAX 0.12.1; not StableHLO
-//! files in general. Text `.mlir` files need no crate: they are UTF-8.
+//! Measured on two producers: `StableHLO_v1.18.0` via JAX 0.12.1 (VHLO
+//! constants) and `MLIR24.0.0git` via jaxlib 0.12.1 (builtin constants); not
+//! StableHLO files in general. Text `.mlir` files need no crate: they are UTF-8.
 //!
 //! # Provenance
 //!
@@ -34,11 +37,13 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod builtin;
 pub mod bytecode;
 pub mod offsets;
 pub mod tensors;
 pub mod varint;
 
+pub use builtin::{BuiltinDenseConstant, DenseSource, read_builtin_dense_constants};
 pub use bytecode::{
     BytecodeError, BytecodeFile, MAGIC, Section, SectionToWrite, encode_bytecode, parse_bytecode,
     section_name,

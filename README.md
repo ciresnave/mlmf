@@ -34,7 +34,7 @@ included, have 0.11.49 as their newest version; `mlmf-conformance` and
 | `mlmf-pickle` | Read PyTorch `.pth`/`.bin` checkpoints: zip directory and tensor index, nothing executed | format |
 | `mlmf-onnx` | Read and write ONNX `ModelProto` files (nodes are opaque bytes) | format |
 | `mlmf-pt2` | Read and write PyTorch `torch.export` `.pt2` archives; nothing executed | format |
-| `mlmf-stablehlo` | Read and write the MLIR bytecode container of StableHLO artifacts; reads VHLO dense-constant shape, type and byte range (one producer, JAX 0.12.1, measured; builtin and resource constants not read) | format |
+| `mlmf-stablehlo` | Read and write the MLIR bytecode container of StableHLO artifacts; reads dense-constant shape, type and byte range: VHLO `TensorV1Attr` (one producer, JAX 0.12.1) and builtin inline/`dense_resource` constants (MLIR 24.0.0git, jaxlib 0.12.1); measured on those producers only | format |
 | `mlmf-lora` | Read LoRA adapter files as declared: PEFT `adapter_config.json` and the `lora_A` / `lora_B` pairing, GGUF adapters; reading only (a config is written back by `ConfigJson::to_json` in `mlmf-hf-layout`) | format |
 | `mlmf-awq`, `mlmf-gptq` | Locate packed AWQ / GPTQ layers and parse their quantization configs | format |
 | `mlmf-mlx` | Locate packed MLX layers and parse the `quantization` config | format |
