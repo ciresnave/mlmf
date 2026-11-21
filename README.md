@@ -15,11 +15,11 @@ single `mlmf` package (a loader built on a tensor library) is retired.
 ## Crates
 
 All crates share one version number (the number in the workspace `Cargo.toml`),
-but a version on `main` is not necessarily published: crates.io is the record of
-what is. `mlmf` itself on crates.io stops at 0.2.0. Measured 2026-11-19 at
-`origin/main` f42150b: the newest published version of each of the 22 published `mlmf-*`
-crates is 0.11.29 (`main` is 0.11.49); `mlmf-lora` is not on crates.io at all,
-and `mlmf-conformance` and `mlmf-test-support` are never published.
+A version on `main` is not necessarily published: crates.io is the record of
+what is. `mlmf` itself on crates.io stops at 0.2.0. Measured 2026-11-20 on
+crates.io (tag `v0.11.49`): all 23 publishable `mlmf-*` crates, `mlmf-lora`
+included, have 0.11.49 as their newest version; `mlmf-conformance` and
+`mlmf-test-support` are never published.
 
 | Crate | What it does | Axis |
 |---|---|---|
@@ -34,7 +34,7 @@ and `mlmf-conformance` and `mlmf-test-support` are never published.
 | `mlmf-pickle` | Read PyTorch `.pth`/`.bin` checkpoints: zip directory and tensor index, nothing executed | format |
 | `mlmf-onnx` | Read and write ONNX `ModelProto` files (nodes are opaque bytes) | format |
 | `mlmf-pt2` | Read and write PyTorch `torch.export` `.pt2` archives; nothing executed | format |
-| `mlmf-stablehlo` | Read and write the MLIR bytecode container of StableHLO artifacts; sections stay opaque | format |
+| `mlmf-stablehlo` | Read and write the MLIR bytecode container of StableHLO artifacts; reads VHLO dense-constant shape, type and byte range (one producer, JAX 0.12.1, measured; builtin and resource constants not read) | format |
 | `mlmf-lora` | Read LoRA adapter files as declared: PEFT `adapter_config.json` and the `lora_A` / `lora_B` pairing, GGUF adapters; reading only (a config is written back by `ConfigJson::to_json` in `mlmf-hf-layout`) | format |
 | `mlmf-awq`, `mlmf-gptq` | Locate packed AWQ / GPTQ layers and parse their quantization configs | format |
 | `mlmf-mlx` | Locate packed MLX layers and parse the `quantization` config | format |

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Reads and writes the MLIR bytecode container that StableHLO portable
-//! artifacts use. No I/O; the contents of the sections are opaque.
+//! artifacts use, and reads VHLO dense constants out of it. No I/O.
 //!
 //! CireSnave, 2026-10-25 (board 282 item 69): *"All of the formats
 //! matter...but they should be handled only abstractly in Fuel as the reading
@@ -12,15 +12,17 @@
 //! that envelope with every section as a byte range; [`encode_bytecode`] builds
 //! one from a version, a producer and section bytes.
 //!
-//! # What this does not do, and the question it leaves
+//! # What this reads inside the sections
 //!
-//! It does not decode a section. A StableHLO module's weights are, in the
-//! files measured, inline `dense` constants inside the attribute-and-type
-//! section; reading them out means decoding MLIR's attribute encoding, which is
-//! a much larger piece of work (and raises the question of how far "structure"
-//! goes before it is interpretation). It is recorded as an open question in
-//! the PR that added this crate, not answered here. Text `.mlir` files need no
-//! crate: they are UTF-8.
+//! [`parse_attr_type_offsets`] places each attribute and type in the
+//! attribute-and-type section. [`read_vhlo_dense_constants`] decodes the VHLO
+//! `TensorV1Attr` entries (what JAX writes weights as) into shape, element
+//! type and the byte range of the data, as declared. Nothing else inside a
+//! section is decoded: no operations, no regions, no builtin
+//! `DenseElementsAttr`, no `dense_resource` blobs (the resource section).
+//!
+//! Measured on one producer, `StableHLO_v1.18.0` via JAX 0.12.1; not StableHLO
+//! files in general. Text `.mlir` files need no crate: they are UTF-8.
 //!
 //! # Provenance
 //!
@@ -33,9 +35,13 @@
 #![warn(missing_docs)]
 
 pub mod bytecode;
+pub mod offsets;
+pub mod tensors;
 pub mod varint;
 
 pub use bytecode::{
     BytecodeError, BytecodeFile, MAGIC, Section, SectionToWrite, encode_bytecode, parse_bytecode,
     section_name,
 };
+pub use offsets::{AttrTypeEntry, EntryKind, OffsetError, parse_attr_type_offsets};
+pub use tensors::{DenseConstant, TensorError, read_vhlo_dense_constants};
