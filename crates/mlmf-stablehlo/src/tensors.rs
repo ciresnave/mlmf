@@ -28,7 +28,7 @@
 
 use std::ops::Range;
 
-use crate::bytecode::{BytecodeError, parse_bytecode};
+use crate::bytecode::{BytecodeError, Section, parse_bytecode};
 use crate::offsets::{AttrTypeEntry, EntryKind, OffsetError, parse_attr_type_offsets};
 use crate::varint::read_varint;
 
@@ -235,28 +235,69 @@ struct Module<'f> {
     entries: Vec<AttrTypeEntry>,
 }
 
+fn find_section<'a>(
+    sections: &'a [Section],
+    id: u8,
+    name: &'static str,
+) -> Result<&'a Section, TensorError> {
+    sections
+        .iter()
+        .find(|s| s.id == id)
+        .ok_or(TensorError::MissingSection(name))
+}
+
+fn section_bytes<'f>(file: &'f [u8], s: &Section) -> &'f [u8] {
+    &file[s.data.start as usize..s.data.end as usize]
+}
+
+/// Index of the `vhlo` dialect, or `None` if the file has none.
+fn vhlo_dialect(file: &[u8], sections: &[Section]) -> Result<Option<u64>, TensorError> {
+    let strs = strings(section_bytes(
+        file,
+        find_section(sections, SECTION_STRING, "String")?,
+    ))?;
+    let dialects = dialect_names(
+        section_bytes(file, find_section(sections, SECTION_DIALECT, "Dialect")?),
+        &strs,
+    )?;
+    Ok(dialects.iter().position(|d| *d == "vhlo").map(|i| i as u64))
+}
+
+/// A `TensorV1Attr` entry's type ref and where its blob starts in the entry.
+/// `None` if the entry is another attribute.
+fn tensor_header(b: &[u8]) -> Result<Option<(u64, usize)>, TensorError> {
+    let mut pos = 0;
+    if varint(b, &mut pos, "attribute")? != ATTR_TENSOR_V1 {
+        return Ok(None);
+    }
+    let ty = varint(b, &mut pos, "tensor type ref")?;
+    let len = varint(b, &mut pos, "tensor blob length")?;
+    let ends = usize::try_from(len).ok().and_then(|l| pos.checked_add(l));
+    match ends == Some(b.len()) {
+        true => Ok(Some((ty, pos))),
+        false => Err(TensorError::Malformed(
+            "tensor blob does not end its attribute",
+        )),
+    }
+}
+
 impl<'f> Module<'f> {
     /// `None` when the file has no `vhlo` dialect.
     fn load(file: &'f [u8]) -> Result<Option<Self>, TensorError> {
         let f = parse_bytecode(file)?;
-        let find = |id: u8, name: &'static str| {
-            f.sections
-                .iter()
-                .find(|s| s.id == id)
-                .ok_or(TensorError::MissingSection(name))
-        };
-        let data = |s: &crate::bytecode::Section| &file[s.data.start as usize..s.data.end as usize];
-        let strs = strings(data(find(SECTION_STRING, "String")?))?;
-        let dialects = dialect_names(data(find(SECTION_DIALECT, "Dialect")?), &strs)?;
-        let Some(vhlo) = dialects.iter().position(|d| *d == "vhlo") else {
+        let Some(vhlo) = vhlo_dialect(file, &f.sections)? else {
             return Ok(None);
         };
-        let at = find(SECTION_ATTR_TYPE, "AttrType")?;
-        let offsets = data(find(SECTION_OFFSETS, "AttrTypeOffset")?);
-        let entries = parse_attr_type_offsets(offsets, at.data.start, at.data.end - at.data.start)?;
+        let at = find_section(&f.sections, SECTION_ATTR_TYPE, "AttrType")?;
+        let offsets = find_section(&f.sections, SECTION_OFFSETS, "AttrTypeOffset")?;
+        let entries = parse_attr_type_offsets(
+            section_bytes(file, offsets),
+            at.data.start,
+            at.data.end - at.data.start,
+        )?;
         Ok(Some(Self {
             file,
-            vhlo: vhlo as u64,
+            vhlo,
             entries,
         }))
     }
@@ -273,6 +314,19 @@ impl<'f> Module<'f> {
             .nth(i)
     }
 
+    /// The ranked tensor type `t` and its element-type code, if both are VHLO
+    /// types this reader can describe.
+    fn describe(&self, t: &AttrTypeEntry) -> Option<(Ranked, u64)> {
+        let r = Some(t)
+            .filter(|t| self.is_vhlo(t))
+            .and_then(|t| ranked(entry_bytes(self.file, t)))?;
+        let el = self
+            .type_entry(r.element)
+            .filter(|x| self.is_vhlo(x))
+            .and_then(|x| element_code(self.file, x))?;
+        Some((r, el))
+    }
+
     /// The constant held by attribute number `attribute`, `None` if it is not
     /// a VHLO `TensorV1Attr`.
     fn constant(
@@ -280,33 +334,15 @@ impl<'f> Module<'f> {
         attribute: usize,
         e: &AttrTypeEntry,
     ) -> Result<Option<DenseConstant>, TensorError> {
-        let b = entry_bytes(self.file, e);
-        let mut pos = 0;
-        if varint(b, &mut pos, "attribute")? != ATTR_TENSOR_V1 {
+        let Some((ty, blob)) = tensor_header(entry_bytes(self.file, e))? else {
             return Ok(None);
-        }
-        let ty = varint(b, &mut pos, "tensor type ref")?;
-        let len = varint(b, &mut pos, "tensor blob length")?;
-        let blob_ends_entry =
-            usize::try_from(len).ok().and_then(|l| pos.checked_add(l)) == Some(b.len());
-        if !blob_ends_entry {
-            return Err(TensorError::Malformed(
-                "tensor blob does not end its attribute",
-            ));
-        }
-        let unsupported = TensorError::Unsupported { attribute };
+        };
         let t = self
             .type_entry(ty)
             .ok_or(TensorError::Malformed("tensor type ref out of range"))?;
-        let r = Some(t)
-            .filter(|t| self.is_vhlo(t))
-            .and_then(|t| ranked(entry_bytes(self.file, t)))
-            .ok_or(unsupported.clone())?;
-        let el = self
-            .type_entry(r.element)
-            .filter(|x| self.is_vhlo(x))
-            .and_then(|x| element_code(self.file, x))
-            .ok_or(unsupported)?;
+        let (r, el) = self
+            .describe(t)
+            .ok_or(TensorError::Unsupported { attribute })?;
         let known = ELEMENT_TYPES.iter().find(|k| k.0 == el);
         Ok(Some(DenseConstant {
             attribute,
@@ -314,7 +350,7 @@ impl<'f> Module<'f> {
             element_type_code: el,
             element_type: known.map(|k| k.1),
             element_bytes: known.and_then(|k| k.2),
-            data: e.data.start + pos as u64..e.data.end,
+            data: e.data.start + blob as u64..e.data.end,
         }))
     }
 }
