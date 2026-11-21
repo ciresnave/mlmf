@@ -101,27 +101,7 @@ pub fn parse_attr_type_offsets(
     ] {
         let mut seen = 0u64;
         while seen < total {
-            let dialect = next(offsets, &mut pos)?;
-            let n = next(offsets, &mut pos)?;
-            if n == 0 || n > total - seen {
-                return Err(OffsetError::Inconsistent(
-                    "a group overruns its header count",
-                ));
-            }
-            for _ in 0..n {
-                let raw = next(offsets, &mut pos)?;
-                let end = at
-                    .checked_add(raw >> 1)
-                    .ok_or(OffsetError::Inconsistent("entry size overflows"))?;
-                out.push(AttrTypeEntry {
-                    kind,
-                    dialect,
-                    custom_encoding: raw & 1 == 1,
-                    data: at..end,
-                });
-                at = end;
-            }
-            seen += n;
+            seen += read_group(offsets, &mut pos, kind, total - seen, &mut at, &mut out)?;
         }
     }
     if pos != offsets.len() {
@@ -133,4 +113,37 @@ pub fn parse_attr_type_offsets(
         ));
     }
     Ok(out)
+}
+
+/// Read one group of at most `room` entries, appending them to `out` and
+/// advancing `at` over their bytes. Returns how many it read.
+fn read_group(
+    offsets: &[u8],
+    pos: &mut usize,
+    kind: EntryKind,
+    room: u64,
+    at: &mut u64,
+    out: &mut Vec<AttrTypeEntry>,
+) -> Result<u64, OffsetError> {
+    let dialect = next(offsets, pos)?;
+    let n = next(offsets, pos)?;
+    if n == 0 || n > room {
+        return Err(OffsetError::Inconsistent(
+            "a group overruns its header count",
+        ));
+    }
+    for _ in 0..n {
+        let raw = next(offsets, pos)?;
+        let end = at
+            .checked_add(raw >> 1)
+            .ok_or(OffsetError::Inconsistent("entry size overflows"))?;
+        out.push(AttrTypeEntry {
+            kind,
+            dialect,
+            custom_encoding: raw & 1 == 1,
+            data: *at..end,
+        });
+        *at = end;
+    }
+    Ok(n)
 }

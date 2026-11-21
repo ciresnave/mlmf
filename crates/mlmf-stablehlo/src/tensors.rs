@@ -119,33 +119,31 @@ fn varint(b: &[u8], pos: &mut usize, what: &'static str) -> Result<u64, TensorEr
     Ok(v)
 }
 
+fn varints(b: &[u8], pos: &mut usize, n: u64, what: &'static str) -> Result<Vec<u64>, TensorError> {
+    (0..n).map(|_| varint(b, pos, what)).collect()
+}
+
+/// `len` bytes at `pos`, as a NUL-terminated UTF-8 string (NUL not returned).
+fn nul_string(b: &[u8], pos: usize, len: u64) -> Option<&str> {
+    let end = usize::try_from(len).ok()?.checked_add(pos)?;
+    let s = b.get(pos..end)?.strip_suffix(&[0])?;
+    std::str::from_utf8(s).ok()
+}
+
 /// The string table: `numStrings`, the lengths (each including its NUL) in
 /// reverse order, then the NUL-terminated strings in order.
 fn strings(b: &[u8]) -> Result<Vec<&str>, TensorError> {
-    const BAD: &str = "string section";
+    const BAD: TensorError = TensorError::Malformed("string section");
     let mut pos = 0;
-    let n = varint(b, &mut pos, BAD)?;
-    let mut lens = Vec::new();
-    for _ in 0..n {
-        lens.push(varint(b, &mut pos, BAD)?);
-    }
+    let n = varint(b, &mut pos, "string section")?;
+    let mut lens = varints(b, &mut pos, n, "string section")?;
     lens.reverse();
     let mut out = Vec::new();
     for len in lens {
-        let end = usize::try_from(len)
-            .ok()
-            .and_then(|l| pos.checked_add(l))
-            .filter(|&e| e <= b.len())
-            .ok_or(TensorError::Malformed(BAD))?;
-        let s = &b[pos..end];
-        let s = s.strip_suffix(&[0]).ok_or(TensorError::Malformed(BAD))?;
-        out.push(std::str::from_utf8(s).map_err(|_| TensorError::Malformed(BAD))?);
-        pos = end;
+        out.push(nul_string(b, pos, len).ok_or(BAD)?);
+        pos += len as usize;
     }
-    if pos != b.len() {
-        return Err(TensorError::Malformed(BAD));
-    }
-    Ok(out)
+    if pos == b.len() { Ok(out) } else { Err(BAD) }
 }
 
 /// Dialect names, in dialect-section order. Only the name list is read; what
@@ -154,19 +152,18 @@ fn dialect_names<'s>(b: &[u8], strings: &[&'s str]) -> Result<Vec<&'s str>, Tens
     const BAD: &str = "dialect section";
     let mut pos = 0;
     let n = varint(b, &mut pos, BAD)?;
-    let mut out = Vec::new();
-    for _ in 0..n {
-        let v = varint(b, &mut pos, BAD)?;
-        if v & 1 == 1 {
-            return Err(TensorError::VersionedDialect);
-        }
-        let name = usize::try_from(v >> 1)
-            .ok()
-            .and_then(|i| strings.get(i))
-            .ok_or(TensorError::Malformed(BAD))?;
-        out.push(*name);
+    let flagged = varints(b, &mut pos, n, BAD)?;
+    if flagged.iter().any(|v| v & 1 == 1) {
+        return Err(TensorError::VersionedDialect);
     }
-    Ok(out)
+    flagged
+        .iter()
+        .map(|v| {
+            let i = usize::try_from(v >> 1).ok();
+            i.and_then(|i| strings.get(i)).copied()
+        })
+        .collect::<Option<_>>()
+        .ok_or(TensorError::Malformed(BAD))
 }
 
 fn zigzag(v: u64) -> i64 {
@@ -179,53 +176,147 @@ struct Ranked {
     element: u64,
 }
 
+/// A static shape; a dynamic dimension is not a constant's.
+fn shape(bytes: &[u8], pos: &mut usize) -> Option<Vec<u64>> {
+    let rank = varint(bytes, pos, "rank").ok()?;
+    let dims = varints(bytes, pos, rank, "dim").ok()?;
+    dims.into_iter()
+        .map(|d| u64::try_from(zigzag(d)).ok())
+        .collect()
+}
+
 fn ranked(bytes: &[u8]) -> Option<Ranked> {
     let mut pos = 0;
     let code = varint(bytes, &mut pos, "type").ok()?;
-    match code {
-        TYPE_RANKED_TENSOR_V1 => {}
-        TYPE_RANKED_TENSOR_V1_WITH_ENCODING => {
-            varint(bytes, &mut pos, "encoding").ok()?;
-        }
-        _ => return None,
+    if code == TYPE_RANKED_TENSOR_V1_WITH_ENCODING {
+        varint(bytes, &mut pos, "encoding").ok()?;
+    } else if code != TYPE_RANKED_TENSOR_V1 {
+        return None;
     }
-    let rank = varint(bytes, &mut pos, "rank").ok()?;
-    let mut shape = Vec::new();
-    for _ in 0..rank {
-        let d = zigzag(varint(bytes, &mut pos, "dim").ok()?);
-        shape.push(u64::try_from(d).ok()?); // a dynamic dimension is not a constant
-    }
+    let shape = shape(bytes, &mut pos)?;
     let element = varint(bytes, &mut pos, "element").ok()?;
     (pos == bytes.len()).then_some(Ranked { shape, element })
 }
 
-/// (name, bytes per element) for a VHLO element-type code.
-fn element_type(code: u64) -> Option<(&'static str, Option<u64>)> {
-    Some(match code {
-        0 => ("i1", None),
-        2 => ("bf16", Some(2)),
-        3 => ("f16", Some(2)),
-        4 => ("f32", Some(4)),
-        5 => ("f64", Some(8)),
-        11 => ("si8", Some(1)),
-        12 => ("si16", Some(2)),
-        13 => ("si32", Some(4)),
-        14 => ("si64", Some(8)),
-        16 => ("ui8", Some(1)),
-        17 => ("ui16", Some(2)),
-        18 => ("ui32", Some(4)),
-        19 => ("ui64", Some(8)),
-        _ => return None,
-    })
-}
+/// (VHLO type code, name, bytes per element when whole and unambiguous).
+const ELEMENT_TYPES: [(u64, &str, Option<u64>); 13] = [
+    (0, "i1", None),
+    (2, "bf16", Some(2)),
+    (3, "f16", Some(2)),
+    (4, "f32", Some(4)),
+    (5, "f64", Some(8)),
+    (11, "si8", Some(1)),
+    (12, "si16", Some(2)),
+    (13, "si32", Some(4)),
+    (14, "si64", Some(8)),
+    (16, "ui8", Some(1)),
+    (17, "ui16", Some(2)),
+    (18, "ui32", Some(4)),
+    (19, "ui64", Some(8)),
+];
 
-/// The element-type code of the type entry `types[idx]`, when that entry is a
-/// VHLO type with no fields (every code this crate names is one).
+/// The bare VHLO type code of an entry that holds nothing but the code (every
+/// code this crate names is one).
 fn element_code(file: &[u8], entry: &AttrTypeEntry) -> Option<u64> {
-    let b = &file[entry.data.start as usize..entry.data.end as usize];
+    let b = entry_bytes(file, entry);
     let mut pos = 0;
     let code = varint(b, &mut pos, "element").ok()?;
     (pos == b.len()).then_some(code)
+}
+
+fn entry_bytes<'f>(file: &'f [u8], e: &AttrTypeEntry) -> &'f [u8] {
+    &file[e.data.start as usize..e.data.end as usize]
+}
+
+/// The sections this reads, located once.
+struct Module<'f> {
+    file: &'f [u8],
+    vhlo: u64,
+    entries: Vec<AttrTypeEntry>,
+}
+
+impl<'f> Module<'f> {
+    /// `None` when the file has no `vhlo` dialect.
+    fn load(file: &'f [u8]) -> Result<Option<Self>, TensorError> {
+        let f = parse_bytecode(file)?;
+        let find = |id: u8, name: &'static str| {
+            f.sections
+                .iter()
+                .find(|s| s.id == id)
+                .ok_or(TensorError::MissingSection(name))
+        };
+        let data = |s: &crate::bytecode::Section| &file[s.data.start as usize..s.data.end as usize];
+        let strs = strings(data(find(SECTION_STRING, "String")?))?;
+        let dialects = dialect_names(data(find(SECTION_DIALECT, "Dialect")?), &strs)?;
+        let Some(vhlo) = dialects.iter().position(|d| *d == "vhlo") else {
+            return Ok(None);
+        };
+        let at = find(SECTION_ATTR_TYPE, "AttrType")?;
+        let offsets = data(find(SECTION_OFFSETS, "AttrTypeOffset")?);
+        let entries = parse_attr_type_offsets(offsets, at.data.start, at.data.end - at.data.start)?;
+        Ok(Some(Self {
+            file,
+            vhlo: vhlo as u64,
+            entries,
+        }))
+    }
+
+    fn is_vhlo(&self, e: &AttrTypeEntry) -> bool {
+        e.dialect == self.vhlo && e.custom_encoding
+    }
+
+    fn type_entry(&self, index: u64) -> Option<&AttrTypeEntry> {
+        let i = usize::try_from(index).ok()?;
+        self.entries
+            .iter()
+            .filter(|e| e.kind == EntryKind::Type)
+            .nth(i)
+    }
+
+    /// The constant held by attribute number `attribute`, `None` if it is not
+    /// a VHLO `TensorV1Attr`.
+    fn constant(
+        &self,
+        attribute: usize,
+        e: &AttrTypeEntry,
+    ) -> Result<Option<DenseConstant>, TensorError> {
+        let b = entry_bytes(self.file, e);
+        let mut pos = 0;
+        if varint(b, &mut pos, "attribute")? != ATTR_TENSOR_V1 {
+            return Ok(None);
+        }
+        let ty = varint(b, &mut pos, "tensor type ref")?;
+        let len = varint(b, &mut pos, "tensor blob length")?;
+        let blob_ends_entry =
+            usize::try_from(len).ok().and_then(|l| pos.checked_add(l)) == Some(b.len());
+        if !blob_ends_entry {
+            return Err(TensorError::Malformed(
+                "tensor blob does not end its attribute",
+            ));
+        }
+        let unsupported = TensorError::Unsupported { attribute };
+        let t = self
+            .type_entry(ty)
+            .ok_or(TensorError::Malformed("tensor type ref out of range"))?;
+        let r = Some(t)
+            .filter(|t| self.is_vhlo(t))
+            .and_then(|t| ranked(entry_bytes(self.file, t)))
+            .ok_or(unsupported.clone())?;
+        let el = self
+            .type_entry(r.element)
+            .filter(|x| self.is_vhlo(x))
+            .and_then(|x| element_code(self.file, x))
+            .ok_or(unsupported)?;
+        let known = ELEMENT_TYPES.iter().find(|k| k.0 == el);
+        Ok(Some(DenseConstant {
+            attribute,
+            shape: r.shape,
+            element_type_code: el,
+            element_type: known.map(|k| k.1),
+            element_bytes: known.and_then(|k| k.2),
+            data: e.data.start + pos as u64..e.data.end,
+        }))
+    }
 }
 
 /// Read every VHLO dense constant in an MLIR bytecode file.
@@ -238,78 +329,15 @@ fn element_code(file: &[u8], entry: &AttrTypeEntry) -> Option<u64> {
 /// [`TensorError`] when the container, the string/dialect/offset sections or
 /// the attribute-and-type section cannot be read.
 pub fn read_vhlo_dense_constants(file: &[u8]) -> Result<Vec<DenseConstant>, TensorError> {
-    let f = parse_bytecode(file)?;
-    let find = |id: u8, name: &'static str| {
-        f.sections
-            .iter()
-            .find(|s| s.id == id)
-            .map(|s| &file[s.data.start as usize..s.data.end as usize])
-            .ok_or(TensorError::MissingSection(name))
-    };
-    let strs = strings(find(SECTION_STRING, "String")?)?;
-    let dialects = dialect_names(find(SECTION_DIALECT, "Dialect")?, &strs)?;
-    let Some(vhlo) = dialects.iter().position(|d| *d == "vhlo") else {
+    let Some(m) = Module::load(file)? else {
         return Ok(Vec::new());
     };
-    let at = f
-        .sections
-        .iter()
-        .find(|s| s.id == SECTION_ATTR_TYPE)
-        .ok_or(TensorError::MissingSection("AttrType"))?;
-    let entries = parse_attr_type_offsets(
-        find(SECTION_OFFSETS, "AttrTypeOffset")?,
-        at.data.start,
-        at.data.end - at.data.start,
-    )?;
-    let types: Vec<&AttrTypeEntry> = entries
-        .iter()
-        .filter(|e| e.kind == EntryKind::Type)
-        .collect();
-
+    let attrs = m.entries.iter().filter(|e| e.kind == EntryKind::Attribute);
     let mut out = Vec::new();
-    let attrs = entries.iter().filter(|e| e.kind == EntryKind::Attribute);
     for (attribute, e) in attrs.enumerate() {
-        if e.dialect != vhlo as u64 || !e.custom_encoding {
-            continue;
+        if m.is_vhlo(e) {
+            out.extend(m.constant(attribute, e)?);
         }
-        let b = &file[e.data.start as usize..e.data.end as usize];
-        let mut pos = 0;
-        if varint(b, &mut pos, "attribute")? != ATTR_TENSOR_V1 {
-            continue;
-        }
-        let ty = varint(b, &mut pos, "tensor type ref")?;
-        let len = varint(b, &mut pos, "tensor blob length")?;
-        let end = usize::try_from(len)
-            .ok()
-            .and_then(|l| pos.checked_add(l))
-            .filter(|&x| x == b.len())
-            .ok_or(TensorError::Malformed(
-                "tensor blob does not end its attribute",
-            ))?;
-        let Some(t) = usize::try_from(ty).ok().and_then(|i| types.get(i)) else {
-            return Err(TensorError::Malformed("tensor type ref out of range"));
-        };
-        let tb = &file[t.data.start as usize..t.data.end as usize];
-        let unsupported = TensorError::Unsupported { attribute };
-        if t.dialect != vhlo as u64 || !t.custom_encoding {
-            return Err(unsupported);
-        }
-        let r = ranked(tb).ok_or(unsupported.clone())?;
-        let el = usize::try_from(r.element)
-            .ok()
-            .and_then(|i| types.get(i))
-            .filter(|x| x.dialect == vhlo as u64 && x.custom_encoding)
-            .and_then(|x| element_code(file, x))
-            .ok_or(unsupported)?;
-        let known = element_type(el);
-        out.push(DenseConstant {
-            attribute,
-            shape: r.shape,
-            element_type_code: el,
-            element_type: known.map(|k| k.0),
-            element_bytes: known.and_then(|k| k.1),
-            data: e.data.start + (end - len as usize) as u64..e.data.start + end as u64,
-        });
     }
     Ok(out)
 }
