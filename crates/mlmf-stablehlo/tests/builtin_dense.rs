@@ -183,3 +183,123 @@ fn damaged_input_is_an_error() {
     assert!(read_builtin_dense_constants(&BUILTIN[..BUILTIN.len() - 40]).is_err());
     assert!(read_builtin_dense_constants(b"not mlir").is_err());
 }
+
+// ---- Several resource groups --------------------------------------------
+//
+// LIMIT, stated plainly: MLIR 24.0.0git wrote the fixture with ONE dialect
+// group. The files below are `mlir_resource.mlirbc` with its ResourceOffset and
+// Resource sections REPLACED by hand-built ones that follow the specification's
+// layout (numExternal, external groups, then dialect groups; handle = flat
+// index over dialect entries). They are checked against the specification's
+// rule, not against a second producer.
+
+use mlmf_stablehlo::bytecode::{SectionToWrite, encode_bytecode, parse_bytecode};
+
+const SECTION_RESOURCE: u8 = 5;
+const SECTION_RESOURCE_OFFSET: u8 = 6;
+
+/// One 12-byte blob entry: header `align 4, size 8`, padding to the alignment,
+/// then two little-endian f32. Valid only at a section offset of 0 mod 4
+/// whose entry start is 0 mod 4, which every entry below satisfies.
+fn entry(a: f32, b: f32) -> Vec<u8> {
+    let mut v = vec![0x09, 0x11, 0xcb, 0xcb];
+    v.extend(a.to_le_bytes());
+    v.extend(b.to_le_bytes());
+    v
+}
+
+/// `RES` with its two resource sections replaced.
+fn with_resources(offsets: &[u8], resource: &[u8]) -> Vec<u8> {
+    let p = parse_bytecode(RES).unwrap();
+    let datas: Vec<(u8, Option<u64>, Vec<u8>)> = p
+        .sections
+        .iter()
+        .map(|s| {
+            let bytes = &RES[s.data.start as usize..s.data.end as usize];
+            match s.id {
+                SECTION_RESOURCE_OFFSET => (s.id, s.alignment, offsets.to_vec()),
+                SECTION_RESOURCE => (s.id, s.alignment, resource.to_vec()),
+                _ => (s.id, s.alignment, bytes.to_vec()),
+            }
+        })
+        .collect();
+    let secs: Vec<_> = datas
+        .iter()
+        .map(|(id, alignment, data)| SectionToWrite {
+            id: *id,
+            alignment: *alignment,
+            data,
+        })
+        .collect();
+    encode_bytecode(p.version, &p.producer, &secs).unwrap()
+}
+
+/// The `dense_resource` handle in `RES` is 0 (`21 01 01`); point it at `h`.
+fn handle(file: &[u8], h: u8) -> Vec<u8> {
+    mutate(file, &[0x21, 0x01, 0x01], &[0x21, 0x01, (h << 1) | 1])
+}
+
+/// Two dialect groups, one entry each: keys `w` (string 8) then `main` (7).
+fn two_groups() -> Vec<u8> {
+    let off = [
+        0x01, // no external groups
+        0x01, 0x03, 0x11, 0x19, 0x00, // dialect 0: 1 entry, key "w", 12 bytes, blob
+        0x03, 0x03, 0x0f, 0x19, 0x00, // dialect 1: 1 entry, key "main", 12 bytes
+    ];
+    let mut res = entry(1.0, 2.0);
+    res.extend(entry(3.0, 4.0));
+    with_resources(&off, &res)
+}
+
+#[test]
+fn a_handle_counts_entries_across_dialect_groups() {
+    let file = two_groups();
+    let first = read_builtin_dense_constants(&file).unwrap();
+    assert_eq!(first.len(), 1, "{first:?}");
+    assert_eq!(first[0].source, DenseSource::Resource { key: "w".into() });
+    assert_eq!(
+        data(&first[0], &file),
+        le(&[1.0f32, 2.0].map(f32::to_le_bytes))
+    );
+
+    // Handle 1 is the first entry of the SECOND group.
+    let f1 = handle(&file, 1);
+    let second = read_builtin_dense_constants(&f1).unwrap();
+    assert_eq!(second.len(), 1, "{second:?}");
+    assert_eq!(
+        second[0].source,
+        DenseSource::Resource { key: "main".into() }
+    );
+    assert_eq!(
+        data(&second[0], &f1),
+        le(&[3.0f32, 4.0].map(f32::to_le_bytes))
+    );
+    assert!(second[0].data.start.is_multiple_of(4));
+
+    // Handle 2 is past both groups.
+    assert_eq!(
+        read_builtin_dense_constants(&handle(&file, 2)),
+        Err(TensorError::Malformed("resource handle out of range"))
+    );
+}
+
+#[test]
+fn external_resource_groups_do_not_count_toward_a_handle() {
+    let off = [
+        0x03, // one external group
+        0x03, 0x03, 0x0f, 0x19, 0x00, // key string 1, 1 entry "main", 12 bytes
+        0x01, 0x03, 0x11, 0x19, 0x00, // dialect group: 1 entry "w", 12 bytes
+    ];
+    let mut res = entry(9.0, 9.0);
+    res.extend(entry(1.0, 2.0));
+    let file = with_resources(&off, &res);
+    let c = read_builtin_dense_constants(&file).unwrap();
+    assert_eq!(c.len(), 1, "{c:?}");
+    assert_eq!(c[0].source, DenseSource::Resource { key: "w".into() });
+    assert_eq!(data(&c[0], &file), le(&[1.0f32, 2.0].map(f32::to_le_bytes)));
+    // The external entry is not addressable: handle 1 is out of range.
+    assert_eq!(
+        read_builtin_dense_constants(&handle(&file, 1)),
+        Err(TensorError::Malformed("resource handle out of range"))
+    );
+}
