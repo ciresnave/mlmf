@@ -50,6 +50,17 @@ env:
   MLMF_IMATRIX_RAW_FILE: C:/Models/imatrix/Llama-3.2-1B-Instruct.imatrix
 
 jobs:
+  # What this job needs (SUP-017). Facts read from this file and the machine:
+  #   - Runner: a self-hosted Windows runner labelled `mlmf-corpus`; it needs Rust
+  #     on PATH (C:ust\.cargoin) and no wrapper (RUSTC_WRAPPER is empty).
+  #   - Data: the model corpus under C:/Models (MLMF_GGUF_CORPUS=C:/Models/gguf-corpus,
+  #     MLMF_SAFETENSORS_CORPUS and MLMF_HF_CHECKPOINTS=C:/Models, and the imatrix
+  #     file at C:/Models/imatrix). MLMF_CORPUS_REQUIRED=1 makes a missing corpus a
+  #     failure. Disk measured 2026-11-23: C:/Models is 16G (du -sh), of which
+  #     gguf-corpus is 2.5G.
+  #   - Time: timeout-minutes 120 (a ceiling, not a measured run time).
+  #   - RAM: not measured. GPU: not measured; no step here selects a GPU feature
+  #     (the one extra feature is `fuel-differential`), so none is known to be needed.
   corpus:
     name: corpus tests
     if: vars.CORPUS_RUNNER_ENABLED == 'true'
