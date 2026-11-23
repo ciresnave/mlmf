@@ -52,7 +52,7 @@ env:
 jobs:
   # What this job needs (SUP-017). Facts read from this file and the machine:
   #   - Runner: a self-hosted Windows runner labelled `mlmf-corpus`; it needs Rust
-  #     on PATH (C:ust\.cargoin) and no wrapper (RUSTC_WRAPPER is empty).
+  #     on PATH (C:\rust\.cargo\bin) and no wrapper (RUSTC_WRAPPER is empty).
   #   - Data: the model corpus under C:/Models (MLMF_GGUF_CORPUS=C:/Models/gguf-corpus,
   #     MLMF_SAFETENSORS_CORPUS and MLMF_HF_CHECKPOINTS=C:/Models, and the imatrix
   #     file at C:/Models/imatrix). MLMF_CORPUS_REQUIRED=1 makes a missing corpus a
