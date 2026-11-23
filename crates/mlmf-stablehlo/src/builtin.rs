@@ -110,11 +110,21 @@ fn integer(payload: u64) -> Option<Element> {
     })
 }
 
-fn float(code: u64, name: &str, bytes: u64) -> Element {
+/// The element types that carry no payload; a code not named is reported as the
+/// code alone, never guessed.
+fn named(code: u64) -> Element {
+    let (name, bytes) = match code {
+        1 => (Some("index"), None),
+        3 => (Some("bf16"), Some(2)),
+        4 => (Some("f16"), Some(2)),
+        5 => (Some("f32"), Some(4)),
+        6 => (Some("f64"), Some(8)),
+        _ => (None, None),
+    };
     Element {
         code,
-        name: Some(name.to_string()),
-        bytes: Some(bytes),
+        name: name.map(String::from),
+        bytes,
     }
 }
 
@@ -125,20 +135,7 @@ fn element(b: &[u8]) -> Option<Element> {
     let code = varint(b, &mut pos, "element").ok()?;
     let el = match code {
         0 => integer(varint(b, &mut pos, "integer").ok()?)?,
-        1 => Element {
-            code,
-            name: Some("index".into()),
-            bytes: None,
-        },
-        3 => float(code, "bf16", 2),
-        4 => float(code, "f16", 2),
-        5 => float(code, "f32", 4),
-        6 => float(code, "f64", 8),
-        _ => Element {
-            code,
-            name: None,
-            bytes: None,
-        },
+        _ => named(code),
     };
     (pos == b.len()).then_some(el)
 }
@@ -220,17 +217,32 @@ impl<'f> Walk<'_, 'f> {
         let n = self.next("resource group size")?;
         let mut out = out;
         for _ in 0..n {
-            let key = string(self.m, self.next("resource key")?)?;
-            let size = self.next("resource entry size")?;
-            let kind = *self
-                .offsets
-                .get(self.pos)
-                .ok_or(TensorError::Malformed("resource kind"))?;
-            self.pos += 1;
-            let r = self.entry(key, size, kind)?;
+            let r = self.keyed_entry()?;
             if let Some(o) = out.as_deref_mut() {
                 o.push(r);
             }
+        }
+        Ok(())
+    }
+
+    /// `key, size, kind` from the offsets, then the entry they describe.
+    fn keyed_entry(&mut self) -> Result<Resource<'f>, TensorError> {
+        let key = string(self.m, self.next("resource key")?)?;
+        let size = self.next("resource entry size")?;
+        let kind = *self
+            .offsets
+            .get(self.pos)
+            .ok_or(TensorError::Malformed("resource kind"))?;
+        self.pos += 1;
+        self.entry(key, size, kind)
+    }
+
+    /// Step over the external groups; they are not counted toward a handle.
+    fn skip_externals(&mut self) -> Result<(), TensorError> {
+        let externals = self.next("external resource groups")?;
+        for _ in 0..externals {
+            self.next("external resource key")?;
+            self.group(None)?;
         }
         Ok(())
     }
@@ -275,11 +287,7 @@ fn resources<'f>(m: &Module<'f>) -> Result<Vec<Resource<'f>>, TensorError> {
         start: res.data.start,
         len: res.data.end - res.data.start,
     };
-    let externals = w.next("external resource groups")?;
-    for _ in 0..externals {
-        w.next("external resource key")?;
-        w.group(None)?;
-    }
+    w.skip_externals()?;
     let mut out = Vec::new();
     while w.pos < w.offsets.len() {
         w.next("resource group dialect")?;
