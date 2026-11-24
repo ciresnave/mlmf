@@ -1,6 +1,6 @@
-# Patent sweep: mlmf 0.7.x @ 1f6e961 (second record, 2026-10-25), plus `mlmf-gguf-arch` @ 54a8929 (Part C) and `mlmf-tensor-names` @ e2e2a71 (Part D)
+# Patent sweep: mlmf 0.7.x @ 1f6e961 (second record, 2026-10-25), plus `mlmf-gguf-arch` @ 54a8929 (Part C) and `mlmf-tensor-names` @ e2e2a71 (Part D), and a re-sweep of 0.8.x-0.12.0 @ 27b548b (Part F, 2026-11-24)
 
-Not re-swept for 0.8.x-0.12.0 (the stablehlo and later crates): last full sweep at 0.7.x @ 1f6e961; re-sweep owed (ROADMAP row S-67).
+**Research, not counsel.** Part F (2026-11-24, `27b548b`, 0.12.0) re-sweeps what 0.8.x to 0.12.0 added (the stablehlo attribute and constant readers, `mlmf-mlx`, `mlmf-hf-config`, `mlmf-lora`, ranged and split-GGUF reads, Hub listing and hash verification, token and chat-template rows), as a lane read of independent claims: six documents read, seven of ten ideas with none read; coverage and limits are stated in Part F. **Still owed:** `mlmf-gptq`, `mlmf-exl2`, `mlmf-hf-tokenizer` and the pre-0.8 `mlmf-meta` / `mlmf-hf-layout` were never in a record; Parts A to E predate 0.8 (ROADMAP row S-67).
 
 Date: 2026-10-25; Run by: mlmf lane, Claude Sonnet 5.5; Method: AI-assisted search and read; NOT legal advice; NOT a freedom-to-operate opinion.
 
@@ -190,6 +190,76 @@ Independent claims printed in full with `tools/patent-claims.py` on 2026-10-26 (
 | H26 | US11500767B2 | Method and device for determining a global memory size ... for a neural network | STMicroelectronics | indep. 1, 7, 12, 19, 24 | Computes a memory size a network needs | Pairs of elementary memory areas per layer holding each layer's input and output data and the smallest size at the last layer; ours computed parameter and inference memory from declared configuration values for a card field, with fixed 4x and 2x multipliers, and no layer-by-layer buffer reuse | clear |
 | H27 | US10698766B2 | Optimization of checkpoint operations for deep learning computing | EMC | indep. 1, 10, 18 | Checkpoints in distributed deep learning | Executing a distributed training process on accelerators and generating checkpoint images during training; we train nothing | clear |
 | H28 | US20220083386A1 | Method and system for neural network execution distribution | Samsung | indep. 1, 15 | Spreads a network across devices | Identifies computing resources and their load on a user device, partitions the network to satisfy an optimisation constraint, assigns and schedules execution; the removed config only described shards and nodes | clear |
+
+## Part F: re-sweep of 0.8.x-0.12.0 (2026-11-24, `origin/main` `27b548b`, mlmf 0.12.0)
+
+**Research, not counsel.** A lane read of independent claims, not a legal opinion and not a freedom-to-operate review (CireSnave, 2026-11-05: no attorney). "Outside as read" below means only that **I read the independent claims named and did not find the limitation named in "turns on" in what we ship**; it never means "clear" or "no infringement". "Not read" means a document surfaced by a search and its claims were not read. Run by the mlmf lane, Claude Sonnet 5.5, with `python tools/patent-claims.py` for every claim read (Google Patents' machine-converted text; status and expiry are Google's estimate, not the official record).
+
+### Part F coverage
+
+- **Covered:** what 0.8.x to 0.12.0 added to the workspace since Part E: `mlmf-mlx` (0.10.9), `mlmf-hf-config` (0.11.29), `mlmf-lora` (0.11.35 to 0.11.39), header-only ranged reads (0.10.12, 0.10.15), split-GGUF handling (0.10.4, 0.11.15, 0.11.17), `mlmf-source-hub` listing, fetch and hash verification (0.11.16 to 0.11.22), `mlmf-meta` / `mlmf-hf-layout` token and chat-template rows (0.9.0 to 0.11.0), and `mlmf-stablehlo` attribute/type offsets, VHLO dense constants and builtin dense / `dense_resource` constants (0.11.50, 0.12.0).
+- **Not covered by any record:** `mlmf-gptq` (2026-10-01), `mlmf-exl2` (2026-10-02, detection and refusal only), `mlmf-hf-tokenizer` (2026-10-03), and the part of `mlmf-meta` / `mlmf-hf-layout` built before 0.8: they pre-date 0.8.x, were never in Parts A to E, and are outside ROADMAP S-67's stated scope. They still owe a sweep.
+- **Not covered:** 0.7.26 and later changes that are not in the list above (CHANGELOG entries were read for 0.7.26 to 0.12.0; CI, security and documentation entries were judged to add no file-reading mechanism and were not searched).
+
+### Part F ideas swept
+
+31. Locate MLX-quantized linear layers in a safetensors container from the declared shapes of `weight`, `scales` and `biases`, and read `config.json`'s `quantization` section as declared, with no dequantization (`mlmf-mlx`).
+32. Report the fields a `config.json` (and a GGUF key block) declares, each absent field as `None`, filling a value only where a format default is always correct, e.g. GGUF's `head_count_kv` from a declared `head_count` (`mlmf-hf-config`, `mlmf-gguf`).
+33. Read a LoRA adapter as files: the declared `adapter_config.json` fields, `lora_A` / `lora_B` pairing with orphans reported (and `.lora_a` / `.lora_b` pairing and rank for a GGUF adapter), and write the config back with every key as read (`mlmf-lora`, `mlmf-hf-layout`).
+34. Read a safetensors or GGUF header through a byte-range source (exactly two ranges for safetensors; a doubling read bounded by a limit for GGUF) and over an HTTP `Range` request to the Hub, so no tensor data is fetched (`mlmf-safetensors`, `mlmf-gguf`, `mlmf-source-hub`).
+35. Parse a split GGUF name (`<prefix>-NNNNN-of-MMMMM.gguf`), confirm from facts read per shard that a set is exactly one complete `gguf-split` set, and present the shards as one container (`mlmf-gguf` `split`, `ShardedGguf`).
+36. List a Hub repository's files at a revision with size and reported hash, download one file to a caller-named path with a progress callback, and check a file on disk against the reported SHA-256 or git blob id (`mlmf-source-hub`).
+37. Report the special-token ids and texts and the chat template(s) a model's files declare, by one table of key spellings per format, with unreadable and malformed entries named (`mlmf-meta`, `mlmf-hf-layout`).
+38. Read the MLIR bytecode attribute/type offset section and return each attribute and type as an entry with kind, dialect and byte range (`mlmf-stablehlo` `parse_attr_type_offsets`).
+39. Read VHLO `TensorV1Attr` dense constants from MLIR bytecode as shape, element type and bytes (`read_vhlo_dense_constants`); measured on one producer.
+40. Read builtin `DenseTypedElementsAttr` and `dense_resource` constants from the resource section, resolving each resource handle to its blob (`read_builtin_dense_constants`); measured on one producer.
+
+None of these runs a model, trains, quantizes, converts or decides what a value means; they report what a file declares, as 1 to 30 do.
+
+### Part F queries (Google Patents and Justia restricted web search; the tool is a general web search, not a patent database)
+
+Run 2026-11-24, standard mode, restricted to `patents.google.com` and `patents.justia.com`. A search that returned no patent on point is a null; the **control** beside each is that the same query returned patent pages for adjacent phrasing (shown), which proves the query reaches patents, not that none on point exist.
+
+| # | idea | query (abridged) | result | control: same query returned |
+|---|---|---|---|---|
+| Q32 | 34 | reading only header of model file via HTTP range request without downloading tensor weights | no patent on point | US20090313322A1 (HTTP byte-range, application streaming), US20080098300A1 (HEAD/RANGE for image headers), US12047433B2 (model file issuing, read as H41); arXiv 2512.04580 and 2607.10617 describe header-only reads in the open |
+| Q33 | 33 | low-rank adaptation adapter file stored separately from base weights, matrices A and B | LoRA patents, none on a file format | US12481677B1, EP4341862A1 (both read) |
+| Q34 | 38, 39, 40 | extract constant tensor values from MLIR bytecode attribute section without executing model | no patent on point | EP1405180A2 (bytecode constants, Java VM), US11010768B2, US12130863B1 (attribute extraction, unrelated) |
+| Q35 | 35 | model file split into multiple shard files, verify shard set complete | no patent on point | US9298760B1, US8443006B1, WO2017035786A1 (fragment index plus verification, media) |
+| Q36 | 31 | quantized weights packed integer words, scales, zero points, group size, locate layers in checkpoint | quantization patents, none on locating layers in a file | US20200364552A1 (read), WO2024152124A1, CN115759224A, US20230342613A1 |
+| Q37 | 36 | verify downloaded model file against hash reported by repository, progress callback | hash-verification patents | US20200059478A1, US10528624B2 (both read) |
+| Q38 | 32 | reading model configuration file, fill missing fields with defaults | hyperparameter-tuning patents, none on parsing a config | US10360517B2, US11093833B1, US20260093930A1 (surfaced, not read) |
+| Q39 | 37 | chat template in tokenizer configuration, special tokens read from model metadata | no patent on point (papers only) | US20230259544A1, US20240354521A1 (unrelated, surfaced) |
+
+### Part F hits
+
+"Re-read if" lists what would make a reader go back: a change in what we ship, or a continuation of the family.
+
+| # | patent | title | assignee, status | independent claims read | the claim phrase it turns on | reading | re-read if |
+|---|---|---|---|---|---|---|---|
+| H36 | US20200059478A1 | Continuous hash verification | ARM IP, Abandoned | 1, 14, 27 | "receiving, for each received block, the starting hash state for that block" and verifying blocks "in descending order starting from the last block" | outside as read (idea 36): `RemoteHash::verify` hashes a file on disk once against one reported hash; it receives no per-block starting hash states and does not verify out of order | verification becomes incremental or per-block, or the family is revived |
+| H37 | US10528624B2 | Optimal hash calculation of archive files and their file entries | SAP SE, Active (expires 2037 per Google) | 1, 11, 16 | "generating two copies of the read archive file stream for two separate processing threads" with a third thread hashing each compressed file in parallel | outside as read (idea 36): we neither read an archive from a socket into parallel store and hash threads nor hash compressed entries; `fetch_to` writes chunks with a progress callback | the downloader hashes while streaming in separate threads, or handles archives |
+| H38 | US20200364552A1 | Quantization method of improving the model inference accuracy | Baidu USA, Abandoned | 1, 9, 17 | "determining, based on a meta file associated with the neural network model, a set of quantization parameters associated with the channel" while quantizing an input feature map in an integrated circuit, and generating "quantization metadata for each of the channels" | outside as read (ideas 31, 33): claims 1 and 9 quantize feature maps in a circuit; claim 17 quantizes a model from inferences on a data subset; we quantize nothing and only report declared scales and layouts | anything of ours begins to compute or apply quantization parameters |
+| H39 | US12481677B1 | Low rank adaptation in multiclass deep learning classifiers | Coupa Software, Active | 1, 15, 17 | "selecting one or more machine learning models ... using a router model", two models each "a sum of a base weight matrix and a ... difference matrix" combined into an overall classification inference | outside as read (idea 33): the claims need a router model selecting among LoRA-adapted models and combining their classification inferences; `mlmf-lora` runs nothing and merges nothing | adapter merging or routing is added to MLMF (it is out of MLMF's scope, CLAUDE.md section 0) |
+| H40 | EP4341862A1 | Low-rank adaptation of neural network models | Microsoft, Pending | claim 1 (the only independent claim in the text printed; read through claim 6) | "adding, to the base model weight matrices, corresponding first low-rank factorization matrices treated as trainable parameters ... training the first domain model" | outside as read (idea 33): the claim is a training method; we read adapter files and train nothing | MLMF gains any training or adapter-creation step; a US counterpart issues with different claims (not searched) |
+| H41 | US12047433B2 | Model file issuing method, platform, system, terminal and readable storage medium | Beijing ByteDance, Active (expires 2041 per Google) | 1, 8 | a "pre-stored correspondence table between algorithms and model files" keyed from "a target sticker triggered by a user", download requested when the model file "is not stored locally" | outside as read (idea 36): the claims are a sticker-triggered algorithm-to-model lookup and download; `mlmf-source-hub` fetches a named file at a revision on a caller's request | MLMF adds a table that maps tasks or features to model files, or automatic fetch-on-missing |
+
+**Surfaced and not read (no claim of any kind about them):** US20090313322A1, US20080098300A1 (idea 34); US9298760B1, US8443006B1, WO2017035786A1 (idea 35); WO2024152124A1, CN115759224A, US20230342613A1 (idea 31); US10360517B2, US11093833B1, US20260093930A1, US20250077238A1 (idea 32; US20260093930A1 names a YAML config file with default values per LLM, the only surfaced document that touches a config default, and its claims are unread); EP1405180A2 and the MLIR background papers (ideas 38 to 40); US12718102 (the US document behind EP4341862's family, not searched).
+
+**Ideas with no document read at all:** 31 (only the quantization patents above, which are not about locating layers in a file), 32, 34, 35, 37, 38, 39, 40. For 38 to 40 in particular the record is: two searches, no patent on point surfaced, nothing read. That is thin and says nothing about what exists.
+
+### Part F needs review (to the PM)
+
+None. No document read reads on a shipped feature. Prior art in the open exists for 34 (header-only range reads are documented by safetensors users and in arXiv 2512.04580 and 2607.10617), for 35 (llama.cpp's own `gguf-split` defines the name scheme we parse) and for 36 (HTTP download with a hash check is long-standing practice); that bears on novelty, not on whether a patent claims it.
+
+### Part F limitations
+
+- Same tool, same limits as the earlier Limitations below: a general web search, not a patent database; USPTO PPUBS, Espacenet and WIPO not queried; claim text is Google's conversion; family members and continuations not surfaced.
+- Google Patents returned HTTP 503 on every claim fetch on 2026-11-24 for roughly 15 minutes (about 00:40Z to 00:55Z); the claims above were fetched after that cleared, one per call.
+- Seven of the ten Part F ideas have no claim read against them (see "Ideas with no document read at all"). The claim reads are of the documents the six searches happened to surface, not a systematic read of a field.
+- The ranges, shards and chat-template queries returned mostly papers; a patent on those mechanisms may exist under different words.
+- Nothing here covers `mlmf-gptq`, `mlmf-exl2`, `mlmf-hf-tokenizer` or the pre-0.8 `mlmf-meta` / `mlmf-hf-layout` code (see coverage).
+- Re-read triggers are per hit above; the whole of Part F is due again by 2027-11-24 or when a new family of capability is added.
 
 ## Needs review (to the PM)
 
