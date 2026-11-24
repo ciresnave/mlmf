@@ -1,6 +1,6 @@
 # Patent sweep: mlmf 0.7.x @ 1f6e961 (second record, 2026-10-25), plus `mlmf-gguf-arch` @ 54a8929 (Part C) and `mlmf-tensor-names` @ e2e2a71 (Part D), and a re-sweep of 0.8.x-0.12.0 @ 27b548b (Part F, 2026-11-24)
 
-**Research, not counsel.** Part F (2026-11-24, `27b548b`, 0.12.0) re-sweeps what 0.8.x to 0.12.0 added (the stablehlo attribute and constant readers, `mlmf-mlx`, `mlmf-hf-config`, `mlmf-lora`, ranged and split-GGUF reads, Hub listing and hash verification, token and chat-template rows), as a lane read of independent claims: six documents read, seven of ten ideas with none read; coverage and limits are stated in Part F. **Still owed:** `mlmf-gptq`, `mlmf-exl2`, `mlmf-hf-tokenizer` and the pre-0.8 `mlmf-meta` / `mlmf-hf-layout` were never in a record; Parts A to E predate 0.8 (ROADMAP row S-67).
+**Research, not counsel.** Part F (2026-11-24, `27b548b`, 0.12.0) re-sweeps what 0.8.x to 0.12.0 added (the stablehlo attribute and constant readers, `mlmf-mlx`, `mlmf-hf-config`, `mlmf-lora`, ranged and split-GGUF reads, Hub listing and hash verification, token and chat-template rows), as a lane read of independent claims: six documents read, seven of ten ideas with none read; coverage and limits are stated in Part F. The Part F continuation (2026-11-24, `6a22a33`) adds `mlmf-gptq`, `mlmf-exl2`, `mlmf-hf-tokenizer` and the pre-0.8 `mlmf-meta` / `mlmf-hf-layout` (five ideas, three documents read; four of the five ideas have none). Every workspace crate now has an idea in a record; that is not a claim that each was searched thoroughly. **Part B is corrected** (published versions: only `mlmf` 0.1.0 and 0.2.0).
 
 Date: 2026-10-25; Run by: mlmf lane, Claude Sonnet 5.5; Method: AI-assisted search and read; NOT legal advice; NOT a freedom-to-operate opinion.
 
@@ -9,7 +9,7 @@ Process: `C:\Projects\PATENT-SWEEP-PROCESS.md` (CireSnave, board 286 item 1). Th
 Scope, in two parts:
 
 - **A. The maintained workspace**: the `mlmf-*` crates at `origin/main` `1f6e961` (the 0.7.15 release plus 0.7.16 and 0.7.17). Version line **0.7.x**.
-- **B. Code removed before 0.7.0 and still in published releases**: the old root `mlmf` package had distributed loading, quantization with calibration, a model cache, a model-card generator, multimodal fusion and a memory estimator. It was removed in 0.7.0 and 0.7.12 (old code at tag `v0.7.11`), but it was shipped in tags `v0.2.1` and `v0.3.0`, and crates.io carries `mlmf` 0.2.0 (the root package; MIGRATION.md; whether that tarball includes each module was not checked). It is swept in part B because releases that shipped it were made without a sweep. Quantization lives on in ML-ConvertAnt; see "Hand-over" at the end.
+- **B. Code removed before 0.7.0, which the published root releases `mlmf` 0.1.0 and 0.2.0 contain**: the old root `mlmf` package had distributed loading, quantization with calibration, a model cache, a model-card generator, multimodal fusion and a memory estimator. It was removed in 0.7.0 and 0.7.12 (old code at tag `v0.7.11`). **Published versions, measured 2026-11-24:** crates.io lists only `mlmf` **0.1.0** and **0.2.0**; the repository's tags `v0.2.1` and `v0.3.0` were never published (the earlier text here said they shipped it: that was wrong). Both `.crate` archives were downloaded and every `src/` file hashed against git: 0.1.0's 37 files are byte-identical to commit `70a233e`, 0.2.0's 37 to commit `d4f55d5` (not to tag `v0.2.1` = `630a3fc`, where 25 files differ), and all twelve Part B files are byte-identical in 0.1.0 and 0.2.0. It is swept in part B because releases that shipped it were made without a sweep. **What Part B read is not the published code:** it was read at `34afd0e^` and `a3e37f7^` (45 `src/` commits after `d4f55d5`), and those blobs differ from the published ones in 11 of the 12 files (only `cache.rs` at `a3e37f7^` is equal). A keyword count in `d4f55d5` finds each swept feature present (sharding strategies, security configuration, calibration, percentile and histogram statistics, LRU, TTL, memory pressure, `ModelCard`, cross-modal attention, fusion), which shows the ideas exist in the published code and is **not** a claim comparison: the Part B reads below were not redone against the published files. Quantization lives on in ML-ConvertAnt; see "Hand-over" at the end.
 
 ## Part A: ideas swept (the maintained workspace)
 
@@ -33,6 +33,8 @@ MLMF reads and writes model files; it does not run, convert or interpret them.
 None of these claims a new algorithm for training, inference, quantization, compression or scheduling; they are file-format work against formats others define (safetensors, GGUF, ONNX, pickle, `.pt2`, MLIR bytecode, bitsandbytes), recorded in `NOTICE`.
 
 ## Part B: ideas swept (removed code, read from `git show 34afd0e^:<path>` and `a3e37f7^:<path>`)
+
+Note (2026-11-24): those revisions are later than the published `mlmf` 0.1.0 and 0.2.0 (`70a233e`, `d4f55d5`); see the correction in the Scope list above.
 
 15. **Distributed loading** (`src/distributed*.rs`): node and device descriptions, a sharding strategy (none, by layers, by dimension, pipeline stages), placement and memory-allocation strategies, a communication and security configuration for a cluster.
 16. **Post-training quantization with calibration** (`src/quantization.rs`; the orphaned `src/quantization_simple.rs`, which was never compiled in): quantization schemes (INT8, INT4, dynamic, static), a calibration dataset, min/max, percentile and entropy (histogram-bin) statistics, scale and zero-point computation; quantize-then-dequantize ("fake" quantization).
@@ -198,7 +200,7 @@ Independent claims printed in full with `tools/patent-claims.py` on 2026-10-26 (
 ### Part F coverage
 
 - **Covered:** what 0.8.x to 0.12.0 added to the workspace since Part E: `mlmf-mlx` (0.10.9), `mlmf-hf-config` (0.11.29), `mlmf-lora` (0.11.35 to 0.11.39), header-only ranged reads (0.10.12, 0.10.15), split-GGUF handling (0.10.4, 0.11.15, 0.11.17), `mlmf-source-hub` listing, fetch and hash verification (0.11.16 to 0.11.22), `mlmf-meta` / `mlmf-hf-layout` token and chat-template rows (0.9.0 to 0.11.0), and `mlmf-stablehlo` attribute/type offsets, VHLO dense constants and builtin dense / `dense_resource` constants (0.11.50, 0.12.0).
-- **Not covered by any record:** `mlmf-gptq` (2026-10-01), `mlmf-exl2` (2026-10-02, detection and refusal only), `mlmf-hf-tokenizer` (2026-10-03), and the part of `mlmf-meta` / `mlmf-hf-layout` built before 0.8: they pre-date 0.8.x, were never in Parts A to E, and are outside ROADMAP S-67's stated scope. They still owe a sweep.
+- **Covered in the Part F continuation below (2026-11-24, `6a22a33`):** `mlmf-gptq`, `mlmf-exl2`, `mlmf-hf-tokenizer` and the pre-0.8 `mlmf-meta` / `mlmf-hf-layout`, which no earlier record held: ideas 41 to 45, thinly (see its limitations).
 - **Not covered:** 0.7.26 and later changes that are not in the list above (CHANGELOG entries were read for 0.7.26 to 0.12.0; CI, security and documentation entries were judged to add no file-reading mechanism and were not searched).
 
 ### Part F ideas swept
@@ -260,6 +262,55 @@ None. No document read reads on a shipped feature. Prior art in the open exists 
 - The ranges, shards and chat-template queries returned mostly papers; a patent on those mechanisms may exist under different words.
 - Nothing here covers `mlmf-gptq`, `mlmf-exl2`, `mlmf-hf-tokenizer` or the pre-0.8 `mlmf-meta` / `mlmf-hf-layout` code (see coverage).
 - Re-read triggers are per hit above; the whole of Part F is due again by 2027-11-24 or when a new family of capability is added.
+
+## Part F, continuation: the crates no earlier record held (2026-11-24, `origin/main` `6a22a33`, mlmf 0.12.1)
+
+**Research, not counsel**, same standard as Part F: a lane read of independent claims; "outside as read" never means "clear"; "not read" means a document surfaced by a search whose claims I did not read. Run by the mlmf lane, Claude Sonnet 5.5, claims through `python tools/patent-claims.py`.
+
+Covers `mlmf-gptq` (2026-10-01), `mlmf-exl2` (2026-10-02), `mlmf-hf-tokenizer` (2026-10-03), `mlmf-meta` and the `mlmf-hf-layout` code built before 0.8 (`ConfigJson`, shard index, sidecar readers; 2026-09-03 and after). These pre-date the 0.8.x line Part F was scoped to and were in no earlier record; ROADMAP S-67's "owed" list named them.
+
+### Ideas swept (continuation)
+
+41. Locate GPTQ-packed linear layers in a safetensors container (`qweight`, `qzeros`, `scales`, optional `g_idx`, optional `bias`) from declared dtypes and shapes, and parse `quantize_config.json` or `config.json`'s embedded `quantization_config` as declared; no dequantization (`mlmf-gptq`).
+42. Recognise an EXL2 checkpoint from the `config.json` declaration alone and report it as unsupported with its declared version and bits, describing none of its tensors (`mlmf-exl2` `detect_from_model_config`).
+43. Report the vocabulary and BPE merge rules a `tokenizer.json` declares, in file order, with added tokens, naming a wrong-shaped entry as malformed instead of dropping it; no tokenization (`mlmf-hf-tokenizer`).
+44. A table of canonical metadata keys and each format's spelling of them, and extraction of what a file declares through that table (GGUF key, HuggingFace sidecar key), `None` when absent, never interpreting a value (`mlmf-meta`).
+45. Present a checkpoint's JSON sidecars as one key/value view (`ConfigJson` over a `config.json`'s raw keys) and its `*.safetensors.index.json` `weight_map` as a tensor-to-shard-file lookup (`mlmf-hf-layout`).
+
+### Queries (continuation; same tool and restriction as Part F)
+
+Run 2026-11-24, standard mode, restricted to `patents.google.com` and `patents.justia.com`.
+
+| # | idea | query (abridged) | result | control: same query returned |
+|---|---|---|---|---|
+| Q40 | 41 | GPTQ checkpoint packed qweight qzeros scales g_idx act order read layer tensors | no patent returned at all (arXiv papers only) | none: **no control**; the neighbouring Q36 (Part F) returned patent pages for packed-weight quantization, so the tool reaches that area, but this query's null is the weakest in this record |
+| Q41 | 42 | detect quantization format of a model checkpoint from a configuration field, refuse unsupported format | no patent on point | US20220044114 (Justia), WO2023160290A1 (unrelated quantization patents) |
+| Q42 | 43 | tokenizer vocabulary file BPE merge rules stored in JSON, parse vocabulary and merges | no patent on point | US12159211B2, US11262984B2, US20220382527A1 (code models that use BPE; none claims a vocabulary file reader) |
+| Q43 | 44 | canonical metadata key vocabulary mapping across different model file formats | general metadata-mapping patents | US7996427B1, US6611838B1, US10387145B1 (read), US6119118A, US7877421B2, US6662188B1 (not read) |
+| Q44 | 45 | sharded model checkpoint index file mapping weight name to shard file | no patent on point | US9223877B1, US8943067B1, US7693813B1 (search-index sharding, unrelated) |
+
+### Hits (continuation)
+
+| # | patent | title | assignee, status | independent claims read | the claim phrase it turns on | reading | re-read if |
+|---|---|---|---|---|---|---|---|
+| H42 | US7996427B1 | Unified system for accessing metadata in disparate formats | Apple, Expired (estimate 2026-03-07 per Google) | 1, 17 | a routine that receives "information indicating a particular native metadata format" and "a particular metadata item key ... a native key ... dictated by the particular native metadata format" from a first application, then a second request with a different native format, searching a repository of "metadata containers" | outside as read (idea 44): `mlmf-meta` is a table of key spellings and per-format extraction, not a repository of containers searched by one routine for two applications; and Google lists the patent as expired | none while expired; read again if a source says otherwise |
+| H43 | US6611838B1 | Metadata exchange | Cognos (now Domo), Expired (estimate 2021 per Google) | 1 (claims 2 to 4 seen) | a "source access module" that extracts metadata in a source format and creates model objects, with "a synchronization function for synchronizing the model objects with the external source" | outside as read (idea 44): we import nothing into a metadata model and synchronise nothing; expired per Google | none while expired |
+| H44 | US10387145B1 | Mapping API parameters | Fujitsu, Active (expires 2038 per Google) | 1 (claim 2 seen) | "generate a key model based on the defined API specification" mapping table columns to "a corresponding class of API parameters in a defined format", then associating an extracted table's columns with classes by that model | outside as read (idea 44): the claim is about API-specification tables and a generated key model; our key table is written by hand and applied to model-file keys, and no table columns are classified | `mlmf-meta` or the oracle starts to generate the key table from examples |
+
+**Surfaced and not read:** US6119118A, US7877421B2, US20040093344A1, US6662188B1, EP1081609A2 (metadata models, idea 44); US20220044114, WO2023160290A1 (quantization, idea 42); US12159211B2, US11262984B2, US20220382527A1 (BPE use in code models, idea 43); US9223877B1, US8943067B1, US7693813B1, US20100161617A1 (search-index sharding, idea 45).
+
+**Ideas with no document read:** 41, 42, 43, 45 (and for 41, no patent surfaced at all). Idea 44 has three documents read, all general metadata-mapping patents; none concerns model files. That is the whole of what this continuation reads.
+
+### Needs review (continuation)
+
+None. Prior art in the open for these ideas (bearing on novelty, not on whether a patent claims them): the GPTQ tensor layout and `quantize_config.json` come from AutoGPTQ and the Hugging Face Transformers integration; `tokenizer.json` and `model.safetensors.index.json` are Hugging Face formats others define.
+
+### Limitations (continuation)
+
+- Same tool and limits as Part F and the Limitations below. Google Patents returned HTTP 503 to claim fetches twice on 2026-11-24 (00:40Z to 00:55Z, and 01:30Z) and cleared after a wait.
+- Five ideas, one read set of three general-purpose documents: this continuation shows what a handful of queries surfaced, and is a thin record, thinner than Part F.
+- With this continuation every workspace crate now has an idea in a record; that is **not** a claim that each was searched thoroughly: ideas 31, 32, 34, 35, 37, 38 to 40 (Part F) and 41, 42, 43, 45 here have no claim read against them.
+- Part B is corrected in its own note (published versions and what was read).
 
 ## Needs review (to the PM)
 
