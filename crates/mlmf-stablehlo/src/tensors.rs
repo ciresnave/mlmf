@@ -22,9 +22,9 @@
 //! reported as the code, not guessed, and an `i1` blob is returned as
 //! declared (VHLO may pack it eight to a byte).
 //!
-//! Limit: measured on one producer (`StableHLO_v1.18.0` via JAX 0.12.1). A
-//! builtin `DenseElementsAttr` (what MLIR itself writes) and `dense_resource`
-//! blobs (the resource section) are not read here.
+//! Limit: measured on one producer (`StableHLO_v1.18.0` via JAX 0.12.1). The
+//! builtin dialect's own dense constants (inline and `dense_resource`) are read
+//! by [`crate::builtin`], not here.
 
 use std::ops::Range;
 
@@ -32,10 +32,10 @@ use crate::bytecode::{BytecodeError, Section, parse_bytecode};
 use crate::offsets::{AttrTypeEntry, EntryKind, OffsetError, parse_attr_type_offsets};
 use crate::varint::read_varint;
 
-const SECTION_STRING: u8 = 0;
-const SECTION_DIALECT: u8 = 1;
-const SECTION_ATTR_TYPE: u8 = 2;
-const SECTION_OFFSETS: u8 = 3;
+pub(crate) const SECTION_STRING: u8 = 0;
+pub(crate) const SECTION_DIALECT: u8 = 1;
+pub(crate) const SECTION_ATTR_TYPE: u8 = 2;
+pub(crate) const SECTION_OFFSETS: u8 = 3;
 
 const ATTR_TENSOR_V1: u64 = 15;
 const TYPE_RANKED_TENSOR_V1: u64 = 20;
@@ -79,9 +79,6 @@ pub enum TensorError {
         /// Index of the attribute among the file's attributes.
         attribute: usize,
     },
-    /// A dialect is stored with a version marker; this reader does not know
-    /// where that version lives and refuses rather than guess.
-    VersionedDialect,
 }
 
 impl std::fmt::Display for TensorError {
@@ -94,7 +91,6 @@ impl std::fmt::Display for TensorError {
             Self::Unsupported { attribute } => {
                 write!(f, "tensor attribute {attribute} has an unsupported type")
             }
-            Self::VersionedDialect => write!(f, "a dialect carries a version marker"),
         }
     }
 }
@@ -113,7 +109,7 @@ impl From<OffsetError> for TensorError {
     }
 }
 
-fn varint(b: &[u8], pos: &mut usize, what: &'static str) -> Result<u64, TensorError> {
+pub(crate) fn varint(b: &[u8], pos: &mut usize, what: &'static str) -> Result<u64, TensorError> {
     let (v, p) = read_varint(b, *pos).ok_or(TensorError::Malformed(what))?;
     *pos = p;
     Ok(v)
@@ -147,37 +143,41 @@ fn strings(b: &[u8]) -> Result<Vec<&str>, TensorError> {
 }
 
 /// Dialect names, in dialect-section order. Only the name list is read; what
-/// follows it (operation names) is not.
+/// follows it (operation names) is not. A versioned dialect's entry is its
+/// name word then `size: varint, version: byte[]`; the version is skipped, not
+/// read (the specification gives its layout, not its meaning).
 fn dialect_names<'s>(b: &[u8], strings: &[&'s str]) -> Result<Vec<&'s str>, TensorError> {
     const BAD: &str = "dialect section";
     let mut pos = 0;
     let n = varint(b, &mut pos, BAD)?;
-    let flagged = varints(b, &mut pos, n, BAD)?;
-    if flagged.iter().any(|v| v & 1 == 1) {
-        return Err(TensorError::VersionedDialect);
+    let mut names = Vec::new();
+    for _ in 0..n {
+        let word = varint(b, &mut pos, BAD)?;
+        if word & 1 == 1 {
+            let size = varint(b, &mut pos, BAD)?;
+            let end = usize::try_from(size).ok().and_then(|s| pos.checked_add(s));
+            pos = end
+                .filter(|e| *e <= b.len())
+                .ok_or(TensorError::Malformed(BAD))?;
+        }
+        let name = usize::try_from(word >> 1).ok().and_then(|i| strings.get(i));
+        names.push(*name.ok_or(TensorError::Malformed(BAD))?);
     }
-    flagged
-        .iter()
-        .map(|v| {
-            let i = usize::try_from(v >> 1).ok();
-            i.and_then(|i| strings.get(i)).copied()
-        })
-        .collect::<Option<_>>()
-        .ok_or(TensorError::Malformed(BAD))
+    Ok(names)
 }
 
-fn zigzag(v: u64) -> i64 {
+pub(crate) fn zigzag(v: u64) -> i64 {
     ((v >> 1) as i64) ^ -((v & 1) as i64)
 }
 
 /// A decoded ranked tensor type: shape, element type ref.
-struct Ranked {
-    shape: Vec<u64>,
-    element: u64,
+pub(crate) struct Ranked {
+    pub(crate) shape: Vec<u64>,
+    pub(crate) element: u64,
 }
 
 /// A static shape; a dynamic dimension is not a constant's.
-fn shape(bytes: &[u8], pos: &mut usize) -> Option<Vec<u64>> {
+pub(crate) fn shape(bytes: &[u8], pos: &mut usize) -> Option<Vec<u64>> {
     let rank = varint(bytes, pos, "rank").ok()?;
     let dims = varints(bytes, pos, rank, "dim").ok()?;
     dims.into_iter()
@@ -185,12 +185,13 @@ fn shape(bytes: &[u8], pos: &mut usize) -> Option<Vec<u64>> {
         .collect()
 }
 
-fn ranked(bytes: &[u8]) -> Option<Ranked> {
+/// `codes` is the dialect's (plain, with-encoding) ranked-tensor type codes.
+pub(crate) fn ranked(bytes: &[u8], codes: (u64, u64)) -> Option<Ranked> {
     let mut pos = 0;
     let code = varint(bytes, &mut pos, "type").ok()?;
-    if code == TYPE_RANKED_TENSOR_V1_WITH_ENCODING {
+    if code == codes.1 {
         varint(bytes, &mut pos, "encoding").ok()?;
-    } else if code != TYPE_RANKED_TENSOR_V1 {
+    } else if code != codes.0 {
         return None;
     }
     let shape = shape(bytes, &mut pos)?;
@@ -224,18 +225,21 @@ fn element_code(file: &[u8], entry: &AttrTypeEntry) -> Option<u64> {
     (pos == b.len()).then_some(code)
 }
 
-fn entry_bytes<'f>(file: &'f [u8], e: &AttrTypeEntry) -> &'f [u8] {
+pub(crate) fn entry_bytes<'f>(file: &'f [u8], e: &AttrTypeEntry) -> &'f [u8] {
     &file[e.data.start as usize..e.data.end as usize]
 }
 
 /// The sections this reads, located once.
-struct Module<'f> {
-    file: &'f [u8],
-    vhlo: u64,
-    entries: Vec<AttrTypeEntry>,
+pub(crate) struct Module<'f> {
+    pub(crate) file: &'f [u8],
+    /// Index of the dialect this module was loaded for.
+    pub(crate) dialect: u64,
+    pub(crate) entries: Vec<AttrTypeEntry>,
+    pub(crate) strings: Vec<&'f str>,
+    pub(crate) sections: Vec<Section>,
 }
 
-fn find_section<'a>(
+pub(crate) fn find_section<'a>(
     sections: &'a [Section],
     id: u8,
     name: &'static str,
@@ -246,12 +250,17 @@ fn find_section<'a>(
         .ok_or(TensorError::MissingSection(name))
 }
 
-fn section_bytes<'f>(file: &'f [u8], s: &Section) -> &'f [u8] {
+pub(crate) fn section_bytes<'f>(file: &'f [u8], s: &Section) -> &'f [u8] {
     &file[s.data.start as usize..s.data.end as usize]
 }
 
-/// Index of the `vhlo` dialect, or `None` if the file has none.
-fn vhlo_dialect(file: &[u8], sections: &[Section]) -> Result<Option<u64>, TensorError> {
+/// The string table and the index of dialect `name` (`None` if the file has
+/// no such dialect).
+fn named_dialect<'f>(
+    file: &'f [u8],
+    sections: &[Section],
+    name: &str,
+) -> Result<(Vec<&'f str>, Option<u64>), TensorError> {
     let strs = strings(section_bytes(
         file,
         find_section(sections, SECTION_STRING, "String")?,
@@ -260,7 +269,8 @@ fn vhlo_dialect(file: &[u8], sections: &[Section]) -> Result<Option<u64>, Tensor
         section_bytes(file, find_section(sections, SECTION_DIALECT, "Dialect")?),
         &strs,
     )?;
-    Ok(dialects.iter().position(|d| *d == "vhlo").map(|i| i as u64))
+    let at = dialects.iter().position(|d| *d == name).map(|i| i as u64);
+    Ok((strs, at))
 }
 
 /// A `TensorV1Attr` entry's type ref and where its blob starts in the entry.
@@ -282,10 +292,10 @@ fn tensor_header(b: &[u8]) -> Result<Option<(u64, usize)>, TensorError> {
 }
 
 impl<'f> Module<'f> {
-    /// `None` when the file has no `vhlo` dialect.
-    fn load(file: &'f [u8]) -> Result<Option<Self>, TensorError> {
+    /// `None` when the file has no dialect called `name`.
+    pub(crate) fn load(file: &'f [u8], name: &str) -> Result<Option<Self>, TensorError> {
         let f = parse_bytecode(file)?;
-        let Some(vhlo) = vhlo_dialect(file, &f.sections)? else {
+        let (strings, Some(dialect)) = named_dialect(file, &f.sections, name)? else {
             return Ok(None);
         };
         let at = find_section(&f.sections, SECTION_ATTR_TYPE, "AttrType")?;
@@ -297,16 +307,19 @@ impl<'f> Module<'f> {
         )?;
         Ok(Some(Self {
             file,
-            vhlo,
+            dialect,
             entries,
+            strings,
+            sections: f.sections,
         }))
     }
 
-    fn is_vhlo(&self, e: &AttrTypeEntry) -> bool {
-        e.dialect == self.vhlo && e.custom_encoding
+    /// Whether `e` is in this module's dialect and in its custom encoding.
+    pub(crate) fn is_ours(&self, e: &AttrTypeEntry) -> bool {
+        e.dialect == self.dialect && e.custom_encoding
     }
 
-    fn type_entry(&self, index: u64) -> Option<&AttrTypeEntry> {
+    pub(crate) fn type_entry(&self, index: u64) -> Option<&AttrTypeEntry> {
         let i = usize::try_from(index).ok()?;
         self.entries
             .iter()
@@ -317,12 +330,15 @@ impl<'f> Module<'f> {
     /// The ranked tensor type `t` and its element-type code, if both are VHLO
     /// types this reader can describe.
     fn describe(&self, t: &AttrTypeEntry) -> Option<(Ranked, u64)> {
-        let r = Some(t)
-            .filter(|t| self.is_vhlo(t))
-            .and_then(|t| ranked(entry_bytes(self.file, t)))?;
+        let r = Some(t).filter(|t| self.is_ours(t)).and_then(|t| {
+            ranked(
+                entry_bytes(self.file, t),
+                (TYPE_RANKED_TENSOR_V1, TYPE_RANKED_TENSOR_V1_WITH_ENCODING),
+            )
+        })?;
         let el = self
             .type_entry(r.element)
-            .filter(|x| self.is_vhlo(x))
+            .filter(|x| self.is_ours(x))
             .and_then(|x| element_code(self.file, x))?;
         Some((r, el))
     }
@@ -365,15 +381,47 @@ impl<'f> Module<'f> {
 /// [`TensorError`] when the container, the string/dialect/offset sections or
 /// the attribute-and-type section cannot be read.
 pub fn read_vhlo_dense_constants(file: &[u8]) -> Result<Vec<DenseConstant>, TensorError> {
-    let Some(m) = Module::load(file)? else {
+    let Some(m) = Module::load(file, "vhlo")? else {
         return Ok(Vec::new());
     };
     let attrs = m.entries.iter().filter(|e| e.kind == EntryKind::Attribute);
     let mut out = Vec::new();
     for (attribute, e) in attrs.enumerate() {
-        if m.is_vhlo(e) {
+        if m.is_ours(e) {
             out.extend(m.constant(attribute, e)?);
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // numDialects = 2 (varint 0x05), then: "a" versioned with a 2-byte version
+    // (word (0 << 1) | 1 = varint 0x03, size varint 0x05, bytes 0xAA 0xBB),
+    // then "b" plain (word 1 << 1 = varint 0x05).
+    const SECTION: [u8; 6] = [0x05, 0x03, 0x05, 0xAA, 0xBB, 0x05];
+
+    #[test]
+    fn a_versioned_dialect_entry_is_skipped_and_the_next_name_is_read() {
+        assert_eq!(dialect_names(&SECTION, &["a", "b"]), Ok(vec!["a", "b"]));
+    }
+
+    #[test]
+    fn a_version_that_overruns_the_section_is_refused() {
+        let cut = &SECTION[..4];
+        assert_eq!(
+            dialect_names(cut, &["a", "b"]),
+            Err(TensorError::Malformed("dialect section"))
+        );
+    }
+
+    #[test]
+    fn a_name_index_past_the_string_table_is_refused() {
+        assert_eq!(
+            dialect_names(&SECTION, &["a"]),
+            Err(TensorError::Malformed("dialect section"))
+        );
+    }
 }

@@ -1,5 +1,7 @@
 # Patent sweep: mlmf 0.7.x @ 1f6e961 (second record, 2026-10-25), plus `mlmf-gguf-arch` @ 54a8929 (Part C) and `mlmf-tensor-names` @ e2e2a71 (Part D)
 
+Not re-swept for 0.8.x-0.12.0 (the stablehlo and later crates): last full sweep at 0.7.x @ 1f6e961; re-sweep owed (ROADMAP row S-67).
+
 Date: 2026-10-25; Run by: mlmf lane, Claude Sonnet 5.5; Method: AI-assisted search and read; NOT legal advice; NOT a freedom-to-operate opinion.
 
 Process: `C:\Projects\PATENT-SWEEP-PROCESS.md` (CireSnave, board 286 item 1). This record replaces the first one (0.7.18), which read claims through a paraphrasing page reader. **Every patent below was re-read with `tools/patent-claims.py`, which prints the claim text in full, and the verdicts rest on the independent claims as printed.** Google Patents' text is machine-converted; for anything that matters, check the official record.
