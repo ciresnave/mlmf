@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.4] - 2026-11-26
+
+### Changed
+
+- `ROADMAP.md` S-57: the row said slices 1, 1b/2 and 3 were "on branch" `s57-stablehlo-attrs` and `s57-resource-dense`; both merged (#252, #253) and neither branch exists on origin (`git ls-remote --heads origin "s57-*"` is empty; the same query for `s68-*` finds one branch). The row now cites the PRs. Docs only; no code changed.
+- `ROADMAP.md` S-58, S-61, S-62, S-68: "this PR" and "proposed" replaced by the merged PR numbers #161, #174, #187, #255 (found by `git log origin/main --grep` on each row's subject). Other rows' "N proposed" version tags are left as written.
+
 ## [0.12.3] - 2026-11-25
 
 ### Changed
